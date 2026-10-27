@@ -22,7 +22,7 @@ Sources inspected before implementation:
 
 Implementation, offline validation, and live validation are maintained separately
 in [`acceptance/status.json`](../acceptance/status.json). This snapshot delivers
-the SDK and core static-credential provider. Dynamic SSH, live acceptance tooling,
+the SDK, core provider, and opt-in expiring SSH credentials. Live acceptance tooling,
 experimental suspend, and binary/OCI packaging are separate delivery steps.
 No cloud or GitLab live validation is claimed.
 
