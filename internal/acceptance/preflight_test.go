@@ -153,3 +153,14 @@ func TestKeyPairQueryRequestsExactPublicKey(t *testing.T) {
 		t.Fatal("missing public key accepted")
 	}
 }
+
+func TestLiveObservationSeparatesInfrastructureAndProductFailures(t *testing.T) {
+	for _, err := range []error{&aliyun.Error{Code: "CredentialFailure"}, &aliyun.Error{Code: "Forbidden"}, context.DeadlineExceeded} {
+		if liveFailure(err) != "FAIL_INFRASTRUCTURE" {
+			t.Fatal("infrastructure failure called product failure", err)
+		}
+	}
+	if liveFailure(errors.New("actual worker is not Spot")) != "FAIL_PRODUCT" {
+		t.Fatal("purchase policy violation is not a product failure")
+	}
+}

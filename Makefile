@@ -6,7 +6,7 @@ REVISION := $(shell git rev-parse HEAD)
 BUILT_AT := $(shell git show -s --format=%cI HEAD)
 LDFLAGS := -X main.version=$(VERSION) -X main.revision=$(REVISION) -X main.builtAt=$(BUILT_AT)
 
-.PHONY: deps tools build test test-component lint dist test-oci live cleanup
+.PHONY: deps tools build test test-component lint dist test-oci live cleanup test-live-extended
 
 deps:
 	$(GO) mod download all
@@ -36,3 +36,5 @@ live: build
 	$(GO) run -tags live ./cmd/aliyun-acceptance smoke
 cleanup:
 	$(GO) run -tags live ./cmd/aliyun-acceptance cleanup
+test-live-extended:
+	WORKER_SSH_KEY="$(abspath $(WORKER_SSH_KEY))" ACCEPTANCE_OUTPUT="$(abspath $(or $(ACCEPTANCE_OUTPUT),.live))" $(GO) test -tags live -count=1 -timeout=30m -v ./tests/live

@@ -43,3 +43,7 @@ go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
 See [testing and acceptance](docs/testing.md) for explicit live configuration,
 `make live`, and `make cleanup`. These commands require separate cloud-operation
 authorization and do not run as part of normal PR validation.
+
+`make test-live-extended` compiles the tagged extended suites and reports a
+NOT_RUN skip unless explicit live switches and configuration are supplied.
+See the testing guide for modes and fixed budgets.

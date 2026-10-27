@@ -138,10 +138,37 @@ Recover the prior ledger from the workflow artifact or perform a scoped manual
 inventory before clearing that condition. This is a declared evidence boundary,
 not a successful cleanup result.
 
-Extended scale, interruption, Docker, Windows and suspend live suites are separate
-from basic smoke and have not run. The GitHub live workflow selects smoke.
-No daily worker-creating workflow exists. Follow the capability matrix before
-claiming those capabilities live-validated.
+## Extended acceptance
+
+The manual workflow defaults to `smoke`. Select `scale`, `interruption`, or
+`suspend` explicitly to run the tagged direct provider/SDK/SSH tests with the
+same ownership, fresh-identity cleanup step and independent janitor. These modes
+do not claim a GitLab executor job. Docker and Windows need separate prepared
+images and real executor jobs; those acceptance paths have not run.
+
+`scale` requires a separately prepared empty group with MaxSize=2 and permits two
+concurrent/two cumulative instances. `interruption` requires MaxSize=1 and permits
+two cumulative identities, using an explicit DeleteInstance injection rather
+than a genuine Spot notification. `suspend` requires MaxSize=1, one cumulative
+identity, and the isolated standby/stop/start controller. It checks fresh SSH
+after resumption; the production capability stays disabled. All modes retain the
+exact type/image/zone/strict-Spot policy and abort on budget overrun.
+
+For explicit local use, follow the same setup and authorization requirements:
+
+```sh
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=scale make test-live-extended
+```
+
+The target normalizes the key/output paths before Go changes its test directory.
+Use a unique run/attempt from the actual owning GitHub run so the independent
+janitor can verify completion. The suite records its process PID. A later local
+cleanup step requires that process to be gone; an active driver is not reclaimed.
+Results use `extended-result.json` with the common resource ledger embedded under
+`resources`; the smoke result schema applies to `result.json`. Missing inputs
+produce an explicit NOT_RUN artifact and a skipped test, never a live PASS.
+A failed test stops its provider before fallback cleanup. No daily worker-creating
+workflow exists. All extended live results remain unrun until actually invoked.
 
 ## Platform cost policies
 

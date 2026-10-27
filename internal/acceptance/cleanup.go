@@ -52,6 +52,7 @@ type Ledger struct {
 	EvidenceIncomplete   bool       `json:"evidence_incomplete"`
 	SecurityGroupID      string     `json:"security_group_id,omitempty"`
 	IngressCIDR          string     `json:"ingress_cidr,omitempty"`
+	DriverPID            int        `json:"driver_pid,omitempty"`
 	ManagerPID           int        `json:"manager_pid,omitempty"`
 	ManagerDirectory     string     `json:"manager_directory,omitempty"`
 	Path                 string     `json:"-"`

@@ -343,7 +343,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		default:
 		}
 		if err = Observe(stageCtx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
-			result.Result = "FAIL_PRODUCT"
+			result.Result = liveFailure(err)
 			fail(err)
 			return result
 		}
@@ -402,7 +402,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	if err = WaitForNormalRelease(stageCtx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
-		result.Result = "FAIL_PRODUCT"
+		result.Result = liveFailure(err)
 		fail(err)
 		return result
 	}
@@ -440,4 +440,12 @@ func RunnerConfig(url, token, region, group, user, key string) string {
  idle_time = "1m"
  preemptive_mode = false
 `, q(url), q(token), q(region), q(group), q(user), q(key))
+}
+
+func liveFailure(err error) string {
+	var cloudError *aliyun.Error
+	if errors.As(err, &cloudError) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "FAIL_INFRASTRUCTURE"
+	}
+	return "FAIL_PRODUCT"
 }
