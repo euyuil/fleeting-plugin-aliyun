@@ -12,11 +12,13 @@ This file defines repository-wide engineering rules for this open-source project
 - Follow existing module boundaries and conventions. Reuse existing implementations before introducing new abstractions.
 - Use the project's documented tools and commands. Keep reusable development operations reproducible through scripts or documentation.
 
-## Change Scope
+## PR Scope
 
-- Give each change one clear purpose and a complete, verifiable outcome. Include the implementation, tests, and documentation needed for that outcome.
-- Split unrelated work and independently useful changes when they can be delivered and validated separately. Keep tightly coupled changes together so intermediate states remain usable.
-- Judge scope by purpose, review difficulty, validation, and rollback boundaries rather than line count alone. Allow directly useful simplification, but do not expand the task into a broader redesign or add dependencies or abstractions for hypothetical requirements.
+- Each PR must focus on one clear purpose and deliver a complete, verifiable outcome. Include the implementation, tests, and documentation needed for that outcome.
+- Keep each PR easy to review, independently validate, and revert. Split unrelated work and independently useful changes into separate PRs when they can be delivered separately.
+- Keep tightly coupled changes together when splitting them would leave intermediate states unusable.
+- There is no hard line-count limit. Judge PR scope by purpose, review complexity, validation effort, and rollback boundaries.
+- Allow directly useful simplification, but do not expand a PR into a broader redesign or add dependencies or abstractions for hypothetical requirements.
 
 ## Reproducible Development
 
@@ -33,6 +35,11 @@ This file defines repository-wide engineering rules for this open-source project
 - Write tests for critical behavior and meaningful regressions. Reuse or extend existing tests before adding new ones. Avoid tests that merely repeat the implementation or pursue counts and coverage without protecting behavior.
 - Report relevant checks and results, along with material validation gaps or existing failures.
 - Distinguish simulated results, local execution, real-environment verification, and deployed acceptance. Claim only the outcome supported by the evidence.
+
+## Branch Names and Attribution
+
+- Name feature branches `<type>/<short-kebab-case-description>`, such as `feat/ess-provider`, `fix/capacity-reconciliation`, or `docs/implementation-spec`. Use lowercase English names that describe the work.
+- Do not include the name or branding of the coding agent used for the work in branch names, commit messages (including trailers), PR titles or descriptions, or commit author / committer metadata. Do not add coding-agent signatures or co-author attribution.
 
 ## Commit Review and Checks
 
