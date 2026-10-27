@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-10-27",
+  "go": "1.27.2",
+  "runner": {
+    "version": "19.5.1",
+    "commit": "f411f264f80a4870995a7c49482d02765e86c86e",
+    "minimum": "19.5.1",
+    "sha256": {
+      "darwin-arm64": "1635a9d8791626bd3fe630ec09e3d5b4d9950fe6d6fa59f5f03367c02e044b5f",
+      "linux-amd64": "0e11e71404352e67d286269aee397ec8e2825e0fc91a12f60c04cef0b85edb85",
+      "linux-arm64": "bc002aa164508682664b761ee737a992f3cae1ae085469d7667870dfa30c2301"
+    }
+  },
+  "fleeting": "v0.0.0-20260915191451-6ed75a33d303",
+  "official_plugins": {
+    "aws": {
+      "version": "v1.3.1",
+      "commit": "bf5cbcc9183e164637cb4dae42e64e49365e8ade"
+    },
+    "googlecloud": {
+      "version": "v1.3.1",
+      "commit": "31ea56d71b16c75e37999262293b273be509f13d"
+    },
+    "azure": {
+      "version": "v1.2.0",
+      "commit": "25d1d24dbdb0a49dfd572f79cbcada84db9e0482"
+    }
+  },
+  "openapi_sdk": "github.com/alibabacloud-go/darabonba-openapi/v2@v2.2.4",
+  "credentials": "github.com/aliyun/credentials-go@v1.4.14",
+  "fleeting_artifact": "v0.0.0-20260911011821-1b7c6957ad1d",
+  "actions": {
+    "checkout": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+    "setup_go": "924ae3a1cded613372ab5595356fb5720e22ba16",
+    "aliyun_credentials": "1e5248c8d5d93a8781ac344a68e19a43341e79e6",
+    "upload_artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "download_artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093"
+  },
+  "aliyun_cli": "3.5.2",
+  "tools": {
+    "actionlint": "v1.7.12"
+  }
+}
