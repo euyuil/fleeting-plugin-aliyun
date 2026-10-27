@@ -22,11 +22,16 @@ No automatic compensation creates a second logical request.
 
 Cloud desired capacity and the non-propagating group-tag operation journal are
 recoverable operation data. Persist token/original desired/IDs before writes,
-then activity and accepted-mask facts after acceptance. Verify the journal hash
+then activity and accepted-mask facts after acceptance. If persisting accepted
+removal facts fails, retry that persistence before activity progression; do not
+lose this stage merely because the API activity ID is already known. Verify the journal hash
 and invariants before mutation; incomplete records stop writes. If journal write
 acceptance or confirmation is lost, retain the same local operation/token until
-it is confirmed. A restarted prepared increase is reconciled into the next
-request credit instead of silently adding its target twice.
+it is confirmed. On restart, compute unobserved capacity from cloud desired intent (or a prepared
+journal target) minus discovered non-removing members. This also applies when no
+journal remains. Cap that credit as members are discovered and consume it before
+new writes; never treat already discovered capacity as a new requested slot.
+Normal accepted requests do not replenish this restart-only credit.
 
 
 After restart, the plugin reconstructs desired capacity and members from complete

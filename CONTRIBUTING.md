@@ -1,20 +1,24 @@
 # Contributing
 
-Use Go 1.27.2 and Git. Exact upstream versions are pinned in
+Use Go 1.27.2, GNU Make, Python 3.11+, and Git. Exact upstream versions are pinned in
 `upstream.lock.json`; Go dependencies are locked by `go.mod` and `go.sum`.
 No cloud credentials are needed for local development.
 
 ```sh
-go mod download all
-go mod verify
-go test ./...
+make deps
+make build
+make test
+make test-component
+make lint
 go test -race ./...
-go vet ./...
 ```
 
-Tests replace the API boundary or use signed requests against a loopback HTTP
-server. They do not invoke the standard credential chain or contact cloud APIs.
-Do not disable Go checksum verification.
+Tests replace the API boundary, sign loopback HTTP requests, or load the real
+plugin process and execute authenticated SSH commands on a loopback server.
+The component-only endpoint override is excluded from release binaries. They do not invoke the standard credential chain or contact cloud APIs.
+Do not disable Go checksum verification. `make lint` installs pinned actionlint
+1.7.12 and validates the configuration examples. CI also parses them using the
+pinned, checksum-verified Runner binary.
 
 Before committing, review `git diff`, stage only intended files, review the
 complete `git diff --cached`, and run `git diff --check` and

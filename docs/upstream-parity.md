@@ -20,9 +20,11 @@ Sources inspected before implementation:
 
 ## Capability mapping
 
-Status fields use the specification vocabulary. Implementation and validation statuses will be recorded separately as work is
-delivered. Live status must not be inferred from offline tests. At this baseline,
-all rows have `not_started / not_run / not_run`.
+Implementation, offline validation, and live validation are maintained separately
+in [`acceptance/status.json`](../acceptance/status.json). This snapshot delivers
+the SDK and core static-credential provider. Dynamic SSH, live acceptance tooling,
+experimental suspend, and binary/OCI packaging are separate delivery steps.
+No cloud or GitLab live validation is claimed.
 
 | Capability | Official baseline behavior | Alibaba mapping / implementation boundary |
 |---|---|---|
@@ -38,7 +40,7 @@ all rows have `not_started / not_run / not_run`.
 | OS, architecture, user, port | Cloud inference plus connector overrides | Explicit settings first; ECS metadata fallback; reject unknown architectures |
 | Instance executor | Official host | Default configuration and one-job live driver |
 | Docker Autoscaler | Official host | Same provider, separate prepared Docker image |
-| Windows/WinRM | AWS decrypted / GCP generated / Azure configured credentials | Static WinRM HTTPS, explicitly prepared certificate and credentials |
+| Windows/WinRM | AWS decrypted / GCP generated / Azure configured credentials | Static WinRM HTTPS; the pinned connector skips server certificate verification (ADR 0003) |
 | Dynamic SSH | AWS Instance Connect / GCP metadata / Azure static path | Investigate Alibaba Cloud Assistant public API; ADR records timing and limitations |
 | Heartbeat | Cloud-specific health, Azure currently no-op | Refresh ECS/ESS, distinguish API errors and failed instances |
 | Suspend/resume | AWS standby+stop, GCP stop+labels, Azure no declared support | Standard unsupported error until ESS standby+stop is proven; see ADR |

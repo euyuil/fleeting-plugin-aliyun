@@ -18,3 +18,10 @@ Client diagnostics use HashiCorp go-hclog v1.6.3 under MIT. Preserve its copyrig
 and license text when redistributing linked binaries. The dependency is
 unmodified; its source is available at the
 [locked upstream tag](https://github.com/hashicorp/go-hclog/tree/v1.6.3).
+
+The provider imports Fleeting's MIT-licensed protocol and connector. Its linked
+go-plugin v1.8.0 and yamux v0.1.2 dependencies use MPL-2.0. Preserve their notices
+and provide their corresponding unmodified source versions with distributions.
+Fleeting also has a root NOTICE for connector material; retain it alongside its
+license. Release packaging must inventory all actually linked modules before
+publishing binaries. No dependency source is modified in this repository.

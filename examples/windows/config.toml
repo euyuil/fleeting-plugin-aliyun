@@ -1,0 +1,31 @@
+concurrent = 1
+
+[[runners]]
+  name = "aliyun-worker"
+  url = "https://gitlab.com"
+  token = "REPLACE_WITH_PROJECT_RUNNER_AUTH_TOKEN"
+  executor = "instance"
+  shell = "powershell"
+  [runners.autoscaler]
+    plugin = "fleeting-plugin-aliyun"
+    capacity_per_instance = 1
+    max_use_count = 1
+    max_instances = 1
+    instance_acquire_timeout = "10m"
+    delete_instances_on_shutdown = true
+    [runners.autoscaler.plugin_config]
+      region = "cn-hangzhou"
+      scaling_group_id = "REPLACE_WITH_DEDICATED_GROUP_ID"
+    [runners.autoscaler.connector_config]
+      protocol = "winrm+https"
+      protocol_port = 5986
+      os = "windows"
+      arch = "amd64"
+      password = "REPLACE_FROM_SECRET_STORE"
+      username = "ci"
+      use_static_credentials = true
+      use_external_addr = true
+    [[runners.autoscaler.policy]]
+      idle_count = 0
+      idle_time = "1m"
+      preemptive_mode = false
