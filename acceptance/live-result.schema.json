@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Alibaba Cloud live acceptance result",
+  "type": "object",
+  "required": ["schema_version", "result", "mode", "cleanup_result", "leftover_resources"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "result": {"enum": ["PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "NOT_RUN_MISSING_CONFIGURATION", "CLEANUP_FAILED"]},
+    "mode": {"type": "string"},
+    "github_run_id": {"type": "string"},
+    "github_run_attempt": {"type": "string"},
+    "plugin_commit": {"type": "string"},
+    "plugin_sha256": {"type": "string"},
+    "runner_sha256": {"type": "string"},
+    "runner_version": {"type": "string"},
+    "fleeting_version": {"type": "string"},
+    "instances": {"type": "array", "items": {"type": "object", "required": ["instance_id", "creation_origin", "spot_verified", "inventory_complete", "deletion_verified", "disk_ids", "network_interface_ids"]}},
+    "missing_configuration": {"type": "array", "items": {"type": "string"}},
+    "cleanup_result": {"enum": ["PASS", "NOT_RUN", "CLEANUP_FAILED"]},
+    "leftover_resources": {"type": ["array", "null"], "items": {"type": "string"}},
+    "errors": {"type": "array", "items": {"type": "string"}}
+  },
+  "allOf": [{"if": {"properties": {"result": {"const": "PASS"}}}, "then": {"required": ["plugin_sha256", "runner_sha256", "instances", "gitlab_pipeline_id", "gitlab_job_id"], "properties": {"cleanup_result": {"const": "PASS"}, "leftover_resources": {"maxItems": 0}, "instances": {"minItems": 1}}}}]
+}

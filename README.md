@@ -22,3 +22,5 @@ real plugin process and execute authenticated local SSH commands. No live cloud
 or GitLab validation has run, and no production acceptance is claimed.
 Suspend/resume remains disabled. Live tooling follows separately. Native archives and OCI installation format
 have offline checks; external release publication has not run. Actual ECS, disks, images, and network traffic can incur charges.
+
+See [testing and acceptance](docs/testing.md) for explicit live setup and cleanup.
