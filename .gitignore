@@ -1,0 +1,6 @@
+/bin/
+/dist/
+/.cache/
+/.live/
+__pycache__/
+*.pyc
