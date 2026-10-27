@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "implementation_status": "in_progress",
+  "implementation_status": "implemented_offline_with_documented_gates",
   "offline_validation_status": "pass",
-  "live_validation_status": "not_run",
+  "live_validation_status": "NOT_RUN_MISSING_CONFIGURATION",
   "publication_status": "not_run",
-  "scope": "SDK, provider, dynamic SSH, distribution, and infrastructure preparation",
+  "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
   "runner_version": "19.5.1",
   "fleeting_version": "v0.0.0-20260915191451-6ed75a33d303",
   "cloud_resources_created": false,
@@ -119,7 +119,7 @@
       "implementation": "deferred",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Standard unsupported errors are implemented; experimental evaluation follows separately. No capability is declared."
+      "gap": "Production capability remains disabled with standard unsupported errors. An isolated standby/stop/start controller and tagged acceptance suite are implemented and tested offline. Formal support requires same-ID state and resumed SSH live evidence."
     },
     {
       "capability": "credentials_sts",
@@ -141,5 +141,45 @@
     "offline_validation": "pass",
     "live_validation": "not_run",
     "gap": "Shell syntax, local public-key validation, interrupted/duplicate setup, and conservative fake CLI requests tested. No worker image or real cloud fixture was built."
-  }
+  },
+  "live_tooling": {
+    "implementation": "implemented",
+    "offline_validation": "pass",
+    "live_validation": "NOT_RUN_MISSING_CONFIGURATION",
+    "entry_point": "docs/testing.md",
+    "gap": "No configured cloud fixture, worker key/image, trusted OIDC roles or fixed GitLab runner/project inputs were supplied. Smoke and extended tests have not run against cloud services."
+  },
+  "milestones": {
+    "M0": "complete",
+    "M1": "offline_complete",
+    "M2": "tooling_complete_live_not_run",
+    "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
+    "M4": "local_distribution_complete_external_publication_not_run"
+  },
+  "cleanup": {
+    "cloud_resources_created": false,
+    "cloud_cleanup": "NOT_RUN_NO_CLOUD_OPERATIONS",
+    "known_cloud_leftovers": [],
+    "limitation": "No account-wide resource inventory was performed; this statement covers only operations from this task."
+  },
+  "missing_live_configuration": [
+    "ALIYUN_REGION",
+    "ALIYUN_SCALING_GROUP_ID",
+    "ALLOWED_INSTANCE_TYPE",
+    "ALLOWED_IMAGE_ID",
+    "ALLOWED_ZONE_ID",
+    "ALIYUN_ROLE_ARN",
+    "ALIYUN_CLEANUP_ROLE_ARN",
+    "ALIYUN_OIDC_PROVIDER_ARN",
+    "ENABLE_ACCEPTANCE_JANITOR=true",
+    "GITLAB_URL (defaults to https://gitlab.com)",
+    "GITLAB_PROJECT_ID",
+    "GITLAB_FIXTURE_REF",
+    "GITLAB_FIXTURE_SHA",
+    "GITLAB_RUNNER_TAG",
+    "GITLAB_EXPECTED_RUNNER_ID",
+    "GITLAB_RUNNER_TOKEN",
+    "GITLAB_API_TOKEN",
+    "WORKER_SSH_PRIVATE_KEY"
+  ]
 }
