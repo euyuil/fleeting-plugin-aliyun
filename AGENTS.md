@@ -20,6 +20,16 @@ This file defines repository-wide engineering rules for this open-source project
 - There is no hard line-count limit. Judge PR scope by purpose, review complexity, validation effort, and rollback boundaries.
 - Allow directly useful simplification, but do not expand a PR into a broader redesign or add dependencies or abstractions for hypothetical requirements.
 
+## Commit and PR Workflow
+
+- A clear user decision to implement a change authorizes the normal delivery workflow: create local commits, push the task branch, open a PR, and merge after all required CI checks and repository review requirements pass. Do not request separate confirmation for these steps. Analysis-only, planning-only, and review-only requests do not authorize implementation or delivery.
+- Before a substantial change, identify a short sequence of coherent commits. Commit each completed, validated unit before starting the next independent change. Include the implementation, relevant tests, and documentation needed for that unit.
+- Judge commit scope by purpose, reviewability, validation, and rollback boundaries. Keep tightly coupled changes together when splitting would leave an intermediate commit unusable. Do not use placeholder implementations to manufacture smaller commits.
+- If unrelated purposes start accumulating in the working tree, stop adding code and separate the changes before continuing. Do not postpone all commits until the entire task is finished.
+- For a single agent's sequential change chain, keep at most one active PR at a time. While that PR is pending, continue the next authorized change locally, including implementation, tests, and coherent commits, without waiting for the PR to finish. Keep the next change isolated in its own branch or worktree. Open its PR after the previous PR is merged or closed.
+- Fix CI failures and resolve blocking review findings within the authorized scope. Do not bypass checks, required reviews, or branch protections to merge. Verify the PR's final source, target, diff, and stored description, and monitor merge and required workflows to their actual terminal results.
+- Release publication, deployment, paid-resource operations, and changes to shared environments remain separate authorization boundaries. Ordinary code delivery does not authorize them automatically.
+
 ## Reproducible Development
 
 - Use the runtime versions, package manager, dependency manifests, and lockfiles selected by the project. Reuse suitable existing tool installations.
@@ -85,7 +95,7 @@ This file defines repository-wide engineering rules for this open-source project
 - Use a dedicated task worktree when parallel work, unrelated changes, or a long-running task needs isolation. Give concurrent code-producing tasks separate worktrees and explicit file ownership.
 - Before editing in a task worktree, verify its directory, branch, and intended baseline using the repository's chosen workflow. Do not hard-code another project's branch names or merge procedure.
 - A small, isolated change does not require a worktree when isolation adds no useful benefit.
-- After task completion, clean up task-created worktrees and branches only after confirming their changes are integrated or safely preserved and no dependent task still needs them. Preserve unrelated work and artifacts.
+- After a task branch is merged and has no remaining work, delete both its remote and local branches and remove its task-created worktree. First verify that all changes are integrated or safely preserved, no needed working-tree content remains, and no dependent task still needs the branch or worktree. For squash or rebase merges, verify integration through the PR result and resulting content rather than relying only on commit ancestry. Preserve unrelated work and artifacts.
 
 ### Independent Review
 
