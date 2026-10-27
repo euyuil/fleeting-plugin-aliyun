@@ -33,3 +33,8 @@ setting. The static Windows path therefore encrypts transport but does not
 verify the server certificate. Use an isolated authenticated network and treat
 verified server identity as an upstream limitation. This has not been live
 validated. See the [pinned connector source](https://gitlab.com/gitlab-org/fleeting/fleeting/-/blob/6ed75a33d303/connector/winrm.go).
+
+The pinned SSH connector also uses `ssh.InsecureIgnoreHostKey`: it authenticates
+the client but does not verify SSH server host keys. Restrict Manager routing and
+worker ingress to the intended dedicated network boundary. See the
+[pinned SSH source](https://gitlab.com/gitlab-org/fleeting/fleeting/-/blob/6ed75a33d303/connector/ssh.go).
