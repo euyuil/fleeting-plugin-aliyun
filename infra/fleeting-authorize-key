@@ -1,0 +1,26 @@
+#!/bin/sh
+# Install root-owned at /usr/local/bin/fleeting-authorize-key on dynamic-SSH images.
+# OpenSSH must include .ssh/fleeting-keys in AuthorizedKeysFile.
+set -eu
+umask 077
+account=$(id -un)
+actual_home=$(getent passwd "$account" | awk -F: 'NR==1 {print $6}')
+test -n "$actual_home" && test -d "$actual_home"
+test "$#" = 1
+key=$(printf '%s' "$1" | base64 -d)
+test "$(printf '%s' "$key" | wc -l)" -eq 0
+# Restrict accepted input to exactly the generated public key format.
+printf '%s\n' "$key" | LC_ALL=C grep -Eq '^expiry-time="[0-9]{14}Z",no-agent-forwarding,no-X11-forwarding,no-user-rc ssh-ed25519 [A-Za-z0-9+/=]+ fleeting-expiry-[0-9]+$'
+mkdir -p "$actual_home/.ssh"
+chmod 700 "$actual_home/.ssh"
+exec 9> "$actual_home/.ssh/.fleeting-key-lock"
+flock -x 9
+file="$actual_home/.ssh/fleeting-keys"
+test -f "$file" || touch "$file"
+tmp=$(mktemp "$actual_home/.ssh/fleeting-keys.XXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+awk -v now="$(date +%s)" '{split($NF,a,"-"); if (a[1] == "fleeting" && a[2] == "expiry" && a[3] > now) print}' "$file" > "$tmp"
+printf '%s\n' "$key" >> "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$file"
+printf 'fleeting-key-ready\n'

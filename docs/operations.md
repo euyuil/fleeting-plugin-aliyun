@@ -72,8 +72,8 @@ Some cloud read actions require account-level resource scope; check the official
 RAM action metadata for the selected deployment before granting permissions.
 
 `region` and `scaling_group_id` are required. `operation_timeout` defaults to 2m
-and accepts 1s through 10m. Unknown configuration keys fail. Dynamic credentials
-are not enabled in this snapshot. Suspend/Resume return the standard upstream
+and accepts 1s through 10m. Unknown configuration keys fail. Static SSH remains the default;
+see [dynamic SSH preparation](../infra/README.md) for the explicit opt-in path. Suspend/Resume return the standard upstream
 unsupported error and the provider declares no suspend capability.
 
 ## Recovery and limits

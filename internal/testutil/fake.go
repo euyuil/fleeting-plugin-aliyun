@@ -216,6 +216,10 @@ func (f *Fake) Call(ctx context.Context, service, action string, q map[string]st
 		return assign(out, map[string]any{"ScalingActivities": map[string]any{"ScalingActivity": []aliyun.Activity{{ScalingActivityId: id, ScalingGroupId: f.Group.ScalingGroupId, StatusCode: status}}}})
 	case "DescribeInstanceRefreshes":
 		return assign(out, map[string]any{"TotalCount": 0})
+	case "RunCommand":
+		return assign(out, map[string]any{"InvokeId": "invoke-test"})
+	case "DescribeInvocationResults":
+		return assign(out, map[string]any{"Invocation": map[string]any{"TotalCount": 1, "InvocationResults": map[string]any{"InvocationResult": []map[string]any{{"InstanceId": q["InstanceId"], "InvokeId": q["InvokeId"], "InvokeRecordStatus": "Finished", "ExitCode": 0, "Output": "fleeting-key-ready\n"}}}}})
 	case "DescribeScalingRules":
 		return assign(out, map[string]any{"TotalCount": f.Rules})
 	case "DescribeScheduledTasks":

@@ -43,6 +43,7 @@ type removalOperation struct {
 type InstanceGroup struct {
 	Region             string         `json:"region"`
 	ScalingGroupID     string         `json:"scaling_group_id"`
+	SSHCredentials     string         `json:"ssh_credentials,omitempty"`
 	OperationTimeout   string         `json:"operation_timeout,omitempty"`
 	Client             *aliyun.Client `json:"-"`
 	Version, BuildInfo string         `json:"-"`
@@ -67,6 +68,7 @@ func (g *InstanceGroup) UnmarshalJSON(data []byte) error {
 		Region           string `json:"region"`
 		ScalingGroupID   string `json:"scaling_group_id"`
 		OperationTimeout string `json:"operation_timeout"`
+		SSHCredentials   string `json:"ssh_credentials"`
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
@@ -76,6 +78,7 @@ func (g *InstanceGroup) UnmarshalJSON(data []byte) error {
 	g.Region = config.Region
 	g.ScalingGroupID = config.ScalingGroupID
 	g.OperationTimeout = config.OperationTimeout
+	g.SSHCredentials = config.SSHCredentials
 	return nil
 }
 func (g *InstanceGroup) Init(ctx context.Context, log hclog.Logger, settings upstream.Settings) (upstream.ProviderInfo, error) {
@@ -88,8 +91,22 @@ func (g *InstanceGroup) Init(ctx context.Context, log hclog.Logger, settings ups
 	if strings.ContainsAny(g.Region, "./: \\ \t\n") {
 		return upstream.ProviderInfo{}, errors.New("invalid region")
 	}
-	if err := validateConnector(settings.ConnectorConfig); err != nil {
+	if g.SSHCredentials != "" && g.SSHCredentials != "static" && g.SSHCredentials != "cloud_assistant" {
+		return upstream.ProviderInfo{}, errors.New("ssh_credentials must be static or cloud_assistant")
+	}
+	if g.SSHCredentials == "cloud_assistant" && settings.UseStaticCredentials {
+		return upstream.ProviderInfo{}, errors.New("cloud_assistant requires use_static_credentials=false")
+	}
+	if g.SSHCredentials == "cloud_assistant" && ((settings.OS != "" && settings.OS != "linux") || (settings.Protocol != "" && settings.Protocol != upstream.ProtocolSSH) || !posixUser.MatchString(settings.Username)) {
+		return upstream.ProviderInfo{}, errors.New("dynamic credentials require Linux SSH and a POSIX username")
+	}
+	validationSettings := settings.ConnectorConfig
+	validationSettings.UseStaticCredentials = true
+	if err := validateConnector(validationSettings); err != nil {
 		return upstream.ProviderInfo{}, err
+	}
+	if g.SSHCredentials != "cloud_assistant" && !settings.UseStaticCredentials {
+		return upstream.ProviderInfo{}, errors.New("static mode requires use_static_credentials=true")
 	}
 	g.timeout = 2 * time.Minute
 	if g.OperationTimeout != "" {

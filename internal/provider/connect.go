@@ -112,5 +112,13 @@ func (g *InstanceGroup) ConnectInfo(parent context.Context, id string) (upstream
 		return info, fmt.Errorf("instance %s has no usable IP address yet", id)
 	}
 
+	if g.SSHCredentials == "cloud_assistant" {
+		if info.OS != "linux" || info.Protocol != upstream.ProtocolSSH {
+			return info, errors.New("dynamic credentials require Linux SSH")
+		}
+		if err = g.temporaryKey(ctx, &info); err != nil {
+			return upstream.ConnectInfo{}, err
+		}
+	}
 	return info, nil
 }
