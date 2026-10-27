@@ -80,16 +80,42 @@ is not evidence that a live job or publication happened.
 
 ## Live acceptance and resource outcomes
 
-Live status: **NOT_RUN_MISSING_CONFIGURATION**. No ECS worker, ESS fixture,
-worker image, public address, disk, ENI, GitLab fixture project/job, or persistent
-Manager was created by this task. There are no known cloud leftovers from this
-task. This is not an account-wide inventory of pre-existing resources.
+Provider/GitLab live status: **NOT_RUN_MISSING_CONFIGURATION**. The separate
+connectivity preflight below passed. No ESS fixture, custom worker image,
+GitLab fixture project/job or persistent Manager was created. The preflight's
+temporary cloud resources were deleted and their absence was verified.
 
 The missing-config CLI result was generated locally and inspected. Raw evidence
 stays outside version control. The live tools will retain selected JSON receipts
 under `.live/` and seven-day workflow artifacts when explicitly invoked.
-There is no current live PASS, prior live-verified release, or production
+There is no provider/GitLab live PASS, prior live-verified release, or production
 acceptance claim.
+
+### Direct ECS connectivity preflight
+
+On 2026-10-27, one explicitly authorized Spot instance ran in `us-east-1b` with
+`ecs.e-c4m1.large` (2 vCPU, 0.5 GiB RAM), a 20 GiB ESSD PL0 system disk, and the
+public image `ubuntu_26_04_x64_20G_alibase_20260916.vhd`. The guest reported
+Ubuntu 26.04.1 LTS and kernel `7.0.0-31-generic`. A 512 MiB swap file used space
+inside the existing system disk. The instance had a 45-minute automatic release
+deadline and was manually released after the checks.
+
+- Boot and direct CLI SSH passed with a dedicated client key and strict checking
+  against a separately provisioned temporary server host key.
+- Guest HTTPS requests to GitHub, its API, raw content and codeload returned 200.
+- A real GitHub-hosted runner reached the US East ECS, ESS and STS public HTTPS
+  endpoints. Their unsigned requests returned 400, proving connectivity rather
+  than cloud authorization. The runner also matched the scanned SSH public host
+  key after only its current egress /32 was allowed. This scan does not prove
+  possession of the server's private host key or SSH client authentication.
+- The dedicated instance, system disk, primary ENI, key pair, security group,
+  vSwitch and VPC were deleted. Two complete, identity-checked inventories
+  confirmed no owned resources remained. Temporary GitHub secrets/artifacts and
+  local keys were removed; private runtime receipts remain outside Git.
+
+The [network workflow run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40531496389)
+completed successfully. This preflight used direct ECS APIs and SSH; it did not
+exercise the Fleeting plugin, ESS scale-in, a GitLab job, dynamic SSH or recovery.
 
 The following gates remain specific and visible:
 
