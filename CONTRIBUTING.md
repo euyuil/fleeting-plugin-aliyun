@@ -11,6 +11,8 @@ make test
 make test-component
 make lint
 go test -race ./...
+make dist
+make test-oci
 ```
 
 Tests replace the API boundary, sign loopback HTTP requests, or load the real
@@ -27,4 +29,5 @@ identity. GitHub CI runs the same checksum, race, vet, formatting, and whitespac
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 
-See [third-party obligations](docs/third-party.md) before adding dependencies.
+See [distribution](docs/distribution.md) for native and OCI packaging, installation,
+and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.

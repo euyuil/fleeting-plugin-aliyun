@@ -1,0 +1,49 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable version without v, for example 0.1.0
+        required: true
+        type: string
+concurrency:
+  group: release
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+      - name: Validate version and refuse existing releases
+        run: python3 tools/release-preflight.py
+      - run: make deps build test lint dist
+      - name: Create the exact source tag
+        run: |
+          git tag "v$VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/v$VERSION"
+      - name: Authenticate GHCR
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Publish Fleeting OCI packages
+        run: go run ./tools/distribution -ref "ghcr.io/$GITHUB_REPOSITORY:$VERSION" -dir dist/packages
+      - name: Create GitHub Release
+        run: |
+          flags=(--verify-tag --title "v$VERSION" --notes-file docs/release-notes.md)
+          if [[ "$VERSION" == *-* ]]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "v$VERSION" dist/*.tar.gz dist/SHA256SUMS dist/dependencies.json "${flags[@]}"
