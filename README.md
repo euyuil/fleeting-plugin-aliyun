@@ -10,6 +10,7 @@ serializes capacity writes, persists operation intent, releases specified
 instances, and separates cloud state from SSH readiness.
 
 - [Setup and supported configurations](docs/operations.md)
+- [Infrastructure and worker preparation](infra/README.md)
 - [Pinned upstream parity and limitations](docs/upstream-parity.md)
 - [Implementation and validation status](acceptance/status.json)
 - [Installation and distribution](docs/distribution.md)

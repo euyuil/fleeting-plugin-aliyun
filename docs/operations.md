@@ -12,7 +12,7 @@ explicitly entrusted to ESS for lifecycle release are accepted.
 
 The plugin never enables a disabled group or changes its creation policy. VPCs,
 vSwitches, security groups, images, launch templates, and the group belong to
-infrastructure setup. Give each Runner pool a separate group. The group must
+[infrastructure setup](../infra/README.md). Give each Runner pool a separate group. The group must
 have space for up to 13 reserved operation tags; do not edit `fleeting-operation*`
 while the provider has pending intent. See [API boundaries](cloud-api.md) and
 [capacity recovery](adr/0002-capacity-reconciliation.md).
@@ -35,7 +35,9 @@ the selected job shell/tools, an SSH service, the static public key, a writable
 job directory, and the configured readiness marker. Prepare these before
 creating instances. The Manager needs a network route to the selected public or
 private address. Limit SSH ingress to the actual Manager source or private
-network; do not open a public administration port to all addresses.
+network; do not open a public administration port to all addresses. See
+[ADR 0003](adr/0003-state-and-connections.md) for the pinned connector's server
+identity verification limits.
 
 Set `use_static_credentials=true`. Explicit user, port, OS, architecture, and
 route settings take precedence. Omitted OS/architecture values are inferred from
