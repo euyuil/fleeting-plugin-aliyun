@@ -12,11 +12,12 @@ instances, and separates cloud state from SSH readiness.
 - [Setup and supported configurations](docs/operations.md)
 - [Pinned upstream parity and limitations](docs/upstream-parity.md)
 - [Implementation and validation status](acceptance/status.json)
+- [Installation and distribution](docs/distribution.md)
 - [Contributor commands](CONTRIBUTING.md)
 - [Original specification](docs/specification.md)
 
 Runner 19.5.1 is the initial minimum and primary baseline. Offline tests load the
 real plugin process and execute authenticated local SSH commands. No live cloud
 or GitLab validation has run, and no production acceptance is claimed.
-Suspend/resume remains disabled. Live tooling and release packaging follow
-separately. Actual ECS, disks, images, and network traffic can incur charges.
+Suspend/resume remains disabled. Live tooling follows separately. Native archives and OCI installation format
+have offline checks; external release publication has not run. Actual ECS, disks, images, and network traffic can incur charges.

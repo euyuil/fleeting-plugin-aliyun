@@ -19,3 +19,16 @@ jobs:
       - run: go test -race ./...
       - run: python3 tools/fetch-runner.py
       - run: python3 tools/check-configs.py --runner .cache/gitlab-runner-linux-amd64
+      - run: make dist
+      - name: Verify native assets
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          dist/packages/linux/amd64/plugin version
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/dependencies.json
+          retention-days: 7

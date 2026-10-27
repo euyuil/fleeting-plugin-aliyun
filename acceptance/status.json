@@ -4,7 +4,7 @@
   "offline_validation_status": "pass",
   "live_validation_status": "not_run",
   "publication_status": "not_run",
-  "scope": "SDK and core provider, including opt-in expiring SSH credentials",
+  "scope": "SDK, core provider, dynamic SSH, and native/OCI distribution",
   "runner_version": "19.5.1",
   "fleeting_version": "v0.0.0-20260915191451-6ed75a33d303",
   "cloud_resources_created": false,
@@ -130,10 +130,10 @@
     },
     {
       "capability": "native_oci_distribution",
-      "implementation": "not_started",
-      "offline_validation": "not_run",
+      "implementation": "implemented",
+      "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Delivered separately after the core provider."
+      "gap": "Linux amd64/arm64 archives and official installer loopback round-trip validated. External publication and anonymous GHCR installation have not run."
     }
   ]
 }

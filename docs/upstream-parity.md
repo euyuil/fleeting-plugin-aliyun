@@ -23,7 +23,8 @@ Sources inspected before implementation:
 Implementation, offline validation, and live validation are maintained separately
 in [`acceptance/status.json`](../acceptance/status.json). This snapshot delivers
 the SDK, core provider, and opt-in expiring SSH credentials. Live acceptance tooling,
-experimental suspend, and binary/OCI packaging are separate delivery steps.
+and experimental suspend are separate delivery steps. Native/OCI packaging has
+offline build and official-installer validation; publication has not run.
 No cloud or GitLab live validation is claimed.
 
 | Capability | Official baseline behavior | Alibaba mapping / implementation boundary |

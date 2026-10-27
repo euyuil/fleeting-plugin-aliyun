@@ -25,3 +25,12 @@ and provide their corresponding unmodified source versions with distributions.
 Fleeting also has a root NOTICE for connector material; retain it alongside its
 license. Release packaging must inventory all actually linked modules before
 publishing binaries. No dependency source is modified in this repository.
+
+`tools/dist.py` inventories the union of modules actually compiled into the Linux
+amd64 and arm64 plugin binaries. Archives include their LICENSE/COPYING/NOTICE
+files, the locked source-archive URLs, and Go's LICENSE/PATENTS. Missing linked
+module licenses stop the build. The `_licenses` directory is excluded from Go
+package discovery. Unused module declarations and test/release-tool dependencies
+are not described as linked plugin code. Release tooling imports the MIT-licensed
+fleeting-artifact and Apache-2.0 go-containerregistry; it is not copied into the
+plugin executable. Worker images and job containers need separate license review.
