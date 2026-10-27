@@ -170,6 +170,9 @@ func (g *InstanceGroup) Init(ctx context.Context, log hclog.Logger, settings ups
 		return upstream.ProviderInfo{}, err
 	}
 	if journal != nil {
+		if journal.Kind == "suspend" || journal.Kind == "resume" {
+			return upstream.ProviderInfo{}, errors.New("experimental standby operation requires its isolated controller")
+		}
 		if journal.Kind == "increase" {
 			g.capacity = &capacityOperation{Target: journal.Target, Count: journal.Count, Token: journal.Token, Reported: true, Prepared: true, Before: journal.Before, CreatedAt: journal.CreatedAt}
 			g.recoveredCredit = max(0, journal.Target-visible)

@@ -234,6 +234,38 @@ func (f *Fake) Call(ctx context.Context, service, action string, q map[string]st
 		return assign(out, map[string]any{"ScalingActivities": map[string]any{"ScalingActivity": []aliyun.Activity{{ScalingActivityId: id, ScalingGroupId: f.Group.ScalingGroupId, StatusCode: status}}}})
 	case "DescribeInstanceRefreshes":
 		return assign(out, map[string]any{"TotalCount": 0})
+	case "EnterStandby", "ExitStandby":
+		id := q["InstanceId.1"]
+		m := f.Members[id]
+		if action == "EnterStandby" {
+			m.LifecycleState = "Standby"
+		} else {
+			m.LifecycleState = "InService"
+		}
+		f.Members[id] = m
+		f.Group.StandbyCapacity = 0
+		for _, member := range f.Members {
+			if member.LifecycleState == "Standby" {
+				f.Group.StandbyCapacity++
+			}
+		}
+		return assign(out, map[string]any{"RequestId": "test"})
+	case "StopInstance", "StartInstance":
+		id := q["InstanceId"]
+		i := f.Instances[id]
+		if action == "StopInstance" {
+			i.Status = "Stopped"
+		} else {
+			i.Status = "Running"
+		}
+		f.Instances[id] = i
+		f.Group.StoppedCapacity = 0
+		for _, instance := range f.Instances {
+			if instance.Status == "Stopped" {
+				f.Group.StoppedCapacity++
+			}
+		}
+		return assign(out, map[string]any{"RequestId": "test"})
 	case "RunCommand":
 		return assign(out, map[string]any{"InvokeId": "invoke-test"})
 	case "DescribeInvocationResults":
