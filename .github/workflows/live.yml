@@ -1,6 +1,12 @@
 name: Live acceptance
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Explicit acceptance mode (separate prepared fixture required for scale)
+        type: choice
+        default: smoke
+        options: [smoke, scale, interruption, suspend]
 permissions:
   contents: read
 concurrency:
@@ -64,7 +70,13 @@ jobs:
           role-session-name: fleeting-${{ github.run_id }}
       - run: python3 tools/fetch-runner.py
       - name: Run one Spot job
+        if: inputs.mode == 'smoke' || inputs.mode == ''
         run: go run -tags live ./cmd/aliyun-acceptance smoke
+      - name: Run explicitly selected extended suite
+        if: inputs.mode != 'smoke' && inputs.mode != ''
+        env:
+          LIVE_EXTENDED_MODE: ${{ inputs.mode }}
+        run: make test-live-extended
       - name: Refresh identity for cleanup
         if: always() && steps.cloud-ready.outcome == 'success'
         uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
@@ -85,4 +97,5 @@ jobs:
             .live/run-*/result.json
             .live/run-*/ledger.json
             .live/run-*/cleanup.json
+            .live/run-*/extended-result.json
           retention-days: 7

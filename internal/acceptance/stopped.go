@@ -67,7 +67,16 @@ func ConfirmStoppedRun(ctx context.Context, l *Ledger, token string) error {
 // StopLocalManager only signals a PID whose /proc command line names this run's
 // private config. Arbitrary PIDs from an artifact are never trusted.
 func StopLocalManager(ctx context.Context, l *Ledger, outputDir string) error {
+	if _, err := os.Stat("/proc/self"); err != nil {
+		return errors.New("local process termination requires Linux procfs; use janitor after run completion")
+	}
 	if l.ManagerPID <= 0 {
+		if (l.Mode == "scale" || l.Mode == "interruption" || l.Mode == "suspend") && l.DriverPID > 0 {
+			if _, err := os.Stat(fmt.Sprintf("/proc/%d", l.DriverPID)); errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return errors.New("extended driver termination is not confirmed")
+		}
 		return errors.New("local Manager identity missing; use janitor after run completion")
 	}
 	if !strings.HasPrefix(l.ManagerDirectory, "manager-") || filepath.Base(l.ManagerDirectory) != l.ManagerDirectory {

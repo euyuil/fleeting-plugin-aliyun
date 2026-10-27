@@ -18,6 +18,9 @@ jobs:
       - run: make deps build test lint
       - run: go test -race ./...
       - run: go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
+      - run: make test-live-extended
+        env:
+          RUN_LIVE_ACCEPTANCE: ''
       - run: python3 tools/fetch-runner.py
       - run: python3 tools/check-configs.py --runner .cache/gitlab-runner-linux-amd64
       - run: make dist
