@@ -1,0 +1,88 @@
+name: Live acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aliyun-fixed-acceptance-pool
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RUN_LIVE_ACCEPTANCE: '1'
+      ENABLE_ACCEPTANCE_JANITOR: ${{ vars.ENABLE_ACCEPTANCE_JANITOR }}
+      ALIYUN_CLEANUP_ROLE_ARN: ${{ vars.ALIYUN_CLEANUP_ROLE_ARN }}
+      ACCEPTANCE_PROJECT: ${{ github.repository }}
+      ALIYUN_REGION: ${{ vars.ALIYUN_REGION }}
+      ALIYUN_SCALING_GROUP_ID: ${{ vars.ALIYUN_SCALING_GROUP_ID }}
+      GITLAB_URL: ${{ vars.GITLAB_URL }}
+      GITLAB_PROJECT_ID: ${{ vars.GITLAB_PROJECT_ID }}
+      GITLAB_FIXTURE_REF: ${{ vars.GITLAB_FIXTURE_REF }}
+      GITLAB_FIXTURE_SHA: ${{ vars.GITLAB_FIXTURE_SHA }}
+      GITLAB_RUNNER_TAG: ${{ vars.GITLAB_RUNNER_TAG }}
+      GITLAB_EXPECTED_RUNNER_ID: ${{ vars.GITLAB_EXPECTED_RUNNER_ID }}
+      GITLAB_RUNNER_TOKEN: ${{ secrets.GITLAB_RUNNER_TOKEN }}
+      GITLAB_API_TOKEN: ${{ secrets.GITLAB_API_TOKEN }}
+      WORKER_USER: ci
+      WORKER_SSH_KEY: .live/worker-key
+      PLUGIN_BINARY: bin/fleeting-plugin-aliyun
+      PLUGIN_COMMIT: ${{ github.sha }}
+      RUNNER_BINARY: .cache/gitlab-runner-linux-amd64
+      ALLOWED_INSTANCE_TYPE: ${{ vars.ALLOWED_INSTANCE_TYPE }}
+      ALLOWED_IMAGE_ID: ${{ vars.ALLOWED_IMAGE_ID }}
+      ALLOWED_ZONE_ID: ${{ vars.ALLOWED_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+      - run: make deps build
+      - name: Record current Manager egress
+        run: |
+          address=$(curl --fail --silent --show-error --max-time 10 https://api.ipify.org)
+          MANAGER_ADDRESS="$address" python3 -c 'import ipaddress,os; address=ipaddress.IPv4Address(os.environ["MANAGER_ADDRESS"]); open(os.environ["GITHUB_ENV"], "a").write(f"MANAGER_CIDR={address}/32\n")'
+      - name: Validate configuration
+        env:
+          WORKER_SSH_PRIVATE_KEY: ${{ secrets.WORKER_SSH_PRIVATE_KEY }}
+          ALIYUN_ROLE_ARN: ${{ vars.ALIYUN_ROLE_ARN }}
+          ALIYUN_OIDC_PROVIDER_ARN: ${{ vars.ALIYUN_OIDC_PROVIDER_ARN }}
+        run: python3 tools/live-preflight.py
+      - id: cloud-ready
+        name: Obtain fresh OIDC credentials
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ vars.ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: fleeting-${{ github.run_id }}
+      - run: python3 tools/fetch-runner.py
+      - name: Run one Spot job
+        run: go run -tags live ./cmd/aliyun-acceptance smoke
+      - name: Refresh identity for cleanup
+        if: always() && steps.cloud-ready.outcome == 'success'
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ vars.ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: cleanup-${{ github.run_id }}
+      - name: Independent step cleanup
+        if: always() && steps.cloud-ready.outcome == 'success'
+        run: go run -tags live ./cmd/aliyun-acceptance cleanup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: live-evidence
+          path: |
+            .live/run-*/result.json
+            .live/run-*/ledger.json
+            .live/run-*/cleanup.json
+          retention-days: 7

@@ -20,7 +20,7 @@ while the provider has pending intent. See [API boundaries](cloud-api.md) and
 ## Static SSH and Instance executor
 
 Build with `make build`. Place the binary in an executable directory available
-to Runner Manager as `fleeting-plugin-aliyun`; set `plugin = "aliyun"` in the
+to Runner Manager as `fleeting-plugin-aliyun`; set `plugin = "fleeting-plugin-aliyun"` in the
 Runner autoscaler. This uses Fleeting's native-binary lookup. OCI installation
 will be documented with the distribution tooling.
 

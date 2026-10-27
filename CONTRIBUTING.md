@@ -33,3 +33,13 @@ Do not claim that an unconfigured check ran.
 
 See [distribution](docs/distribution.md) for native and OCI packaging, installation,
 and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.
+
+The credential-free CI also compiles the optional live command:
+
+```sh
+go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
+```
+
+See [testing and acceptance](docs/testing.md) for explicit live configuration,
+`make live`, and `make cleanup`. These commands require separate cloud-operation
+authorization and do not run as part of normal PR validation.

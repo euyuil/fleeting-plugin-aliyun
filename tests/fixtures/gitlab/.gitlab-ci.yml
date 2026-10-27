@@ -1,0 +1,16 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "api" && $FLEETING_NONCE =~ /^[0-9a-f]{48}$/ && $FLEETING_EXPECTED_RUNNER_ID =~ /^[0-9]+$/'
+    - when: never
+
+spot-smoke:
+  tags:
+    - $FLEETING_RUNNER_TAG
+  timeout: 5m
+  retry: 0
+  script:
+    - test "$CI_RUNNER_ID" = "$FLEETING_EXPECTED_RUNNER_ID"
+    - sh smoke.sh
+  artifacts:
+    paths: [result.json]
+    expire_in: 1 day

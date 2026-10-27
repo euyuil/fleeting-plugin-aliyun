@@ -1,0 +1,63 @@
+name: Expired acceptance janitor
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_run:
+    workflows: [Live acceptance]
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: aliyun-fixed-acceptance-pool
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    if: >-
+      vars.ENABLE_ACCEPTANCE_JANITOR == 'true' &&
+      vars.ALIYUN_CLEANUP_ROLE_ARN != '' && vars.ALIYUN_OIDC_PROVIDER_ARN != '' &&
+      vars.ALIYUN_REGION != '' && vars.ALIYUN_SCALING_GROUP_ID != '' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       github.event_name == 'schedule' || github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      RUN_LIVE_ACCEPTANCE: '1'
+      ACCEPTANCE_PROJECT: ${{ github.repository }}
+      ALIYUN_REGION: ${{ vars.ALIYUN_REGION }}
+      ALIYUN_SCALING_GROUP_ID: ${{ vars.ALIYUN_SCALING_GROUP_ID }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+      - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ vars.ALIYUN_CLEANUP_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: janitor-${{ github.run_id }}
+      - name: Recover prior ledger as data
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: live-evidence
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: .live/recovered
+      - run: go run -tags live ./cmd/aliyun-acceptance janitor
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: janitor-evidence
+          path: .live/run-*/cleanup.json
+          retention-days: 7

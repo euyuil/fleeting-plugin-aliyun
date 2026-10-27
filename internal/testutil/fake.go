@@ -195,6 +195,24 @@ func (f *Fake) Call(ctx context.Context, service, action string, q map[string]st
 		f.removals[result.ScalingActivityId] = accepted
 		f.Tokens[t] = result
 		return assign(out, result)
+	case "ModifyInstanceAutoReleaseTime":
+		return assign(out, map[string]any{"RequestId": "test"})
+	case "DescribeDisks":
+		if id := q["InstanceId"]; id != "" {
+			if _, ok := f.Instances[id]; ok {
+				return assign(out, map[string]any{"TotalCount": 1, "Disks": map[string]any{"Disk": []map[string]any{{"DiskId": "d-" + id, "InstanceId": id, "Type": "system", "DeleteWithInstance": true}}}})
+			}
+		}
+		return assign(out, map[string]any{"TotalCount": 0})
+	case "DescribeNetworkInterfaces":
+		if id := q["InstanceId"]; id != "" {
+			if _, ok := f.Instances[id]; ok {
+				return assign(out, map[string]any{"TotalCount": 1, "NetworkInterfaceSets": map[string]any{"NetworkInterfaceSet": []map[string]any{{"NetworkInterfaceId": "eni-" + id, "InstanceId": id, "Type": "Primary"}}}})
+			}
+		}
+		return assign(out, map[string]any{"TotalCount": 0})
+	case "DescribeSecurityGroupAttribute":
+		return assign(out, map[string]any{"RegionId": f.Group.RegionId, "SecurityGroupId": q["SecurityGroupId"], "Permissions": map[string]any{"Permission": []any{}}})
 	case "DescribeLaunchTemplateVersions":
 		return assign(out, map[string]any{"LaunchTemplateVersionSets": map[string]any{"LaunchTemplateVersionSet": []map[string]any{{"LaunchTemplateId": f.Group.LaunchTemplateId, "VersionNumber": 1, "LaunchTemplateData": map[string]any{}}}}})
 	case "DescribeScalingActivities":

@@ -6,7 +6,7 @@ REVISION := $(shell git rev-parse HEAD)
 BUILT_AT := $(shell git show -s --format=%cI HEAD)
 LDFLAGS := -X main.version=$(VERSION) -X main.revision=$(REVISION) -X main.builtAt=$(BUILT_AT)
 
-.PHONY: deps tools build test test-component lint dist test-oci
+.PHONY: deps tools build test test-component lint dist test-oci live cleanup
 
 deps:
 	$(GO) mod download all
@@ -31,3 +31,8 @@ dist:
 	VERSION=$(VERSION) REVISION=$(REVISION) BUILT_AT=$(BUILT_AT) $(PYTHON) tools/dist.py
 test-oci:
 	$(GO) test -count=1 -timeout=5m ./tools/distribution
+
+live: build
+	$(GO) run -tags live ./cmd/aliyun-acceptance smoke
+cleanup:
+	$(GO) run -tags live ./cmd/aliyun-acceptance cleanup

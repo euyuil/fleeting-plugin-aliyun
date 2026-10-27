@@ -11,7 +11,7 @@ trimmed and archive ownership, timestamps, and file modes are normalized.
 
 Verify the downloaded SHA256 against the release checksum and copy the executable
 to a directory on the Manager's PATH under the exact name
-`fleeting-plugin-aliyun`. Set `plugin = "aliyun"` in `runners.autoscaler`, as in the
+`fleeting-plugin-aliyun`. Set `plugin = "fleeting-plugin-aliyun"` in `runners.autoscaler`, as in the
 [Instance example](../examples/instance/config.toml). `version` and `-version`
 print build information. Do not replace a public immutable version's files.
 
