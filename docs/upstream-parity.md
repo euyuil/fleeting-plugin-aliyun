@@ -22,8 +22,9 @@ Sources inspected before implementation:
 
 Implementation, offline validation, and live validation are maintained separately
 in [`acceptance/status.json`](../acceptance/status.json). This snapshot delivers
-the SDK, core provider, and opt-in expiring SSH credentials. Live acceptance tooling,
-and experimental suspend are separate delivery steps. Native/OCI packaging has
+the SDK, core provider, opt-in expiring SSH credentials, explicit live acceptance
+tooling, and an isolated suspend experiment. Formal suspend support stays gated
+on live evidence; see [ADR 0006](adr/0006-suspend-resume.md). Native/OCI packaging has
 offline build and official-installer validation; publication has not run.
 No cloud or GitLab live validation is claimed.
 
@@ -42,9 +43,9 @@ No cloud or GitLab live validation is claimed.
 | Instance executor | Official host | Default configuration and one-job live driver |
 | Docker Autoscaler | Official host | Same provider, separate prepared Docker image |
 | Windows/WinRM | AWS decrypted / GCP generated / Azure configured credentials | Static WinRM HTTPS; the pinned connector skips server certificate verification (ADR 0003) |
-| Dynamic SSH | AWS Instance Connect / GCP metadata / Azure static path | Investigate Alibaba Cloud Assistant public API; ADR records timing and limitations |
+| Dynamic SSH | AWS Instance Connect / GCP metadata / Azure static path | Cloud Assistant public-key delivery and expiring helper implemented; offline timing, result proof, and reacquisition tests; live delivery unrun |
 | Heartbeat | Cloud-specific health, Azure currently no-op | Refresh ECS/ESS, distinguish API errors and failed instances |
-| Suspend/resume | AWS standby+stop, GCP stop+labels, Azure no declared support | Standard unsupported error until ESS standby+stop is proven; see ADR |
+| Suspend/resume | AWS standby+stop, GCP stop+labels, Azure no declared support | Production returns the standard unsupported error; isolated ESS standby + ECS stop/start experiment and offline tests; formal/live gate remains |
 | Credentials/STS | Each official SDK chain | Official Alibaba credentials abstraction, no keys in provider config |
 | Native/OCI | Native binaries and Fleeting bootstrap container | Linux amd64/arm64, upstream installer-compatible OCI layout |
 
@@ -55,3 +56,6 @@ are Apache-2.0. Implementations are original; upstream APIs are imported, not
 vendored. Binary distributions must include dependency licenses and notices.
 Record the linked dependency inventory and third-party obligations when the
 implementation and binary distribution are delivered.
+
+See the [acceptance report](acceptance-report.md) for command evidence and the
+remaining live and publication configuration. No full official parity is claimed.
