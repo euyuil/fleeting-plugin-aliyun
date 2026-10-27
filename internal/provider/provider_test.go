@@ -418,3 +418,27 @@ func TestEntrustedECSMemberIsExplicitlyReleasable(t *testing.T) {
 		t.Fatal(ids, err)
 	}
 }
+
+func TestProductionRejectsExperimentalJournalBeforeMutation(t *testing.T) {
+	for _, kind := range []string{"suspend", "resume"} {
+		f := testutil.New()
+		f.Add("i-worker")
+		c := &aliyun.Client{API: f, Region: f.Group.RegionId, GroupID: f.Group.ScalingGroupId}
+		j := aliyun.Journal{Kind: kind, Token: "experiment", Before: 1, Target: 1, IDs: []string{"i-worker"}, CreatedAt: time.Now().UTC()}
+		if err := c.StoreJournal(context.Background(), j); err != nil {
+			t.Fatal(err)
+		}
+		g := &provider.InstanceGroup{Region: c.Region, ScalingGroupID: c.GroupID, Client: c}
+		settings := upstream.Settings{ConnectorConfig: upstream.ConnectorConfig{UseStaticCredentials: true, Username: "ci", Key: []byte("test")}}
+		if _, err := g.Init(context.Background(), nil, settings); err == nil {
+			t.Fatal("production consumed experimental journal")
+		}
+		if _, err := g.Decrease(context.Background(), []string{"i-worker"}); err == nil {
+			t.Fatal("failed Init allowed deletion")
+		}
+		loaded, err := aliyun.ReadJournal(f.Group)
+		if err != nil || loaded == nil || loaded.Kind != kind || f.Instances["i-worker"].Status != "Running" {
+			t.Fatal("experiment was changed", err)
+		}
+	}
+}

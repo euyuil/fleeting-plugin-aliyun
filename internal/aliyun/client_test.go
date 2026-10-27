@@ -233,3 +233,28 @@ func TestPreparedRemovalAllowsOnlyItsOwnAcceptance(t *testing.T) {
 		t.Fatal("accepted activity changed")
 	}
 }
+
+func TestStandbyJournalPreservesExactIntent(t *testing.T) {
+	f := testutil.New()
+	f.Add("i-worker")
+	c := &aliyun.Client{API: f, Region: f.Group.RegionId, GroupID: f.Group.ScalingGroupId}
+	ctx := context.Background()
+	j := aliyun.Journal{Kind: "suspend", Token: "stable", Before: 1, Target: 1, IDs: []string{"i-worker"}, CreatedAt: time.Now().UTC()}
+	if err := c.StoreJournal(ctx, j); err != nil {
+		t.Fatal(err)
+	}
+	j.Activity = "unexpected"
+	if err := c.StoreJournal(ctx, j); err == nil {
+		t.Fatal("standby journal accepted removal fields")
+	}
+	j.Activity = ""
+	j.Target = 0
+	if err := c.StoreJournal(ctx, j); err == nil {
+		t.Fatal("standby journal changed capacity")
+	}
+	j.Target = 1
+	j.Kind = "resume"
+	if err := c.StoreJournal(ctx, j); err == nil {
+		t.Fatal("same token changed standby intent")
+	}
+}

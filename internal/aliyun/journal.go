@@ -67,7 +67,7 @@ func ReadJournal(g Group) (*Journal, error) {
 	return &j, nil
 }
 func validateJournal(j Journal, maxSize int) error {
-	if j.Version != 1 || (j.Kind != "increase" && j.Kind != "remove") || j.Token == "" || j.Before < 0 || j.Target < 0 || len(j.IDs) > 20 {
+	if j.Version != 1 || (j.Kind != "increase" && j.Kind != "remove" && j.Kind != "suspend" && j.Kind != "resume") || j.Token == "" || j.Before < 0 || j.Target < 0 || len(j.IDs) > 20 {
 		return errors.New("unsupported operation journal")
 	}
 	if j.Before > maxSize || j.Target > maxSize || j.CreatedAt.IsZero() || j.CreatedAt.After(time.Now().Add(time.Minute)) {
@@ -103,6 +103,10 @@ func validateJournal(j Journal, maxSize int) error {
 			}
 		}
 
+	case "suspend", "resume":
+		if len(j.IDs) == 0 || j.Target != j.Before || j.Count != 0 || j.Activity != "" || j.AcceptedMask != 0 {
+			return errors.New("invalid standby journal invariants")
+		}
 	}
 
 	return nil
@@ -112,7 +116,7 @@ func sameJournalIntent(old, next Journal) bool {
 	if old.Kind != next.Kind || old.Token != next.Token || old.Before != next.Before || old.Count != next.Count || !old.CreatedAt.Equal(next.CreatedAt) || !slices.Equal(old.IDs, next.IDs) {
 		return false
 	}
-	if old.Kind == "increase" || old.Activity != "" {
+	if old.Kind != "remove" || old.Activity != "" {
 		return old.Target == next.Target && old.Activity == next.Activity && old.AcceptedMask == next.AcceptedMask
 	}
 	return true // A prepared removal may record its accepted subset and activity.
