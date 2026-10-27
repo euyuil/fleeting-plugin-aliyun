@@ -20,6 +20,26 @@ driver before executing the Manager. Use `gitlab-runner list --config <example>`
 actual Runner parser without contacting GitLab. `tools/check-configs.py` also
 checks finite limits and executor configuration boundaries using Python 3.11+.
 
+## Network connectivity before live acceptance
+
+The manual **Network connectivity** workflow probes verified public HTTPS to the
+US East ECS endpoint, the ESS endpoint and STS without cloud credentials. Store
+the temporary ECS public IPv4 address in `ALIYUN_NETWORK_PROBE_HOST` and its
+independently verified Ed25519 host-key fingerprint in
+`ALIYUN_NETWORK_PROBE_HOST_KEY_SHA256`, both as repository secrets. No SSH client
+private key is uploaded. Remove these temporary secrets after the test.
+
+Download the early `network-egress` artifact while the workflow runs. Add only
+that runner's IPv4 /32 to the test instance's security group for TCP port 22.
+The probe waits up to four minutes and compares the scanned public host key.
+The scan does not prove possession of the server's private host key. An unsigned
+API's HTTP error response proves HTTPS reachability, not API authorization.
+This workflow does not create or clean up cloud resources. The operator owns
+the separately authorized instance, narrow rule and final cleanup. A passing
+probe does not establish authenticated SSH client access, worker egress or
+plugin/GitLab acceptance; verify those separately. The result artifact contains
+statuses and timings without the target address.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its
