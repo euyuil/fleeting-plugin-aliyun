@@ -7,7 +7,7 @@
   "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
   "runner_version": "19.5.1",
   "fleeting_version": "v0.0.0-20260915191451-6ed75a33d303",
-  "cloud_resources_created": false,
+  "cloud_resources_created": true,
   "capabilities": [
     {
       "capability": "provider_protocol",
@@ -157,10 +157,10 @@
     "M4": "local_distribution_complete_external_publication_not_run"
   },
   "cleanup": {
-    "cloud_resources_created": false,
-    "cloud_cleanup": "NOT_RUN_NO_CLOUD_OPERATIONS",
+    "cloud_resources_created": true,
+    "cloud_cleanup": "PASS_CONNECTIVITY_PREFLIGHT",
     "known_cloud_leftovers": [],
-    "limitation": "No account-wide resource inventory was performed; this statement covers only operations from this task."
+    "limitation": "Only the isolated connectivity preflight ran. Provider-managed release, ESS lifecycle and GitLab job cleanup remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -181,5 +181,32 @@
     "GITLAB_RUNNER_TOKEN",
     "GITLAB_API_TOKEN",
     "WORKER_SSH_PRIVATE_KEY"
-  ]
+  ],
+  "connectivity_preflight": {
+    "status": "pass",
+    "date": "2026-10-27",
+    "scope": "Direct ECS boot, SSH and GitHub connectivity; provider/GitLab acceptance remains unrun",
+    "region": "us-east-1",
+    "zone": "us-east-1b",
+    "instance_type": "ecs.e-c4m1.large",
+    "instance_count": 1,
+    "image_id": "ubuntu_26_04_x64_20G_alibase_20260916.vhd",
+    "system_disk": {
+      "category": "cloud_essd",
+      "performance_level": "PL0",
+      "size_gib": 20
+    },
+    "swap_mib": 512,
+    "boot": "pass",
+    "direct_authenticated_ssh": "pass",
+    "guest_github_https": "pass",
+    "github_runner_public_api_https": "pass",
+    "github_runner_ssh_public_key_scan": "pass",
+    "github_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40531496389",
+    "cleanup": "pass",
+    "owned_resources_remaining": 0,
+    "consecutive_absence_confirmations": 2,
+    "temporary_github_secrets_retained": false,
+    "local_private_keys_retained": false
+  }
 }
