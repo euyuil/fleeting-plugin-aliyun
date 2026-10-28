@@ -71,7 +71,7 @@
       "offline_validation": "pass",
       "live_validation": "partial_pass",
       "gap": "Not all nine methods or a GitLab job were live exercised.",
-      "verified_scope": "Real gRPC plugin single/two-worker scaling, ready-worker and accepted-creation/removal restarts, authenticated SSH and normal release."
+      "verified_scope": "Real gRPC scaling, ready-worker and accepted-creation/removal restarts, plus instrumented lost-expansion-response restart; authenticated SSH and normal release."
     },
     {
       "capability": "scale_out",
@@ -94,8 +94,8 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Live multi-page snapshots and lost API responses remain unverified.",
-      "verified_scope": "Ready-worker, accepted-creation and accepted-removal plugin restart: original identities and activities retained, SSH before removal, and normal zero with the recovered removal journal cleared."
+      "gap": "Live multi-page snapshots, lost removal responses and other fault timings remain unverified.",
+      "verified_scope": "Ready-worker, accepted-creation/removal and instrumented lost-expansion-response restarts. The lost-response scenario forwarded one expansion to ESS; its restart retry issued no additional expansion, retained the original activity/worker and passed SSH and normal zero."
     },
     {
       "capability": "eventual_consistency",
@@ -213,7 +213,7 @@
     "offline_validation": "pass",
     "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
     "entry_point": "docs/testing.md",
-    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart and cloud-remove-restart passed with real plugins and CLI OAuth. GitLab jobs, lost-response recovery, interruption/suspend, GitHub OIDC and the scheduled janitor remain unrun."
+    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart and cloud-increase-response-loss passed with CLI OAuth. The response-loss case uses a responsegate test build. GitLab jobs, lost-removal-response recovery, interruption/suspend, GitHub OIDC and scheduled janitor remain unrun."
   },
   "milestones": {
     "M0": "complete",
@@ -226,7 +226,7 @@
     "cloud_resources_created": true,
     "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_CYCLES",
     "known_cloud_leftovers": [],
-    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts and one accepted-removal cycle were confirmed absent twice per isolated attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
+    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -972,6 +972,201 @@
       "vpc"
     ],
     "temporary_keys_retained": false,
+    "cloud_credentials_on_worker": false,
+    "github_cloud_secrets_created": false,
+    "gitlab_job_executed": false,
+    "report": "docs/acceptance-report.md"
+  },
+  "plugin_cloud_increase_response_loss": {
+    "status": "pass",
+    "date": "2026-10-28",
+    "mode": "cloud-increase-response-loss",
+    "scope": "Fault-injected real ESS response loss before SDK delivery; old Increase pending at termination, new process retry without another cloud expansion, one worker/SSH and normal zero before cleanup; no GitLab",
+    "binary_kind": "responsegate_test_build",
+    "response_gate_instrumented": true,
+    "unmodified_release_artifact": false,
+    "natural_packet_loss": false,
+    "plugin_commit": "a27d9887f18fc5b8a5ede075c810b1a59223ec79",
+    "integrated_commit": "87c1c742e25943db3d78895d63b8ee5a05d6ed53",
+    "plugin_sha256": "ddf2757d3c213981648f481a5f9dce320300f35484323929ec562bb174c98ea3",
+    "real_plugin_process": true,
+    "region": "us-east-1",
+    "zone": "us-east-1b",
+    "instance_type": "ecs.e-c4m1.large",
+    "image_id": "ubuntu_26_04_x64_20G_alibase_20260916.vhd",
+    "vcpu": 2,
+    "memory_mib": 512,
+    "system_disk": {
+      "category": "cloud_essd",
+      "performance_level": "PL0",
+      "size_gib": 20,
+      "delete_with_instance": true
+    },
+    "configured_swap_mib": 512,
+    "swap_runtime_verified": false,
+    "actual_configuration_verified": true,
+    "spot_only": true,
+    "on_demand_fallback": false,
+    "credential_mode": "local_cli_oauth",
+    "attempt_count": 1,
+    "instances_created_total": 1,
+    "instance_limit": 1,
+    "cumulative_creation_budget": 1,
+    "upstream_http_status": 200,
+    "response_delivered_to_old_plugin": false,
+    "old_increase_pending_before_kill": true,
+    "old_increase_returned_acceptance": false,
+    "journal_token_matches_gate": true,
+    "old_process_exit_confirmed": true,
+    "peer_closed_after_termination_signal": true,
+    "distinct_plugin_pids": true,
+    "retry_increase_accepted": 0,
+    "scale_to_one_attempts": 1,
+    "scale_to_one_forwarded": 1,
+    "restart_recovered": true,
+    "accepted_activity_created_exactly_one": true,
+    "activity_ids_unchanged_through_recovered_ssh": true,
+    "authenticated_ssh_after_restart": true,
+    "ssh_server_host_key_verified": false,
+    "normal_release_before_fallback_cleanup": true,
+    "labels": "Synthetic worker, activity, group, intent, request and process labels; cloud IDs, idempotency tokens and local PIDs remain private.",
+    "transitions": [
+      {
+        "action": "initial",
+        "desired_capacity": 0,
+        "total_capacity": 0
+      },
+      {
+        "action": "plugin_restart_with_lost_increase_response",
+        "after_old_exit": {
+          "observed_at": "2026-10-28T06:52:54.886589Z",
+          "activity": "activity_a",
+          "activity_status": "InProgress",
+          "activity_trigger_type": "Ess",
+          "completed_zero_capacity_api_records": 1,
+          "activity_count": 2,
+          "journal_kind": "increase",
+          "journal_target": 1,
+          "desired_capacity": 1,
+          "total_capacity": 1,
+          "pending_capacity": 0,
+          "member_count": 1,
+          "member_lifecycle": "Init",
+          "ecs_state": "NotAssigned",
+          "instance_id_reported": false
+        },
+        "after_old_exit_response": {
+          "received_at": "2026-10-28T06:52:52.070006Z",
+          "accepted_at": "2026-10-28T06:52:52.892838Z",
+          "group": "group_a",
+          "intent": "intent_a",
+          "request": "request_a",
+          "upstream_http_status": 200,
+          "client_closed_at": "2026-10-28T06:52:54.054729Z",
+          "scale_to_one_forwarded": 1,
+          "response_held": true,
+          "response_delivered": false
+        },
+        "before": {
+          "observed_at": "2026-10-28T06:52:53.763819Z",
+          "activity": "activity_a",
+          "activity_status": "InProgress",
+          "activity_trigger_type": "Ess",
+          "completed_zero_capacity_api_records": 1,
+          "activity_count": 2,
+          "journal_kind": "increase",
+          "journal_target": 1,
+          "desired_capacity": 1,
+          "total_capacity": 1,
+          "pending_capacity": 0,
+          "member_count": 1,
+          "member_lifecycle": "Init",
+          "ecs_state": "NotAssigned",
+          "instance_id_reported": false
+        },
+        "held_response": {
+          "received_at": "2026-10-28T06:52:52.070006Z",
+          "accepted_at": "2026-10-28T06:52:52.892838Z",
+          "group": "group_a",
+          "intent": "intent_a",
+          "request": "request_a",
+          "upstream_http_status": 200,
+          "client_closed_at": null,
+          "scale_to_one_forwarded": 1,
+          "response_held": true,
+          "response_delivered": false
+        },
+        "new_plugin": "process_b",
+        "observed_at": "2026-10-28T06:52:59.295804Z",
+        "old_increase_pending_before_kill": true,
+        "old_increase_returned_acceptance": false,
+        "old_plugin": "process_a",
+        "old_process_exit_confirmed": true,
+        "response_delivered": false,
+        "retry_increase_accepted": 0,
+        "scale_to_one_forwarded": 1,
+        "termination_started_at": "2026-10-28T06:52:54.05083Z"
+      },
+      {
+        "action": "plugin_increase",
+        "desired_capacity": 1,
+        "workers": [
+          "worker_a"
+        ],
+        "observed_at": "2026-10-28T06:53:10.981967Z",
+        "total_capacity": 1
+      },
+      {
+        "action": "actual_disk",
+        "category": "cloud_essd",
+        "delete_with_instance": true,
+        "worker": "worker_a",
+        "performance_level": "PL0",
+        "size_gib": 20
+      },
+      {
+        "action": "plugin_connect_info_ssh",
+        "worker": "worker_a",
+        "nonce_verified": true,
+        "observed_at": "2026-10-28T06:53:35.397993Z",
+        "sequence": 1
+      },
+      {
+        "accepted_activity_created_exactly_one": true,
+        "accepted_activity": "activity_a",
+        "action": "increase_response_loss_recovered",
+        "desired_capacity": 1,
+        "worker": "worker_a",
+        "observed_at": "2026-10-28T06:53:39.554049Z",
+        "scaling_activity_ids_unchanged": true,
+        "ssh_after_restart": true,
+        "total_capacity": 1
+      },
+      {
+        "action": "plugin_decrease",
+        "associated_resources_absent": true,
+        "desired_capacity": 0,
+        "observed_at": "2026-10-28T06:54:16.962891Z",
+        "total_capacity": 0
+      }
+    ],
+    "cleanup": "pass",
+    "owned_resources_remaining": 0,
+    "consecutive_absence_confirmations": 2,
+    "verified_resource_kinds": [
+      "instance",
+      "disk",
+      "eni",
+      "snapshot",
+      "scaling_group",
+      "launch_template",
+      "key_pair",
+      "security_group",
+      "vswitch",
+      "vpc"
+    ],
+    "temporary_keys_retained": false,
+    "gate_ca_file_retained": false,
     "cloud_credentials_on_worker": false,
     "github_cloud_secrets_created": false,
     "gitlab_job_executed": false,
