@@ -48,6 +48,12 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
    `GetCallerIdentity` must match the configured account. Every ARN must belong to that same account. Each scenario gets fresh
    one-hour STS credentials; no local profile fallback is permitted.
 
+The pinned CLI requires a configured profile before applying credential
+overrides. Each invocation receives a private temporary profile populated only
+from the fresh OIDC STS credentials. Its directory is mode 0700, its file is mode
+0600, and both are removed when the invocation returns or raises an exception.
+Credentials are never included in command arguments or acceptance artifacts.
+
 The acceptance role needs the [provider's ESS/ECS actions](cloud-api.md), plus
 fixture creation and cleanup. Fixture operations are VPC Create/Describe/Delete
 Vpc and VSwitch; ECS Create/Describe/DeleteSecurityGroup, AuthorizeSecurityGroup,
