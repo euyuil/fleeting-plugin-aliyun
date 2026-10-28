@@ -326,9 +326,9 @@ func (c *Client) Architecture(ctx context.Context, typ string) (string, error) {
 	for _, t := range out.InstanceTypes.InstanceType {
 		if t.InstanceTypeId == typ {
 			switch t.CpuArchitecture {
-			case "x86_64", "x64":
+			case "X86", "x86_64", "x64":
 				return "amd64", nil
-			case "arm64", "aarch64":
+			case "ARM", "arm64", "aarch64":
 				return "arm64", nil
 			}
 		}

@@ -277,7 +277,7 @@ func (f *Fake) Call(ctx context.Context, service, action string, q map[string]st
 	case "DescribeLifecycleHooks":
 		return assign(out, map[string]any{"TotalCount": f.Hooks})
 	case "DescribeInstanceTypes":
-		return assign(out, map[string]any{"InstanceTypes": map[string]any{"InstanceType": []map[string]string{{"InstanceTypeId": "ecs.test.small", "CpuArchitecture": "x86_64"}}}})
+		return assign(out, map[string]any{"InstanceTypes": map[string]any{"InstanceType": []map[string]string{{"InstanceTypeId": "ecs.test.small", "CpuArchitecture": "X86"}}}})
 	default:
 		return fmt.Errorf("unhandled fake API: %s", action)
 	}
