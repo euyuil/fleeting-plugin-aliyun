@@ -349,6 +349,33 @@ class Fixture:
                 path.unlink()
 
 
+def driver_diagnostic(receipt, code, log):
+    """Select public test facts without copying private log or receipt values."""
+    if not isinstance(receipt, dict):
+        receipt = {}
+    resources = receipt.get("resources", {})
+    resources = resources if isinstance(resources, dict) else {}
+    instances = resources.get("instances")
+    results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "CLEANUP_FAILED")
+    categories = set()
+    for error in re.findall(r"Alibaba Cloud API error: code=([^\s]+)", log):
+        category = "other_cloud_api"
+        for prefixes, label in ((("Forbidden", "AccessDenied", "Unauthorized", "NoPermission"), "authorization"),
+                                (("Quota", "LimitExceeded"), "quota"),
+                                (("InsufficientInstanceCapacity", "ResourceNotAvailable", "SoldOut"), "capacity"),
+                                (("Throttling",), "throttling"), (("TransportError",), "transport")):
+            if error.startswith(prefixes):
+                category = label
+                break
+        categories.add(category)
+    return {"exit_code": code, "result": receipt.get("result") if receipt.get("result") in results else "UNKNOWN",
+            "test_lines": sorted({int(n) for n in re.findall(r"(?m)^\s+extended_test\.go:([1-9][0-9]{0,4}):", log)}),
+            "api_error_categories": sorted(categories),
+            "workers_observed": len(instances) if isinstance(instances, list) else None,
+            "checks": {k: receipt.get(k) if type(receipt.get(k)) is bool else None for k in
+                       ("ssh_completed", "normal_release", "specified_release", "restart_recovered")}}
+
+
 def driver(fixture, root, manifest, cidr, config):
     mode = fixture.tags["fleeting-scenario"]
     binary = root / manifest["fault_binary" if mode == MODES[-1] else "normal_binary"]
@@ -387,8 +414,16 @@ def driver(fixture, root, manifest, cidr, config):
                 fixture.state["driver_group"] = None
                 fixture.save()
     path = fixture.directory / "evidence" / ("run-" + env["GITHUB_RUN_ID"] + "-" + env["GITHUB_RUN_ATTEMPT"]) / "extended-result.json"
-    receipt = json.loads(path.read_text())
-    if code or receipt.get("result") != "PASS" or receipt.get("mode") != mode or receipt.get("plugin_sha256") != expected_hash or receipt.get("plugin_commit") != manifest["candidate_sha"] or not receipt.get("normal_release") or receipt.get("resources", {}).get("cleanup_result") != "PASS":
+    try:
+        receipt = json.loads(path.read_text())
+    except (OSError, ValueError):
+        receipt = {}
+    receipt = receipt if isinstance(receipt, dict) else {}
+    resources = receipt.get("resources", {})
+    resources = resources if isinstance(resources, dict) else {}
+    if code or receipt.get("result") != "PASS" or receipt.get("mode") != mode or receipt.get("plugin_sha256") != expected_hash or receipt.get("plugin_commit") != manifest["candidate_sha"] or not receipt.get("normal_release") or resources.get("cleanup_result") != "PASS":
+        log = (fixture.directory / "driver.log").read_text(errors="replace")
+        print(json.dumps({"driver_diagnostic": driver_diagnostic(receipt, code, log)}), flush=True)
         raise ValueError("cloud scenario did not produce a passing candidate receipt")
     return expected_hash
 
