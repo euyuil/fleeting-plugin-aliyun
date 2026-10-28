@@ -40,6 +40,22 @@ The `main` ruleset requires the `offline` check from GitHub Actions before mergi
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 
+## Inspect the OIDC subject
+
+Before configuring the RAM role's trust policy, read the repository's current
+OIDC subject template and prefix. Replace `OWNER/REPOSITORY` with the target
+repository; this request does not change its OIDC settings:
+
+```sh
+gh api repos/OWNER/REPOSITORY/actions/oidc/customization/sub
+```
+
+Use the result as described in the [RAM setup guide](docs/pre-release-cloud.md#ram-setup-walkthrough).
+Do not infer the subject from the repository name alone: immutable subjects also
+include owner and repository IDs.
+
+## Manual cloud validation
+
 After configuring the new account's OIDC role and initial read-only policy,
 check identity and inventory access while paid acceptance remains disabled:
 

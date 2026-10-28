@@ -17,8 +17,8 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
 2. Create a RAM OIDC provider for issuer
    `https://token.actions.githubusercontent.com` and audience `sts.aliyuncs.com`.
    Create one RAM role for acceptance and cleanup. Configure its OIDC trust
-   for the exact subject `repo:OWNER/REPOSITORY:environment:aliyun-pre-release`.
-   Replace OWNER/REPOSITORY with this repository. Follow the
+   for the repository's exact `aliyun-pre-release` environment subject, resolved
+   using the RAM walkthrough below. Do not assume the name-only subject format. Follow the
    [official Alibaba OIDC action documentation](https://github.com/aliyun/configure-aliyun-credentials-action).
 3. Create the GitHub Actions environment **aliyun-pre-release**. Restrict its
    deployment branches to **main**. Keep emergency cleanup runnable without a
@@ -73,8 +73,21 @@ Dedicated account isolation is required even with these application checks.
    [official provider procedure](https://help.aliyun.com/en/ram/manage-an-oidc-idp).
 2. Open **Identities > Roles > Create role**, select the OIDC identity provider,
    or switch to the script editor. Create one role, for example
-   `fleeting-pre-release`. Replace the provider ARN and owner/repository
-   placeholders in this trust policy; keep the exact subject and `StringEquals`:
+   `fleeting-pre-release`. Before saving its trust policy, query the repository's
+   current OIDC subject settings using the
+   [contributor guide](../CONTRIBUTING.md#inspect-the-oidc-subject).
+   With `use_default: true`, append `:environment:aliyun-pre-release` to the
+   returned `sub_claim_prefix`. With `use_immutable_subject: true`, that prefix
+   includes immutable owner and repository IDs, for example
+   `repo:OWNER@OWNER_ID/REPOSITORY@REPOSITORY_ID`; a name-only subject will not
+   match it. For a customized template (`use_default: false`), inspect its
+   configured claims and actual environment subject instead of applying the
+   default suffix. Never log or share the full OIDC token. See
+   [GitHub's immutable subject format](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/).
+
+   Replace both placeholders below with the provider ARN and exact resolved
+   environment subject. Keep `StringEquals`; do not broaden trust with wildcards
+   or disable immutable subjects to work around a mismatch:
 
    ```json
    {
@@ -86,7 +99,7 @@ Dedicated account isolation is required even with these application checks.
        "Condition": {"StringEquals": {
          "oidc:iss": "https://token.actions.githubusercontent.com",
          "oidc:aud": "sts.aliyuncs.com",
-         "oidc:sub": "repo:OWNER/REPOSITORY:environment:aliyun-pre-release"
+         "oidc:sub": "EXACT_ENVIRONMENT_SUBJECT_FROM_GITHUB"
        }}
      }]
    }
