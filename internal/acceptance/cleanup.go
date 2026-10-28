@@ -250,7 +250,11 @@ func Cleanup(ctx context.Context, c *aliyun.Client, l *Ledger, expiredOnly bool)
 	}
 	// Every member in this exclusively owned test group is disposable. Zeroing
 	// intent also cancels pending creation, which specified-member deletion cannot.
-	if err = c.SetCapacity(ctx, 0, "cleanup-"+l.RunID+"-"+l.Attempt); err != nil {
+	// Multiple scenario groups share a CI run. Scope retries to this exact group
+	// so another scenario never reuses the token with different API parameters.
+	identity, _ := json.Marshal([]string{"cleanup", l.Region, l.GroupID, l.RunID, l.Attempt})
+	token := sha256.Sum256(identity)
+	if err = c.SetCapacity(ctx, 0, hex.EncodeToString(token[:])); err != nil {
 		return err
 	}
 	stable := 0

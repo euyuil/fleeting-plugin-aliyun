@@ -281,6 +281,10 @@ workers/disks/ENIs, template, key pair, security group, vSwitch and VPC. Two com
 inventories must confirm absence. Unknown creation outcomes are recorded before
 the call, reconciled through atomic ownership tags, and never blindly replayed.
 An unresolved create or ownership change prevents a clean result.
+The driver's emergency zero-capacity request uses a stable token scoped to the
+region, scaling group, CI run and attempt. Different scenario groups in one run
+cannot share a token, while retries for the same group retain their identity.
+Idempotency parameter conflicts have a fixed public diagnostic category.
 
 `Pre-release cloud janitor` runs independently after Release/Cloud acceptance,
 hourly, and on manual dispatch. It discovers labelled fixtures without relying

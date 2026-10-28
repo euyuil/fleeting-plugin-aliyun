@@ -376,6 +376,12 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(result["transport_error_categories"], ["authentication", "host_key", "timeout", "handshake"])
         self.assertNotIn("private", json.dumps(result))
 
+    def test_idempotency_conflicts_have_a_fixed_public_category(self):
+        log = 'Alibaba Cloud API error: code=IdempotentParameterMismatch request_id=private-request'
+        result = fixture.driver_diagnostic({}, 1, log)
+        self.assertEqual(result["api_error_categories"], ["idempotency_conflict"])
+        self.assertNotIn("private", json.dumps(result))
+
     @unittest.skipUnless(shutil.which("aliyun"), "pinned CLI is installed by CI for offline metadata checks")
     def test_fixture_requests_match_pinned_official_cli_metadata_without_credentials(self):
         version = subprocess.check_output(["aliyun", "version"], text=True)

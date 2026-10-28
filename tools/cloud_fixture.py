@@ -386,6 +386,7 @@ def driver_diagnostic(receipt, code, log):
     for error in re.findall(r"Alibaba Cloud API error: code=([^\s]+)", log):
         category = "other_cloud_api"
         for prefixes, label in ((("Forbidden", "AccessDenied", "Unauthorized", "NoPermission"), "authorization"),
+                                (("IdempotentParameterMismatch",), "idempotency_conflict"),
                                 (("Quota", "LimitExceeded"), "quota"),
                                 (("InsufficientInstanceCapacity", "ResourceNotAvailable", "SoldOut"), "capacity"),
                                 (("Throttling",), "throttling"), (("TransportError",), "transport")):
