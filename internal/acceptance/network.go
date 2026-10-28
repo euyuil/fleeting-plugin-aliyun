@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 
 	"github.com/euyuil/fleeting-plugin-aliyun/internal/aliyun"
 )
@@ -70,7 +71,7 @@ func EnsureIngress(ctx context.Context, c *aliyun.Client, l *Ledger, cidr string
 		return err
 	}
 	for _, p := range existing {
-		if p.SourceCidrIp == l.IngressCIDR && p.IpProtocol == "tcp" && p.PortRange == "22/22" {
+		if p.SourceCidrIp == l.IngressCIDR && strings.EqualFold(p.IpProtocol, "tcp") && p.PortRange == "22/22" {
 			return nil
 		}
 	}
@@ -106,7 +107,7 @@ func RemoveIngress(ctx context.Context, c *aliyun.Client, l *Ledger) error {
 			return errors.New("invalid owned ingress rule")
 		}
 		ones, bits := network.Mask.Size()
-		if bits != 32 || ones != 32 || p.IpProtocol != "tcp" || p.PortRange != "22/22" || p.SecurityGroupRuleId == "" {
+		if bits != 32 || ones != 32 || network.String() != l.IngressCIDR || !strings.EqualFold(p.IpProtocol, "tcp") || p.PortRange != "22/22" || p.SecurityGroupRuleId == "" {
 			return errors.New("owned rule has unexpected parameters")
 		}
 		var out struct{ RequestId string }
