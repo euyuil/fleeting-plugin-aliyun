@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe public US East API routes and a pinned, explicitly supplied SSH host."""
+"""Probe explicitly configured public Alibaba API routes and a pinned, explicitly supplied SSH host."""
 
 import argparse
 import base64
@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import socket
 import subprocess
 import time
@@ -28,8 +29,11 @@ def probe():
     expected = os.environ.get("NETWORK_PROBE_HOST_KEY_SHA256", "")
     if not host.is_global or not expected.startswith("SHA256:"):
         raise ValueError("A public IPv4 target and pinned SSH fingerprint are required")
+    endpoints = json.loads(os.environ.get("NETWORK_PROBE_ENDPOINTS", ""))
+    if not isinstance(endpoints, list) or not 1 <= len(endpoints) <= 10 or not all(isinstance(e, str) and re.fullmatch(r"(?:ecs|ess|sts)(?:\.[a-z0-9-]+)?\.aliyuncs\.com", e) for e in endpoints):
+        raise ValueError("Explicit official Alibaba API hostnames are required")
     results = []
-    for endpoint in ("ecs.us-east-1.aliyuncs.com", "ess.aliyuncs.com", "sts.aliyuncs.com"):
+    for endpoint in endpoints:
         started = time.monotonic()
         try:
             socket.getaddrinfo(endpoint, 443, type=socket.SOCK_STREAM)

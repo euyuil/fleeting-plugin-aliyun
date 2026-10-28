@@ -1,6 +1,19 @@
 name: Cloud acceptance
 on:
   workflow_call:
+    secrets:
+      RELEASE_ALIYUN_ACCOUNT_ID:
+        required: false
+      RELEASE_ALIYUN_ROLE_ARN:
+        required: false
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN:
+        required: false
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN:
+        required: false
+      RELEASE_ALIYUN_FIXTURE_CONFIG:
+        required: false
+      RELEASE_ALIYUN_CLEANUP_REGIONS:
+        required: false
     inputs:
       version:
         required: true
@@ -122,10 +135,12 @@ jobs:
       MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
       MODE: ${{ matrix.mode }}
       RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
-      RELEASE_ALIYUN_ACCOUNT_ID: ${{ vars.RELEASE_ALIYUN_ACCOUNT_ID }}
-      RELEASE_ALIYUN_ROLE_ARN: ${{ vars.RELEASE_ALIYUN_ROLE_ARN }}
-      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
-      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN || vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_FIXTURE_CONFIG || vars.RELEASE_ALIYUN_FIXTURE_CONFIG }}
+      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS || vars.RELEASE_ALIYUN_CLEANUP_REGIONS }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -151,8 +166,8 @@ jobs:
       - name: Obtain fresh credentials in the dedicated account
         uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
         with:
-          role-to-assume: ${{ vars.RELEASE_ALIYUN_ROLE_ARN }}
-          oidc-provider-arn: ${{ vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ env.RELEASE_ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
           audience: sts.aliyuncs.com
           role-session-expiration: 3600
           role-session-name: pre-release-${{ github.run_id }}

@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/euyuil/fleeting-plugin-aliyun/internal/aliyun"
 )
 
 type HeldIncrease struct {
@@ -40,6 +42,7 @@ type HeldIncrease struct {
 type ResponseGate struct {
 	mu           sync.Mutex
 	group        string
+	endpoint     string
 	transport    http.RoundTripper
 	server       *http.Server
 	address      string
@@ -53,14 +56,18 @@ type ResponseGate struct {
 	dropOnce     sync.Once
 }
 
-func NewResponseGate(group string) (*ResponseGate, error) {
+func NewResponseGate(region, group string) (*ResponseGate, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.ResponseHeaderTimeout = 15 * time.Second
-	return newResponseGate(group, transport)
+	return newResponseGate(region, group, transport)
 }
 
-func newResponseGate(group string, transport http.RoundTripper) (*ResponseGate, error) {
+func newResponseGate(region, group string, transport http.RoundTripper) (*ResponseGate, error) {
+	endpoint, err := aliyun.ESSEndpoint(region)
+	if err != nil {
+		return nil, err
+	}
 	if group == "" {
 		return nil, errors.New("response gate group is required")
 	}
@@ -79,7 +86,7 @@ func newResponseGate(group string, transport http.RoundTripper) (*ResponseGate, 
 	if err != nil {
 		return nil, err
 	}
-	leaf := &x509.Certificate{SerialNumber: serial(), DNSNames: []string{"ess.aliyuncs.com"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	leaf := &x509.Certificate{SerialNumber: serial(), DNSNames: []string{endpoint}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, pub, caKey)
 	if err != nil {
 		return nil, err
@@ -88,7 +95,7 @@ func newResponseGate(group string, transport http.RoundTripper) (*ResponseGate, 
 	if err != nil {
 		return nil, err
 	}
-	g := &ResponseGate{group: group, transport: transport, address: listener.Addr().String(), ca: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), accepted: make(chan struct{}), disconnected: make(chan struct{}), dropped: make(chan struct{})}
+	g := &ResponseGate{group: group, endpoint: endpoint, transport: transport, address: listener.Addr().String(), ca: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), accepted: make(chan struct{}), disconnected: make(chan struct{}), dropped: make(chan struct{})}
 	g.server = &http.Server{Handler: g, ReadHeaderTimeout: 5 * time.Second, ErrorLog: log.New(io.Discard, "", 0)}
 	tlsListener := tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}, Certificates: []tls.Certificate{{Certificate: [][]byte{der, caDER}, PrivateKey: key}}})
 	go func() { _ = g.server.Serve(tlsListener) }()
@@ -147,7 +154,7 @@ func (g *ResponseGate) fail(message string) {
 
 func (g *ResponseGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	receivedAt := time.Now().UTC()
-	if (r.Host != "ess.aliyuncs.com" && r.Host != "ess.aliyuncs.com:443") || r.Method != "POST" || r.URL.Path != "/" || r.Header.Get("Expect") != "" {
+	if (r.Host != g.endpoint && r.Host != g.endpoint+":443") || r.Method != "POST" || r.URL.Path != "/" || r.Header.Get("Expect") != "" {
 		g.fail("response gate received an unexpected host, method or path")
 		http.Error(w, "invalid gate request", http.StatusBadRequest)
 		return
@@ -186,7 +193,7 @@ func (g *ResponseGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	forward := r.Clone(r.Context())
-	forward.URL.Scheme, forward.URL.Host = "https", "ess.aliyuncs.com"
+	forward.URL.Scheme, forward.URL.Host = "https", g.endpoint
 	forward.RequestURI = ""
 	forward.Body = io.NopCloser(bytes.NewReader(body))
 	response, err := g.transport.RoundTrip(forward)

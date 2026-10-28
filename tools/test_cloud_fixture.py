@@ -1,5 +1,6 @@
 """Exercise fixture ownership, partial writes, account isolation and failed cleanup offline."""
 import argparse
+import base64
 import copy
 from datetime import datetime, timedelta, timezone
 import json
@@ -8,16 +9,19 @@ from pathlib import Path
 import re
 import subprocess
 import shutil
+import sys
 import tempfile
 import traceback
 import unittest
 from unittest import mock
 
 import cloud_fixture as fixture
+from test_cloud_config import CONFIG, CONFIG_ENV
 
 
 class FakeCloud:
     def __init__(self):
+        self.region = CONFIG["region"]
         self.rows = {kind: [] for kind in fixture.SPECS}
         self.calls = []
         self.fail_create = False
@@ -73,7 +77,7 @@ class FixtureTests(unittest.TestCase):
             path.write_text("synthetic private key\n")
             path.with_suffix(".pub").write_text("synthetic public key\n")
         with mock.patch("subprocess.run", side_effect=keygen):
-            self.owner.prepare("192.0.2.1/32")
+            self.owner.prepare("192.0.2.1/32", CONFIG)
         self.assertTrue(self.owner.name.startswith("fleeting-pre-release-smoke-123-"))
         for _, action, params in self.cloud.calls:
             if action.startswith(("Create", "Import")):
@@ -81,9 +85,16 @@ class FixtureTests(unittest.TestCase):
                 for key, value in fixture.tag_args(self.tags, prefix).items():
                     self.assertEqual(params[key], value)
         template = next(p for _, a, p in self.cloud.calls if a == "CreateLaunchTemplate")
-        self.assertEqual(template["SystemDisk.PerformanceLevel"], "PL0")
-        self.assertEqual(template["SystemDisk.Size"], 20)
-        self.assertEqual(template["InstanceType"], fixture.INSTANCE_TYPE)
+        self.assertEqual(template["SystemDisk.PerformanceLevel"], CONFIG["disk_performance_level"])
+        self.assertEqual(template["SystemDisk.Size"], CONFIG["disk_size_gib"])
+        for field, key in (("InstanceType", "instance_type"), ("ImageId", "image"), ("ZoneId", "zone"),
+                           ("SystemDisk.Category", "disk_category"), ("SpotDuration", "spot_duration"),
+                           ("InternetMaxBandwidthOut", "internet_max_bandwidth_out")):
+            self.assertEqual(template[field], CONFIG[key])
+        user_data = base64.b64decode(template["UserData"]).decode()
+        self.assertIn("size: " + str(CONFIG["swap_mib"] * 1024 * 1024), user_data)
+        for action, key in (("CreateVpc", "vpc_cidr"), ("CreateVSwitch", "vswitch_cidr")):
+            self.assertEqual(next(p["CidrBlock"] for _, a, p in self.cloud.calls if a == action), CONFIG[key])
         self.assertEqual(template["SpotStrategy"], "SpotAsPriceGo")
         self.assertEqual(template["AutoReleaseTime"], self.tags["fleeting-fixture-expires"])
         self.assertTrue(set(fixture.tag_args(self.tags)) <= template.keys())
@@ -137,7 +148,7 @@ class FixtureTests(unittest.TestCase):
         manifest = {"candidate_sha": "a" * 40, "version": "1.0.0"}
         args = argparse.Namespace(root=root, digest="d" * 64, sha="a" * 40, version="1.0.0", mode="cloud-smoke",
                                   directory=self.directory / "private", receipt=self.directory / "public.json")
-        env = {"GITHUB_REPOSITORY": "example/plugin", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}
+        env = {**CONFIG_ENV, "GITHUB_REPOSITORY": "example/plugin", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}
         with mock.patch.dict(os.environ, env):
             with mock.patch("cloud_fixture.verify", return_value=manifest), mock.patch("cloud_fixture.Cloud"), mock.patch("cloud_fixture.require_linux"):
                 with mock.patch("subprocess.check_output", return_value="192.0.2.1"), mock.patch.object(fixture.Fixture, "prepare"):
@@ -152,12 +163,25 @@ class FixtureTests(unittest.TestCase):
     def test_janitor_can_recover_without_local_ledger_and_preserves_active_other_attempt(self):
         self.cloud.rows["vpc"] = [{"VpcId": "test-vpc", "VpcName": self.owner.name,
                                     "Tags": {"Tag": [{"Key": k, "Value": v} for k, v in self.tags.items()]}}]
-        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/plugin"}):
+        with mock.patch.dict(os.environ, {**CONFIG_ENV, "GITHUB_REPOSITORY": "example/plugin"}):
             with mock.patch("cloud_fixture.Cloud", return_value=self.cloud), mock.patch("time.sleep"), mock.patch("cloud_fixture.stopped_run", return_value=True):
                 fixture.janitor(self.directory / "recovery", "123", "2")
                 self.assertEqual(len(self.cloud.rows["vpc"]), 1)
                 fixture.janitor(self.directory / "recovery", "123", "1")
                 self.assertEqual(self.cloud.rows["vpc"], [])
+
+    def test_all_cleanup_regions_are_attempted_without_fixture_config(self):
+        env = {"RELEASE_ALIYUN_CLEANUP_REGIONS": '["example-1","previous-2"]',
+               "RELEASE_ALIYUN_FIXTURE_CONFIG": "broken"}
+        with mock.patch.dict(os.environ, env), mock.patch("cloud_fixture.Cloud", side_effect=lambda region: region):
+            for error in (RuntimeError("unavailable"), TypeError("malformed tags"), KeyError("missing field")):
+                with self.subTest(error=type(error)), mock.patch("cloud_fixture.janitor_region", side_effect=[error, None]) as recover:
+                    with self.assertRaisesRegex(RuntimeError, "remaining regions were attempted"):
+                        fixture.janitor(self.directory)
+                    self.assertEqual([c.args[0] for c in recover.call_args_list], ["example-1", "previous-2"])
+            with mock.patch("cloud_fixture.janitor_region", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    fixture.janitor(self.directory)
 
     def test_unconfirmed_local_writer_prevents_fixture_deletion(self):
         self.owner.state["driver_group"] = 123
@@ -184,12 +208,15 @@ class FixtureTests(unittest.TestCase):
         binary.write_text("synthetic binary")
         manifest = {"fault_binary": "responsegate/plugin", "candidate_sha": "a" * 40,
                     "files": {"responsegate/plugin": fixture.digest(binary)}}
-        def interrupted(*_args, **_kwargs):
+        def interrupted(*_args, **kwargs):
+            for key, field in (("ALIYUN_REGION", "region"), ("ALLOWED_INSTANCE_TYPE", "instance_type"),
+                               ("ALLOWED_IMAGE_ID", "image"), ("ALLOWED_ZONE_ID", "zone")):
+                self.assertEqual(kwargs["env"][key], CONFIG[field])
             self.assertEqual(self.owner.state["driver_group"], "starting")
             raise KeyboardInterrupt()
         with mock.patch("subprocess.Popen", side_effect=interrupted):
             with self.assertRaises(KeyboardInterrupt):
-                fixture.driver(self.owner, self.directory / "candidate", manifest, "192.0.2.1/32")
+                fixture.driver(self.owner, self.directory / "candidate", manifest, "192.0.2.1/32", CONFIG)
         with self.assertRaisesRegex(ValueError, "writer termination is not confirmed"):
             self.owner.cleanup()
         self.assertEqual(self.cloud.calls, [])
@@ -203,7 +230,7 @@ class FixtureTests(unittest.TestCase):
             path.write_text("synthetic\n")
             path.with_suffix(".pub").write_text("synthetic\n")
         with mock.patch("subprocess.run", side_effect=keygen):
-            self.owner.prepare("192.0.2.1/32")
+            self.owner.prepare("192.0.2.1/32", CONFIG)
         with mock.patch("time.sleep"):
             self.owner.cleanup()
         def options(value):
@@ -224,6 +251,13 @@ class FixtureTests(unittest.TestCase):
 
 
 class IdentityAndInventoryTests(unittest.TestCase):
+    def test_preflight_flags_cannot_be_mistaken_for_read_only_mutations(self):
+        for operation in ("run", "janitor", "check"):
+            for flag in ("--read-only", "--cleanup"):
+                result = subprocess.run([sys.executable, fixture.__file__, operation, flag], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("apply only to preflight", result.stderr)
+
     def environment(self):
         return {"RELEASE_CLOUD_ACCEPTANCE_ENABLED": "true", "GITHUB_REF": "refs/heads/main",
                 "RELEASE_ALIYUN_ACCOUNT_ID": "1234567890123456",
@@ -234,9 +268,11 @@ class IdentityAndInventoryTests(unittest.TestCase):
     def test_only_explicit_separate_account_config_is_accepted(self):
         env = self.environment()
         self.assertEqual(fixture.preflight(env), "1234567890123456")
+        self.assertEqual(fixture.preflight({k: v for k, v in env.items() if k != "RELEASE_ALIYUN_CLEANUP_ROLE_ARN"}), "1234567890123456")
         for key, value in (("RELEASE_CLOUD_ACCEPTANCE_ENABLED", "false"), ("RELEASE_ALIYUN_ACCOUNT_ID", ""),
                            ("RELEASE_ALIYUN_ROLE_ARN", "acs:ram::9999999999999999:role/old"),
-                           ("GITHUB_REF", "refs/heads/feature")):
+                           ("GITHUB_REF", "refs/heads/feature"),
+                           ("RELEASE_ALIYUN_CLEANUP_ROLE_ARN", "acs:ram::9999999999999999:role/old")):
             with self.subTest(key=key):
                 invalid = {**env, key: value}
                 with self.assertRaises(ValueError):
@@ -248,12 +284,42 @@ class IdentityAndInventoryTests(unittest.TestCase):
         env = {**self.environment(), "ALIBABA_CLOUD_ACCESS_KEY_ID": "synthetic", "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "synthetic", "ALIBABA_CLOUD_SECURITY_TOKEN": "synthetic"}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(fixture.Cloud, "call", return_value={"AccountId": "9999999999999999"}) as call:
             with self.assertRaisesRegex(ValueError, "authenticated account differs"):
-                fixture.Cloud()
+                fixture.Cloud(CONFIG["region"])
             self.assertEqual(call.call_count, 1)
             self.assertEqual(call.call_args.args, ("sts", "GetCallerIdentity"))
 
+    def test_disabled_read_only_identity_still_rejects_foreign_accounts_and_writes(self):
+        env = {**self.environment(), "RELEASE_CLOUD_ACCEPTANCE_ENABLED": "false",
+               "ALIBABA_CLOUD_ACCESS_KEY_ID": "synthetic", "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "synthetic",
+               "ALIBABA_CLOUD_SECURITY_TOKEN": "synthetic"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch("subprocess.run") as run:
+            with self.assertRaises(ValueError):
+                fixture.Cloud(CONFIG["region"])
+            run.assert_not_called()
+            run.return_value = subprocess.CompletedProcess([], 0, '{"AccountId":"1234567890123456"}')
+            cloud = fixture.Cloud(CONFIG["region"], read_only=True)
+            self.assertEqual(run.call_count, 1)
+            for service, action in (("ecs", "RunInstances"), ("ecs", "DeleteInstance"), ("ess", "ScaleWithAdjustment")):
+                with self.assertRaisesRegex(ValueError, "only identity"):
+                    cloud.call(service, action)
+            self.assertEqual(run.call_count, 1)
+            run.return_value = subprocess.CompletedProcess([], 0, '{"AccountId":"9999999999999999"}')
+            with self.assertRaisesRegex(ValueError, "authenticated account differs"):
+                fixture.Cloud(CONFIG["region"], read_only=True)
+
+    def test_configuration_check_only_reads_each_inventory_and_never_enables_acceptance(self):
+        env = {**CONFIG_ENV, "RELEASE_CLOUD_ACCEPTANCE_ENABLED": "false"}
+        with mock.patch.dict(os.environ, env), mock.patch("cloud_fixture.Cloud") as cloud:
+            fixture.check_configuration()
+            cloud.assert_called_once_with(CONFIG["region"], read_only=True)
+            self.assertEqual([c.args[0] for c in cloud.return_value.inventory.call_args_list], list(fixture.SPECS))
+            self.assertEqual(os.environ["RELEASE_CLOUD_ACCEPTANCE_ENABLED"], "false")
+            cloud.return_value.call.assert_not_called()
+
     def test_pagination_rejects_incomplete_or_duplicated_inventory(self):
         cloud = object.__new__(fixture.Cloud)
+        cloud.region = CONFIG["region"]
+        cloud.read_only = False
         for response in ({"Vpcs": {"Vpc": []}}, {"TotalCount": 1, "Vpcs": {"Vpc": []}},
                          {"TotalCount": 2, "Vpcs": {"Vpc": [{"VpcId": "vpc-test"}, {"VpcId": "vpc-test"}]}}):
             with mock.patch.object(cloud, "call", return_value=response):
@@ -275,6 +341,8 @@ class IdentityAndInventoryTests(unittest.TestCase):
 
     def test_cloud_command_errors_never_print_private_request_arguments(self):
         cloud = object.__new__(fixture.Cloud)
+        cloud.region = CONFIG["region"]
+        cloud.read_only = False
         sensitive = "synthetic-host-private-key-and-access-key-and-token"
         def fail(command, **_kwargs):
             raise subprocess.TimeoutExpired(command, 60, output=sensitive, stderr=sensitive)
