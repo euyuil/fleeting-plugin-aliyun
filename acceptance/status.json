@@ -147,8 +147,8 @@
       "capability": "instance_executor",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Real plugin process and Alibaba Cloud SSH passed; no live GitLab executor job has run."
+      "live_validation": "failed_during_preparation",
+      "gap": "The released-plugin GitLab job timed out during executor preparation, before checkout or the fixture script. No successful full-job acceptance."
     },
     {
       "capability": "docker_autoscaler",
@@ -213,12 +213,12 @@
     "offline_validation": "pass",
     "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
     "entry_point": "docs/testing.md",
-    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart and cloud-increase-response-loss passed with CLI OAuth. The response-loss case uses a responsegate test build. GitLab jobs, lost-removal-response recovery, interruption/suspend, GitHub OIDC and scheduled janitor remain unrun."
+    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart and cloud-increase-response-loss passed with CLI OAuth. The response-loss case uses a responsegate test build. The first GitLab job failed during preparation. Successful job acceptance, lost-removal-response recovery, interruption/suspend, GitHub OIDC and scheduled janitor remain unrun."
   },
   "milestones": {
     "M0": "complete",
     "M1": "offline_complete",
-    "M2": "tooling_complete_plugin_smoke_scale_restart_pass_gitlab_job_not_run",
+    "M2": "tooling_complete_plugin_smoke_scale_restart_pass_gitlab_job_failed_preparation",
     "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
     "M4": "prerelease_published_anonymous_runner_installation_verified"
   },
@@ -226,7 +226,7 @@
     "cloud_resources_created": true,
     "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_CYCLES",
     "known_cloud_leftovers": [],
-    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
+    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. The failed released-job and image-preparation fixtures were also independently cleaned and confirmed absent twice. Normal GitLab job cleanup, the scheduled janitor and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -276,7 +276,7 @@
     "local_private_keys_retained": false
   },
   "gitlab_validation_status": "NOT_RUN_MISSING_CONFIGURATION",
-  "missing_live_configuration_scope": "Reusable GitLab/GitHub OIDC acceptance environment; ephemeral local smoke inputs and resources were removed.",
+  "missing_live_configuration_scope": "GitHub Live acceptance workflow; the local private fixture is configured separately.",
   "plugin_cloud_smoke": {
     "status": "pass",
     "date": "2026-10-28",
@@ -1171,5 +1171,44 @@
     "github_cloud_secrets_created": false,
     "gitlab_job_executed": false,
     "report": "docs/acceptance-report.md"
+  },
+  "gitlab_job_acceptance": {
+    "status": "not_passed",
+    "release_version": "0.1.0-rc.2",
+    "release_source_revision": "795f07f5c2771bf7f84154c6892d90ba77f26b8b",
+    "runner_version": "19.5.1",
+    "private_fixture_configured": true,
+    "dedicated_locked_project_runner": true,
+    "instance_job": {
+      "driver_result": "CLEANUP_FAILED",
+      "job_status": "failed",
+      "phase": "prepare_executor",
+      "job_timeout_seconds": 300,
+      "fixture_script_executed": false,
+      "successful_artifact": false,
+      "normal_release": false,
+      "spot_instances_created": 1,
+      "outer_full_cleanup": "PASS",
+      "absence_confirmations": 2
+    },
+    "image_preparation": {
+      "result": "FAIL_INFRASTRUCTURE",
+      "reason": "cloud_init_killed_by_kernel_oom_during_boot",
+      "instance_type": "ecs.e-c4m1.large",
+      "vcpus": 2,
+      "memory_gib": 0.5,
+      "spot_instances_created": 1,
+      "custom_images_created": 0,
+      "full_cleanup": "PASS",
+      "absence_confirmations": 2
+    },
+    "docker_autoscaler_job": "not_run",
+    "total_spot_instances_created": 2,
+    "task_cloud_resources_remaining": 0,
+    "gitlab_project_and_runner_retained": true,
+    "temporary_private_keys_removed": true,
+    "gap": "A suitable explicitly selected worker type and prepared image are required before retrying. Neither execution mode has full GitLab job acceptance.",
+    "report": "docs/acceptance-report.md#released-plugin-job-preparation-attempts",
+    "manager_environment": "temporary_local_linux_amd64_container"
   }
 }
