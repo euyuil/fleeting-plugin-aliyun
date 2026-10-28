@@ -1,4 +1,4 @@
-//go:build !componenttest
+//go:build !componenttest && !responsegate
 
 package provider
 

@@ -71,7 +71,7 @@ func StopLocalManager(ctx context.Context, l *Ledger, outputDir string) error {
 		return errors.New("local process termination requires Linux procfs; use janitor after run completion")
 	}
 	if l.ManagerPID <= 0 {
-		if l.Mode == "cloud-smoke" || l.Mode == "cloud-scale" || l.Mode == "cloud-restart" || l.Mode == "cloud-create-restart" || l.Mode == "cloud-remove-restart" {
+		if l.Mode == "cloud-smoke" || l.Mode == "cloud-scale" || l.Mode == "cloud-restart" || l.Mode == "cloud-create-restart" || l.Mode == "cloud-remove-restart" || l.Mode == "cloud-increase-response-loss" {
 			return stopCloudPlugin(ctx, l, outputDir)
 		}
 		if (l.Mode == "scale" || l.Mode == "interruption" || l.Mode == "suspend") && l.DriverPID > 0 {

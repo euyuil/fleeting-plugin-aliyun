@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -33,7 +34,8 @@ func TestExtendedCloud(t *testing.T) {
 	mode := os.Getenv("LIVE_EXTENDED_MODE")
 	creatingRestart := mode == "cloud-create-restart"
 	removingRestart := mode == "cloud-remove-restart"
-	restartMode := mode == "cloud-restart" || creatingRestart || removingRestart
+	lostIncrease := mode == "cloud-increase-response-loss"
+	restartMode := mode == "cloud-restart" || creatingRestart || removingRestart || lostIncrease
 	pluginMode := mode == "cloud-smoke" || mode == "cloud-scale" || restartMode
 	required := []string{"ALIYUN_REGION", "ALIYUN_SCALING_GROUP_ID", "ACCEPTANCE_PROJECT", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "ALLOWED_INSTANCE_TYPE", "ALLOWED_IMAGE_ID", "ALLOWED_ZONE_ID", "WORKER_SSH_KEY", "WORKER_USER", "MANAGER_CIDR", "PLUGIN_COMMIT"}
 	missing := []string{}
@@ -45,12 +47,12 @@ func TestExtendedCloud(t *testing.T) {
 			missing = append(missing, key)
 		}
 	}
-	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "cloud-remove-restart", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
+	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "cloud-remove-restart", "cloud-increase-response-loss", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
 		dir := os.Getenv("ACCEPTANCE_OUTPUT")
 		if dir == "" {
 			dir = "../../.live/not-run"
 		}
-		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|cloud-restart|cloud-create-restart|cloud-remove-restart|scale|interruption|suspend"}); e != nil {
+		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|cloud-restart|cloud-create-restart|cloud-remove-restart|cloud-increase-response-loss|scale|interruption|suspend"}); e != nil {
 			t.Fatal(e)
 		}
 		t.Skip("NOT_RUN_MISSING_CONFIGURATION: extended live entry is explicitly disabled")
@@ -82,6 +84,21 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		digest := sha256.Sum256(binary)
 		pluginHash = hex.EncodeToString(digest[:])
+		if lostIncrease {
+			info, e := buildinfo.ReadFile(pluginPath)
+			if e != nil {
+				t.Fatal("plugin build information is unavailable")
+			}
+			var tags []string
+			for _, setting := range info.Settings {
+				if setting.Key == "-tags" {
+					tags = strings.FieldsFunc(setting.Value, func(r rune) bool { return r == ',' || r == ' ' })
+				}
+			}
+			if !slices.Contains(tags, "responsegate") || slices.Contains(tags, "componenttest") || os.Getenv("ALIYUN_REGION") != "us-east-1" {
+				t.Fatal("response-loss mode requires a responsegate build without componenttest and the fixed US East fixture")
+			}
+		}
 	}
 	sdk, err := aliyun.NewSDK(os.Getenv("ALIYUN_REGION"))
 	if err != nil {
@@ -143,6 +160,8 @@ func TestExtendedCloud(t *testing.T) {
 	var killPlugin func()
 	var startPlugin func() error
 	pluginPID := 0
+	var gate *acceptance.ResponseGate
+	var terminationStartedAt time.Time
 	normalReleased := false
 	sshCompleted := false
 	retainedVerified := false
@@ -151,6 +170,12 @@ func TestExtendedCloud(t *testing.T) {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer stop()
 		result := "PASS"
+		if lostIncrease && killPlugin != nil {
+			// A failed cutpoint can leave Increase blocked on the held response.
+			// Stop that writer before Shutdown or independent cloud cleanup.
+			killPlugin()
+			killPlugin, worker = nil, nil
+		}
 		if worker != nil {
 			if e := worker.Shutdown(cleanupCtx); e != nil {
 				t.Error(e)
@@ -158,6 +183,9 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		if killPlugin != nil {
 			killPlugin()
+		}
+		if gate != nil {
+			_ = gate.Close()
 		}
 		if e := acceptance.Cleanup(cleanupCtx, cloud, ledger, false); e != nil {
 			result = "CLEANUP_FAILED"
@@ -179,7 +207,7 @@ func TestExtendedCloud(t *testing.T) {
 			}
 			t.Error(e)
 		}
-		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": result, "mode": mode, "creation_budget": budget, "resources": ledger, "transitions": transitions, "plugin_commit": os.Getenv("PLUGIN_COMMIT"), "plugin_sha256": pluginHash, "real_plugin_process": pluginMode, "ssh_completed": sshCompleted, "normal_release": normalReleased, "specified_release": retainedVerified, "restart_recovered": restartVerified}); e != nil {
+		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": result, "mode": mode, "creation_budget": budget, "resources": ledger, "transitions": transitions, "plugin_commit": os.Getenv("PLUGIN_COMMIT"), "plugin_sha256": pluginHash, "real_plugin_process": pluginMode, "response_gate_instrumented": lostIncrease, "ssh_completed": sshCompleted, "normal_release": normalReleased, "specified_release": retainedVerified, "restart_recovered": restartVerified}); e != nil {
 			t.Error(e)
 		}
 	}()
@@ -212,6 +240,17 @@ func TestExtendedCloud(t *testing.T) {
 		quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 		launcher := filepath.Join(pluginDir, "launch.sh")
 		script := "#!/bin/sh\nset -eu\numask 077\nprintf '%s\\n' \"$$\" > " + quote(filepath.Join(pluginDir, "pid")) + "\nexec " + quote(copyPath) + "\n"
+		if lostIncrease {
+			gate, e = acceptance.NewResponseGate(cloud.GroupID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			caPath := filepath.Join(pluginDir, "gate-ca.pem")
+			if e = os.WriteFile(caPath, gate.CA(), 0600); e != nil {
+				t.Fatal(e)
+			}
+			script = strings.Replace(script, "\nexec ", "\nunset DEBUG GODEBUG\nexport ALIYUN_RESPONSE_GATE_ADDR="+quote(gate.Address())+"\nexport ALIYUN_RESPONSE_GATE_CA="+quote(caPath)+"\nexec ", 1)
+		}
 		if e = os.WriteFile(launcher, []byte(script), 0700); e != nil {
 			t.Fatal(e)
 		}
@@ -274,6 +313,7 @@ func TestExtendedCloud(t *testing.T) {
 		if e != nil {
 			return oldPID, e
 		}
+		terminationStartedAt = time.Now().UTC()
 		if e = old.Kill(); e != nil {
 			return oldPID, e
 		}
@@ -321,14 +361,108 @@ func TestExtendedCloud(t *testing.T) {
 		}
 	}
 	var creationBefore, creationAfter acceptance.CreatingSnapshot
-	if creatingRestart {
+	if creatingRestart || lostIncrease {
 		transitions = append(transitions, map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity})
 	}
 	increase := 1
 	if pluginMode {
 		increase = maxSize
 	}
-	if n, e := worker.Increase(ctx, increase); e != nil || n != increase {
+	if lostIncrease {
+		type increaseResult struct {
+			n   int
+			err error
+		}
+		returned := make(chan increaseResult, 1)
+		originalWorker := worker
+		go func() { n, e := originalWorker.Increase(ctx, 1); returned <- increaseResult{n, e} }()
+		heldCtx, stop := context.WithTimeout(ctx, 20*time.Second)
+		held, e := gate.Wait(heldCtx)
+		stop()
+		if e != nil {
+			t.Fatal("successful upstream response was not withheld", e)
+		}
+		pending := func() error {
+			select {
+			case <-returned:
+				return errors.New("old Increase returned before termination")
+			default:
+				return nil
+			}
+		}
+		capture := func() (acceptance.CreatingSnapshot, error) {
+			s, e := acceptance.CaptureCreating(ctx, cloud, ledger)
+			if e != nil {
+				return s, e
+			}
+			g, e := cloud.Group(ctx)
+			if e != nil {
+				return s, e
+			}
+			j, e := aliyun.ReadJournal(g)
+			if e != nil || j == nil || j.Token != held.ClientToken || held.GroupID != cloud.GroupID || held.RequestID == "" || held.HTTPStatus != 200 {
+				return s, errors.New("held response does not match the persisted expansion token")
+			}
+			return s, nil
+		}
+		creationBefore, e = capture()
+		if e != nil {
+			t.Fatal(e)
+		}
+		cutpointPath := filepath.Join(dir, "response-loss-cutpoint.json")
+		if e = acceptance.WriteJSON(cutpointPath, map[string]any{"held_response": held, "before": creationBefore}); e != nil {
+			t.Fatal(e)
+		}
+		current, e := gate.Receipt()
+		if e != nil || !current.Held || current.ResponseDelivered || current.Forwarded != 1 || !current.ClientClosedAt.IsZero() || time.Since(held.ReceivedAt) > 10*time.Second {
+			t.Fatal("upstream response is no longer held before termination", e)
+		}
+		if e = pending(); e != nil {
+			t.Fatal(e)
+		}
+		var disconnected acceptance.HeldIncrease
+		oldPID, e := restartPlugin(func() error {
+			var err error
+			creationAfter, err = capture()
+			if err != nil {
+				return err
+			}
+			if creationAfter.ActivityID != creationBefore.ActivityID || !slices.Equal(creationAfter.ActivityIDs, creationBefore.ActivityIDs) {
+				return errors.New("creation activity changed while the response was held")
+			}
+			proofCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			disconnected, err = gate.WaitDisconnect(proofCtx)
+			cancel()
+			if err != nil || disconnected.ClientClosedAt.Before(terminationStartedAt) || disconnected.ResponseDelivered || disconnected.Forwarded != 1 {
+				return errors.New("client disconnected before termination or another expansion was attempted")
+			}
+			if err = acceptance.WriteJSON(cutpointPath, map[string]any{"held_response": held, "after_old_exit_response": disconnected, "before": creationBefore, "after_old_exit": creationAfter, "termination_started_at": terminationStartedAt, "old_process_exit_confirmed": true, "old_increase_pending_before_kill": true}); err != nil {
+				return err
+			}
+			gate.DropHeld()
+			return nil
+		})
+		if e != nil {
+			t.Fatal(e)
+		}
+		select {
+		case old := <-returned:
+			if old.err == nil || old.n != 0 {
+				t.Fatal("old Increase unexpectedly returned acceptance")
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("old Increase did not terminate with its plugin")
+		}
+		retried, e := worker.Increase(ctx, 1)
+		if e != nil || retried < 0 || retried > 1 {
+			t.Fatal("retry did not reconcile the original expansion", retried, e)
+		}
+		proof, e := gate.Receipt()
+		if e != nil || proof.Forwarded != 1 || proof.ResponseDelivered {
+			t.Fatal("retry reissued an expansion", e)
+		}
+		transitions = append(transitions, map[string]any{"action": "plugin_restart_with_lost_increase_response", "held_response": held, "after_old_exit_response": disconnected, "before": creationBefore, "after_old_exit": creationAfter, "termination_started_at": terminationStartedAt, "old_plugin_pid": oldPID, "new_plugin_pid": pluginPID, "old_process_exit_confirmed": true, "old_increase_pending_before_kill": true, "old_increase_returned_acceptance": false, "retry_increase_accepted": retried, "response_delivered": false, "scale_to_one_forwarded": proof.Forwarded, "observed_at": time.Now().UTC()})
+	} else if n, e := worker.Increase(ctx, increase); e != nil || n != increase {
 		t.Fatal(n, e)
 	}
 	if creatingRestart {
@@ -389,7 +523,7 @@ func TestExtendedCloud(t *testing.T) {
 		if e != nil || current.DesiredCapacity != maxSize || current.TotalCapacity != maxSize {
 			t.Fatal("plugin scale-out did not reach the exact requested capacity", e)
 		}
-		if !creatingRestart {
+		if !creatingRestart && !lostIncrease {
 			transitions = append(transitions, map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity})
 		}
 		transitions = append(transitions, map[string]any{"action": "plugin_increase", "desired_capacity": current.DesiredCapacity, "total_capacity": current.TotalCapacity, "instance_ids": slices.Clone(ids), "observed_at": time.Now().UTC()})
@@ -471,7 +605,7 @@ func TestExtendedCloud(t *testing.T) {
 	for _, id := range ids {
 		runSSH(id)
 	}
-	if creatingRestart {
+	if creatingRestart || lostIncrease {
 		original := ids[0]
 		if (creationBefore.InstanceID != "" && creationBefore.InstanceID != original) || (creationAfter.InstanceID != "" && creationAfter.InstanceID != original) {
 			t.Fatal("creation restart produced a different worker")
@@ -499,7 +633,15 @@ func TestExtendedCloud(t *testing.T) {
 			return complete, nil
 		})
 		restartVerified = true
-		transitions = append(transitions, map[string]any{"action": "creation_restart_recovered", "instance_id": original, "accepted_activity_id": creationBefore.ActivityID, "accepted_activity_created_exactly_one": true, "scaling_activity_ids_unchanged": true, "ssh_after_restart": true, "desired_capacity": 1, "total_capacity": 1, "observed_at": time.Now().UTC()})
+		action := "creation_restart_recovered"
+		if lostIncrease {
+			proof, e := gate.Receipt()
+			if e != nil || proof.Forwarded != 1 || proof.ResponseDelivered || proof.Held {
+				t.Fatal("response-loss gate proof changed", e)
+			}
+			action = "increase_response_loss_recovered"
+		}
+		transitions = append(transitions, map[string]any{"action": action, "instance_id": original, "accepted_activity_id": creationBefore.ActivityID, "accepted_activity_created_exactly_one": true, "scaling_activity_ids_unchanged": true, "ssh_after_restart": true, "desired_capacity": 1, "total_capacity": 1, "observed_at": time.Now().UTC()})
 	}
 	if mode == "cloud-restart" {
 		original := ids[0]

@@ -17,6 +17,8 @@ jobs:
           cache: true
       - run: make deps build test lint
       - run: go test -race ./...
+      - run: go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
+      - run: go build -tags=responsegate -o bin/fleeting-plugin-aliyun-responsegate ./cmd/fleeting-plugin-aliyun
       - run: go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
       - run: make test-live-extended
         env:

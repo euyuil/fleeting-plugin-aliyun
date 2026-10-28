@@ -74,6 +74,17 @@ See [testing and acceptance](docs/testing.md) for explicit live configuration,
 `make live`, and `make cleanup`. These commands require separate cloud-operation
 authorization and do not run as part of normal PR validation.
 
+The response-loss acceptance mode uses a separate `responsegate` test build.
+Its credential-free checks are also required in CI:
+
+```sh
+go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
+go build -tags=responsegate -o bin/fleeting-plugin-aliyun-responsegate ./cmd/fleeting-plugin-aliyun
+```
+
+This build retains the real SDK and permits a per-process loopback TLS route.
+Ordinary release builds exclude that factory and ignore its environment variables.
+
 `make test-live-extended` compiles the tagged extended suites and reports a
 NOT_RUN skip unless explicit live switches and configuration are supplied.
 See the testing guide for modes and fixed budgets.
