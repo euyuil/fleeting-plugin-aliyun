@@ -15,6 +15,10 @@ type creatingAPI struct {
 	aliyun.API
 	body, activityState string
 	activityInstances   []string
+	controlRecord       bool
+	controlStatus       string
+	controlInstances    []string
+	controlCapacity     int
 	writes              int
 }
 
@@ -26,10 +30,39 @@ func (a *creatingAPI) Call(ctx context.Context, service, action string, q map[st
 		return json.Unmarshal([]byte(a.body), out)
 	}
 	if action == "DescribeScalingActivities" {
-		ids, _ := json.Marshal(a.activityInstances)
-		return json.Unmarshal([]byte(fmt.Sprintf(`{"TotalCount":1,"ScalingActivities":{"ScalingActivity":[{"ScalingActivityId":"activity-create","ScalingGroupId":"asg-test","StatusCode":%q,"CreatedInstances":{"CreatedInstance":%s}}]}}`, a.activityState, ids)), out)
+		activities := []map[string]any{}
+		if a.controlRecord {
+			activities = append(activities, map[string]any{"ScalingActivityId": "activity-desired", "ScalingGroupId": "asg-test", "StatusCode": a.controlStatus, "TriggerSourceType": "Api", "CreatedCapacity": a.controlCapacity, "CreatedInstances": map[string]any{"CreatedInstance": a.controlInstances}})
+		}
+		activities = append(activities, map[string]any{"ScalingActivityId": "activity-create", "ScalingGroupId": "asg-test", "StatusCode": a.activityState, "TriggerSourceType": "Ess", "CreatedInstances": map[string]any{"CreatedInstance": a.activityInstances}})
+		b, _ := json.Marshal(map[string]any{"TotalCount": len(activities), "ScalingActivities": map[string]any{"ScalingActivity": activities}})
+		return json.Unmarshal(b, out)
 	}
 	return a.API.Call(ctx, service, action, q, out)
+}
+
+func TestCreatingCutpointSeparatesDesiredCapacityRecordFromProvisioning(t *testing.T) {
+	for _, mode := range []string{"zero-success", "in-progress", "created-capacity", "created-id"} {
+		t.Run(mode, func(t *testing.T) {
+			c, _, wire, l := creatingFixture(t, `{"TotalCount":1,"ScalingInstances":{"ScalingInstance":[{"ScalingGroupId":"asg-test","LifecycleState":"Init"}]}}`)
+			wire.controlRecord, wire.controlStatus = true, "Successful"
+			switch mode {
+			case "in-progress":
+				wire.controlStatus = "InProgress"
+			case "created-capacity":
+				wire.controlCapacity = 1
+			case "created-id":
+				wire.controlInstances = []string{"i-extra"}
+			}
+			s, err := CaptureCreating(context.Background(), c, l)
+			if (err == nil) != (mode == "zero-success") || wire.writes != 0 {
+				t.Fatal("API record incorrectly changed provisioning proof", s, err)
+			}
+			if err == nil && (s.APIRecords != 1 || s.ActivityTrigger != "Ess" || s.ActivityID != "activity-create" || len(s.ActivityIDs) != 2) {
+				t.Fatal("provisioning identity or full history was lost", s)
+			}
+		})
+	}
 }
 
 func TestCreatingCutpointChecksHistoryIdentityDespiteLaggingMembership(t *testing.T) {

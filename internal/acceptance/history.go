@@ -14,9 +14,9 @@ import (
 var ErrInventoryNotReady = errors.New("associated resources are not yet visible")
 
 type HistoricalActivity struct {
-	ScalingActivityId, ScalingGroupId, StatusCode, StartTime string
-	CreatedCapacity                                          int
-	CreatedInstances                                         struct{ CreatedInstance []string }
+	ScalingActivityId, ScalingGroupId, StatusCode, StartTime, TriggerSourceType string
+	CreatedCapacity                                                             int
+	CreatedInstances                                                            struct{ CreatedInstance []string }
 }
 
 func History(ctx context.Context, c *aliyun.Client) ([]HistoricalActivity, error) {
