@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,8 +38,30 @@ func TestExtendedCleanupRequiresTerminatedDriver(t *testing.T) {
 }
 
 func TestPluginCloudCleanupRequiresOwnedPluginTermination(t *testing.T) {
-	for _, mode := range []string{"cloud-smoke", "cloud-scale"} {
+	for _, mode := range []string{"cloud-smoke", "cloud-scale", "cloud-restart"} {
 		t.Run(mode, func(t *testing.T) { checkOwnedPluginTermination(t, mode) })
+	}
+}
+
+func TestProcessExitProofRequiresADeadPositivePID(t *testing.T) {
+	for _, pid := range []int{-1, 0} {
+		if err := WaitForProcessExit(context.Background(), pid); err == nil {
+			t.Fatal("invalid PID was accepted")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := WaitForProcessExit(ctx, os.Getpid()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("running process was accepted as exited", err)
+	}
+	child := exec.Command("sh", "-c", "exit 0")
+	if err := child.Run(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stop := context.WithTimeout(context.Background(), time.Second)
+	defer stop()
+	if err := WaitForProcessExit(ctx, child.Process.Pid); err != nil {
+		t.Fatal("reaped process was not confirmed stopped", err)
 	}
 }
 

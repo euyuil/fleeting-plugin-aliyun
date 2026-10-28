@@ -97,6 +97,33 @@ cleanup. `specified_release=true` additionally requires the retained SSH check.
 The same stopped-driver/orphan-plugin proof and separate full fixture teardown
 apply. This mode does not require a prepared readiness marker, GitLab or Runner.
 
+### Plugin restart recovery without GitLab
+
+`LIVE_EXTENDED_MODE=cloud-restart` uses a separate empty **MaxSize=1** fixture
+with the same strict-Spot and exact type/image/zone constraints. The concurrent
+and cumulative worker limits are both **one**.
+
+```sh
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-restart make test-live-extended
+```
+
+The driver creates one worker through the real plugin and verifies actual disk
+configuration and an SSH nonce. It kills the owned plugin subprocess without
+calling provider `Shutdown`, reaps its transport, and proves the old PID has
+exited before launching a distinct PID from the same checksum-verified binary.
+A fresh `Init`/`Update` must rediscover the original running instance. No second
+`Increase` is issued. A new SSH nonce must pass on that same ID; desired/total
+capacity must remain one and the complete set of scaling activity IDs must be
+unchanged across the restart. The evidence records the journal kind observed
+before restart and sets `restart_recovered=true` only after these checks.
+
+The new process then performs specified scale-in to zero, with normal release
+and disk/ENI absence confirmed before fallback cleanup. The current PID proof
+supports independent orphan cleanup; the prior PID must already be gone before
+its file is replaced. Separate full fixture teardown remains required. This
+covers restart after a ready worker, with no GitLab or Runner. Restart during a
+lost API reply, pending provisioning or removal requires separate live evidence.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its

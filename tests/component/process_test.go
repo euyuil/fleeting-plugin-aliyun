@@ -96,6 +96,41 @@ func TestRealPluginProcessAndSSH(t *testing.T) {
 	}); err != nil || state != provider.StateRunning {
 		t.Fatal(state, err)
 	}
+	process.Kill()
+	if err = group.Update(ctx, func(string, provider.State) {}); err == nil {
+		t.Fatal("terminated plugin still served RPCs")
+	}
+	fake.Mu.Lock()
+	beforeRestart := len(fake.Calls)
+	fake.Mu.Unlock()
+	restarted, err := fleeting.RunPlugin(binary, []byte(`{"region":"cn-test-1","scaling_group_id":"asg-test","operation_timeout":"3s"}`), fleeting.WithPluginLogger(hclog.NewNullLogger()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Kill()
+	group = restarted.InstanceGroup()
+	if _, err = group.Init(ctx, hclog.NewNullLogger(), settings); err != nil {
+		t.Fatal(err)
+	}
+	var rediscovered []string
+	if err = group.Update(ctx, func(id string, s provider.State) {
+		if s == provider.StateRunning {
+			rediscovered = append(rediscovered, id)
+		}
+	}); err != nil || len(rediscovered) != 1 || rediscovered[0] != "i-local" {
+		t.Fatal("new process did not rediscover the original worker", rediscovered, err)
+	}
+	fake.Mu.Lock()
+	restartChangedCapacity := fake.Group.DesiredCapacity != 1 || len(fake.Instances) != 1
+	for _, call := range fake.Calls[beforeRestart:] {
+		if call.Action == "ScaleWithAdjustment" || call.Action == "RemoveInstances" {
+			restartChangedCapacity = true
+		}
+	}
+	fake.Mu.Unlock()
+	if restartChangedCapacity {
+		t.Fatal("restart mutated worker capacity")
+	}
 	if n, err := group.Increase(ctx, 1); n != 1 || err != nil {
 		t.Fatal(n, err)
 	}
