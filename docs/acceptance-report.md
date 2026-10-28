@@ -80,8 +80,8 @@ is not evidence that a live job or publication happened.
 
 ## Live acceptance and resource outcomes
 
-Plugin-only cloud smoke, two-worker scale-in and ready-worker restart recovery:
-**PASS** on 2026-10-28. Real plugin processes completed
+Plugin-only cloud smoke, two-worker scale-in, ready-worker restart and
+accepted-creation restart recovery: **PASS** on 2026-10-28. Real plugin processes completed
 **0→1→authenticated SSH→0**, **0→2→1→0**, and same-instance rediscovery/SSH after
 plugin termination. Full GitLab job acceptance is
 still **NOT_RUN_MISSING_CONFIGURATION**. No GitLab project/job, custom worker
@@ -246,11 +246,58 @@ same single instance ID, and no additional scaling activity appeared across the
 restart. Synthetic labels retain that relationship in the public JSON without
 publishing cloud IDs or local PIDs.
 
-This verifies restart after a ready worker with accepted increase intent. Lost
-API replies, provisioning/removal in progress, multi-page cloud snapshots and
-other recovery states still require separate live evidence. GitLab, restricted
+This verifies restart after a ready worker with accepted increase intent. The
+accepted-creation case is recorded separately below. Lost API replies, removal
+in progress, multi-page cloud snapshots and other recovery states remain unverified. GitLab, restricted
 roles/OIDC and upstream SSH server-host-key verification remain outside this
 run. See [the reproducible restart mode](testing.md#plugin-restart-recovery-without-gitlab).
+
+### Real restart during accepted creation
+
+A separate `cloud-create-restart` run on 2026-10-28 passed
+**0→accepted creation→plugin termination→one ready worker/SSH→0** without GitLab.
+The successful run executed source
+[`211678527cf7f1e4e04e6ac03badf8224a9d2f2d`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/211678527cf7f1e4e04e6ac03badf8224a9d2f2d),
+integrated as
+[`4e17e8d6664d8f4a3b7bd8925ea3a0bed34b45d9`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/4e17e8d6664d8f4a3b7bd8925ea3a0bed34b45d9).
+The plugin SHA-256 was
+`b56c17fae55381671371fc0ecf82debb88c3263c0d176922667d50d0efd97936`.
+It used the same minimum `us-east-1b` Spot type/image and 20 GiB ESSD PL0 disk.
+Actual instance/disk configuration and SSH passed. Configured swap remained
+512 MiB; runtime swap state was not measured.
+
+| Event | Observed evidence (UTC) |
+|---|---|
+| Request accepted | Real plugin `Increase(1)` returned accepted at 04:35:01.511043. No second Increase was issued. |
+| Before termination | At 04:35:02.292083, the persisted increase journal targeted 1; the unique provisioning activity was `Ess/InProgress`, and the member was `Init`. Neither activity nor membership reported an instance ID; the probe therefore recorded `NotAssigned`, without an ECS-ID-based power-state query. |
+| After old process exited | At 04:35:03.112724, the same activity and full activity-ID set remained; the member was still `Init` with no reported ID. The old PID was proven gone before a distinct new PID was launched. |
+| New process recovery | Fresh Init completed at 04:35:08; one actual running worker was observed at 04:35:13 and returned a fresh SSH nonce at 04:35:43. |
+| Original activity result | At 04:35:46, the original provisioning activity was successful with exactly that one created instance ID; no additional activity IDs had appeared. |
+| Normal 1→0 | New plugin released the worker; ESS/ECS zero and disk/ENI absence were verified at 04:36:35 before fallback cleanup. |
+| Full teardown | Driver/plugin stopped; all owned resources across ten checked kinds were absent in two complete independent inventories. Temporary keys and encoded server-key user data were removed. |
+
+The successful attempt created exactly one Spot instance with concurrency and
+cumulative creation limits both one, no replacements and no on-demand fallback.
+The driver and independent resource audit recorded `PASS`, with
+`restart_recovered=true` and `normal_release=true`. The two timing captures were
+persisted before recovery continued; they establish the pre-readiness cutpoint
+without treating an unassigned ID as a normal membership or cleanup identity.
+
+There were two isolated attempts and two Spot instances in total, one each.
+The first probe rejected the completed API desired-capacity record accompanying
+the actual provisioning activity, before it terminated the plugin. That failed
+attempt was fully cleaned and confirmed absent twice before the successful
+retry. The corrected probe distinguishes the successful zero-creation `Api`
+record from the `Ess/InProgress` provisioning activity, while retaining all
+activity IDs in comparisons. The [official activity contract](https://help.aliyun.com/en/auto-scaling/developer-reference/api-ess-2014-08-28-describescalingactivities)
+defines those trigger sources. Tooling and the observed-contract fix were
+merged in [#30](https://github.com/euyuil/fleeting-plugin-aliyun/pull/30) and
+[#31](https://github.com/euyuil/fleeting-plugin-aliyun/pull/31).
+
+This covers an acknowledged expansion during provisioning. Lost API replies,
+removal in progress, multi-page cloud snapshots and actual Spot interruptions
+remain unverified. GitLab, restricted roles/OIDC and upstream SSH server-host-key
+verification remain outside this run. See [the reproducible mode](testing.md#plugin-restart-during-accepted-creation).
 
 The following gates remain specific and visible:
 
@@ -259,6 +306,7 @@ The following gates remain specific and visible:
 | Plugin-only 0→1→SSH→0 | Real plugin, actual Spot/disk checks, authenticated SSH, normal specified release and full fixture cleanup passed | Broader lifecycle scenarios remain separate. |
 | Plugin-only 0→2→1→0 | Target-only release, original retained-worker SSH and final normal release passed; full fixture cleanup confirmed twice | Larger release batches and recovery remain separate. |
 | Ready-worker plugin restart | Old process exit, distinct new PID, original instance rediscovery, fresh SSH, unchanged activity IDs and normal release passed; fixture cleanup confirmed twice | Lost replies, in-flight provisioning/removal and multi-page cloud snapshots remain separate. |
+| Accepted-creation plugin restart | Nonready snapshots before/after old exit, one eventual worker from the original activity, SSH, normal release and full cleanup passed | Lost responses, removal in progress and multi-page snapshots remain separate. |
 | Basic 0→1→job→0 | Plugin-only cloud smoke passed; real job driver and fixed GitLab fixture implemented | Authorized configured run with the pinned Manager, exact GitLab job/nonce, actual Spot identity, normal release, and zero verified leftovers. |
 | Extended scale/replacement | Real-plugin two-worker scale-in passed; fixed budgets and tagged recovery suites implemented | Larger scales and replacement need a separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
@@ -267,7 +315,7 @@ The following gates remain specific and visible:
 | External publication | Reproducible native/OCI code and manual release workflow | Explicit version/publication authorization, suitable GitHub package/release access, actual GHCR visibility and anonymous Runner installation. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
-its plugin-only cloud smoke, two-worker scale-in and ready-worker restart passed,
+its plugin-only smoke, scale-in, ready-worker and accepted-creation restarts passed,
 while the GitLab job cycle is unrun. M3
 retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
