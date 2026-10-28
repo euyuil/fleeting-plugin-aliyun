@@ -1,6 +1,6 @@
 # Implementation and acceptance report
 
-Reviewed on 2026-10-27. This report separates implemented code, offline evidence,
+Reviewed on 2026-10-28. This report separates implemented code, offline evidence,
 live acceptance, and external publication. The machine-readable status is
 [`acceptance/status.json`](../acceptance/status.json); exact source versions are
 in [`upstream.lock.json`](../upstream.lock.json).
@@ -80,16 +80,17 @@ is not evidence that a live job or publication happened.
 
 ## Live acceptance and resource outcomes
 
-Provider/GitLab live status: **NOT_RUN_MISSING_CONFIGURATION**. The separate
-connectivity preflight below passed. No ESS fixture, custom worker image,
-GitLab fixture project/job or persistent Manager was created. The preflight's
-temporary cloud resources were deleted and their absence was verified.
+Plugin-only cloud smoke: **PASS** on 2026-10-28. The real plugin process completed
+**0→1→authenticated SSH→0** against Alibaba Cloud. Full GitLab job acceptance is
+still **NOT_RUN_MISSING_CONFIGURATION**. No GitLab project/job, custom worker
+image, persistent Manager or cloud OIDC configuration was created. All temporary
+cloud resources from this smoke and the earlier connectivity preflight were
+deleted and their absence was verified.
 
-The missing-config CLI result was generated locally and inspected. Raw evidence
-stays outside version control. The live tools will retain selected JSON receipts
-under `.live/` and seven-day workflow artifacts when explicitly invoked.
-There is no provider/GitLab live PASS, prior live-verified release, or production
-acceptance claim.
+Raw evidence, resource identities, account information and local runtime paths
+remain outside version control. The summary below records the selected facts
+needed for maintenance; it is not production acceptance or a publication claim.
+The live tools retain private JSON receipts under the selected output directory.
 
 ### Direct ECS connectivity preflight
 
@@ -117,11 +118,66 @@ The [network workflow run](https://github.com/euyuil/fleeting-plugin-aliyun/acti
 completed successfully. This preflight used direct ECS APIs and SSH; it did not
 exercise the Fleeting plugin, ESS scale-in, a GitLab job, dynamic SSH or recovery.
 
+### Real plugin-only scaling smoke
+
+The successful run used release-build source
+[`100df4fce0c2c3acb136672ba97e2b8fea91ab6c`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/100df4fce0c2c3acb136672ba97e2b8fea91ab6c),
+subsequently squash-merged with identical content as
+[`7feb6f0912aa3a86f1ee0bc378df2cbfbf9382d7`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/7feb6f0912aa3a86f1ee0bc378df2cbfbf9382d7).
+The executed plugin SHA-256 was
+`940b958bbfeb0803594899778c8b9871a16198f89ae0e711b52f1eec0e8afc7f`.
+The local driver launched that binary over the real Fleeting plugin protocol;
+it did not directly create the worker with ECS APIs. The fixture used the
+same `us-east-1b`, `ecs.e-c4m1.large`, Ubuntu 26.04 public image, 20 GiB ESSD PL0
+and 512 MiB in-disk swap configuration as the preflight. This smoke did not
+measure the guest's runtime swap state. Actual ECS and disk
+responses verified the fixed type/image/zone, 2 vCPU, 512 MiB RAM, Spot purchase,
+disk size/category/performance level and delete-with-instance policy. Each
+isolated attempt allowed only one worker, with no on-demand fallback.
+
+| Successful transition | Observed evidence (UTC) |
+|---|---|
+| Initial 0 | Empty ESS group, desired and total capacity both zero. |
+| Plugin `Increase(1)` | Exactly one actual Spot member and desired/total capacity 1 at 03:03:40. |
+| Plugin `ConnectInfo` and SSH | Pinned upstream connector authenticated using the temporary client key and returned the exact per-run nonce at 03:04:19. |
+| Plugin specified `Decrease` | Desired/total/pending/removing capacity zero, no ESS/ECS members, and associated disk/ENI absence confirmed at 03:05:13, before fallback cleanup. |
+| Fixture teardown | Driver/plugin stopped; all owned instances, disks, ENIs, snapshots, ESS group, launch template, cloud key pair, security group, vSwitch and VPC absent in two complete independent inventories. |
+
+Three isolated plugin attempts created three Spot instances in total, one per
+attempt. The first failed on incomplete ESS member identity and was fully
+cleaned. Later diagnostics captured `LifecycleState=Init` with an empty
+`InstanceId` and a correct group ID; the client now rereads the complete snapshot
+within a bounded deadline. A synthetic raw-response regression includes this
+observed shape. The second reached actual scale-out but failed SSH readiness.
+A subsequent read-only catalog query confirmed `CpuArchitecture=X86`, which the
+old default `ConnectInfo` path rejected; the driver had not retained its last
+connection error. The final attempt passed after the catalog mapping fix.
+Fixture preparation also exposed the required `SpotInstancePools` value.
+These fixes were delivered in [#18](https://github.com/euyuil/fleeting-plugin-aliyun/pull/18),
+[#20](https://github.com/euyuil/fleeting-plugin-aliyun/pull/20) and
+[#21](https://github.com/euyuil/fleeting-plugin-aliyun/pull/21).
+
+Both failed attempts received independent cleanup and two absence checks before
+the next attempt. Final fixture cleanup encountered one transient connection
+reset during a read-only snapshot inventory; rerunning cleanup after the driver
+was confirmed stopped completed the deletion and the final two inventories.
+All temporary local client/server keys and encoded server-key user data were
+removed after cleanup. No cloud credentials were placed on the worker or in
+GitHub secrets. Local CLI OAuth supplied the SDK credentials; this did not test
+GitHub OIDC, restricted RAM roles or STS renewal.
+
+SSH proves client authentication and command execution. The pinned upstream
+connector does not verify the server host key, so this run does not establish
+that separate identity property. It also does not exercise a GitLab job, all nine
+provider methods, multi-instance retention, restart recovery, real Spot
+interruption, dynamic SSH, Windows, Docker or suspend/resume.
+
 The following gates remain specific and visible:
 
 | Gate | Completed work | Next evidence required |
 |---|---|---|
-| Basic 0→1→job→0 | Real driver, API checks, fixed fixture, three-layer cleanup | Authorized configured run with the pinned Manager, exact GitLab job/nonce, actual Spot identity, normal release, and zero verified leftovers. |
+| Plugin-only 0→1→SSH→0 | Real plugin, actual Spot/disk checks, authenticated SSH, normal specified release and full fixture cleanup passed | Broader lifecycle scenarios remain separate. |
+| Basic 0→1→job→0 | Plugin-only cloud smoke passed; real job driver and fixed GitLab fixture implemented | Authorized configured run with the pinned Manager, exact GitLab job/nonce, actual Spot identity, normal release, and zero verified leftovers. |
 | Extended scale/replacement | Tagged SDK/provider/SSH suites and fixed budgets | Separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows and Docker | Connection logic, examples and offline checks | Prepared images, network route, and actual Windows/Docker executor jobs. |
@@ -129,14 +185,15 @@ The following gates remain specific and visible:
 | External publication | Reproducible native/OCI code and manual release workflow | Explicit version/publication authorization, suitable GitHub package/release access, actual GHCR visibility and anonymous Runner installation. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
-its live cycle is unrun. M3 retains formal suspend and live acceptance gates;
+its plugin-only cloud smoke passed, while the GitLab job cycle is unrun. M3
+retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
 maintenance tooling are delivered; external publication is unrun. These limits
 follow the specification's no-configuration path.
 
 ## One-time configuration and cost responsibilities
 
-Follow [infrastructure preparation](../infra/README.md), the
+For full GitLab job acceptance, follow [infrastructure preparation](../infra/README.md), the
 [fixed GitLab fixture](../tests/fixtures/gitlab/README.md), and
 [testing setup](testing.md). Supply an exact region/group, fixed type/image/zone,
 a prepared worker user/public key, matching private key secret, GitLab HTTPS

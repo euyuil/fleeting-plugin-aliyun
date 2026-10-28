@@ -38,6 +38,7 @@ func wireClient(s *memberWireScript) *aliyun.Client {
 func TestMissingMemberIdentityRetriesCompleteSnapshot(t *testing.T) {
 	valid := `{"InstanceId":"i-ready","ScalingGroupId":"asg-test","LifecycleState":"InService"}`
 	for _, row := range []string{
+		`{"InstanceId":"","ScalingGroupId":"asg-test","LifecycleState":"Init"}`,
 		`{"ScalingGroupId":"asg-test","LifecycleState":"Pending"}`,
 		`{"InstanceId":"","ScalingGroupId":"asg-test","LifecycleState":"Pending"}`,
 		`{"InstanceId":null,"ScalingGroupId":"asg-test","LifecycleState":"Pending"}`,
