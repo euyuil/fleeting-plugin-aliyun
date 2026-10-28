@@ -31,6 +31,12 @@ Before committing, review `git diff`, stage only intended files, review the
 complete `git diff --cached`, and run `git diff --check` and
 `git diff --cached --check`. Use Conventional Commits and approved contributor
 identity. GitHub CI runs the same checksum, race, vet, formatting, and whitespace checks.
+CI fetches the full Git history and checks committed PR changes with
+`git diff --check "$BASE_SHA...$HEAD_SHA" --`, using the PR event's base and head
+SHAs. The three-dot range checks changes since their merge base, including when
+the target branch has advanced. For pushes to `main`, CI checks the event's
+before and after SHAs with `git diff --check "$BASE_SHA" "$HEAD_SHA" --`.
+The `main` ruleset requires the `offline` check from GitHub Actions before merging.
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 
