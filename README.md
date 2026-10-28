@@ -1,6 +1,7 @@
-# Fleeting Plugin for Alibaba Cloud
+# GitLab Runner Autoscaling on Alibaba Cloud (Aliyun)
 
-A GitLab Runner Fleeting provider for dedicated Alibaba Cloud ECS Auto Scaling
+`fleeting-plugin-aliyun` is a community-maintained Fleeting plugin that scales
+GitLab CI/CD workers using dedicated Alibaba Cloud (Aliyun) ECS Auto Scaling
 (ESS) groups. Linux SSH workers and the Instance executor are the default. Jobs
 run directly on VMs. The same provider supplies Docker Autoscaler and static
 Windows WinRM HTTPS connection information.
