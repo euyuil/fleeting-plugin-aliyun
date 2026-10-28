@@ -187,7 +187,7 @@ class Fixture:
         write_json(self.path, self.state)
         self.path.chmod(0o600)
 
-    def owned(self, kind):
+    def owned(self, kind, *, pending_tags=False):
         expected = self.tags
         rows = []
         for row in self.cloud.inventory(kind):
@@ -197,6 +197,12 @@ class Fixture:
                 known = self.state["ids"].get(kind, [])
                 known = known if isinstance(known, list) else [known]
                 if row.get(SPECS[kind][4]) in known:
+                    # An accepted create may appear before its atomic tags.
+                    # Only readiness polling can defer missing tags; conflicts
+                    # and every destructive ownership check remain strict.
+                    if (pending_tags and self.state["operations"].get(kind) == "accepted"
+                            and all(k not in actual or actual[k] == v for k, v in expected.items())):
+                        continue
                     raise ValueError("recorded resource ownership changed: " + kind)
                 continue
             if kind != "eni" and row.get(SPECS[kind][5]) != self.name:
@@ -249,7 +255,7 @@ class Fixture:
     def wait(self, kind, absent=False, seconds=120):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            rows = self.owned(kind)
+            rows = self.owned(kind, pending_tags=not absent)
             if (absent and not rows) or (not absent and len(rows) == 1 and rows[0].get("Status") == "Available"):
                 return
             time.sleep(3)

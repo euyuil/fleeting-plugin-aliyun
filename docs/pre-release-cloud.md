@@ -220,6 +220,11 @@ Every scenario uses the selected values for creation and the driver's allowlist.
 Receipts contain only a canonical configuration digest, not private values;
 all six receipts must have the same digest to pass the release gate.
 
+VPC and vSwitch readiness polling allows a bounded delay for atomic creation
+tags to become visible on the accepted resource ID. Conflicting tag values fail
+immediately. Missing tags never authorize deletion: cleanup still requires the
+complete ownership labels and matching resource identity and parents.
+
 Cloud-init creates per-run SSH keys. Fixed protocol and safety requirements
 remain in code: root SSH for these disposable Linux fixtures, strict Spot,
 traffic billing, no on-demand fallback, no worker RAM role, deletion-on-release,
