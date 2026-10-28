@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+exec 9>/run/fleeting-plugin-aliyun-manager.lock
+flock -n 9 || { echo "Another manager operation is in progress." >&2; exit 1; }
+# Do not adopt an existing manually installed service, even on first install.
+if [ -e /etc/systemd/system/gitlab-runner-aliyun.service ] || [ -L /etc/systemd/system/gitlab-runner-aliyun.service ]; then
+    echo 'A local gitlab-runner-aliyun.service already exists. Preserve it and migrate manually before installing this package.' >&2
+    exit 1
+fi
+if [ -d /run/systemd/system ]; then
+    state=$(systemctl show gitlab-runner-aliyun.service --property=ActiveState --value)
+    case "$state" in
+        inactive|'') ;;
+        *) echo 'Run fleeting-plugin-aliyun manager stop and confirm cloud worker cleanup before installing or upgrading.' >&2; exit 1 ;;
+    esac
+fi
+
+# Block managed starts across dpkg unpack/configure, not just this hook.
+touch /run/fleeting-plugin-aliyun-package-operation

@@ -6,6 +6,8 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
+from debian_package import build as build_debian
 from package_layout import stage_oci_notices, write_archive
 
 root = pathlib.Path(__file__).resolve().parents[1]
@@ -74,4 +76,7 @@ for arch in ("amd64", "arm64"):
     archive = dist / f"fleeting-plugin-aliyun_{version}_linux_{arch}.tar.gz"
     write_archive(archive, [("fleeting-plugin-aliyun", binary)] + notice_entries, epoch)
     checksums.append(hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name)
+    if sys.platform == "linux":
+        deb = build_debian(root, dist, version, arch, epoch)
+        checksums.append(hashlib.sha256(deb.read_bytes()).hexdigest() + "  " + deb.name)
 (dist / "SHA256SUMS").write_text("\n".join(checksums) + "\n")

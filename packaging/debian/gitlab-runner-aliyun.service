@@ -1,0 +1,24 @@
+[Unit]
+Description=GitLab Runner with the Alibaba Cloud Fleeting plugin
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/gitlab-runner-aliyun/config.toml
+
+[Service]
+Type=simple
+User=gitlab-runner-aliyun
+Group=gitlab-runner-aliyun
+WorkingDirectory=/var/lib/gitlab-runner-aliyun
+Environment=HOME=/var/lib/gitlab-runner-aliyun
+Environment=PATH=/usr/bin:/bin
+EnvironmentFile=/etc/gitlab-runner-aliyun/manager.env
+ExecStart=/usr/bin/gitlab-runner run --config /etc/gitlab-runner-aliyun/config.toml --working-directory /var/lib/gitlab-runner-aliyun
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGQUIT
+KillMode=mixed
+TimeoutStopSec=infinity
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

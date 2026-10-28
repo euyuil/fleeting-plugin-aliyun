@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+exec 9>/run/fleeting-plugin-aliyun-manager.lock
+flock -n 9 || { echo "Another manager operation is in progress." >&2; exit 1; }
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+fi
+# Preserve the account, credentials, Runner identity and recovery state on purge.
+
+case "$1" in
+    remove|purge|abort-install|abort-upgrade) rm -f /run/fleeting-plugin-aliyun-package-operation ;;
+esac

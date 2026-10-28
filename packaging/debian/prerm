@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+exec 9>/run/fleeting-plugin-aliyun-manager.lock
+flock -n 9 || { echo "Another manager operation is in progress." >&2; exit 1; }
+case "$1" in
+    remove|upgrade|deconfigure|failed-upgrade)
+        if [ -d /run/systemd/system ]; then
+            state=$(systemctl show gitlab-runner-aliyun.service --property=ActiveState --value)
+            case "$state" in
+                inactive|'') ;;
+                *) echo 'Run fleeting-plugin-aliyun manager stop and confirm cloud worker cleanup before upgrading or removing.' >&2; exit 1 ;;
+            esac
+            if [ "$1" = remove ]; then
+                systemctl disable gitlab-runner-aliyun.service
+            fi
+        fi
+        ;;
+esac
+
+# Block managed starts across dpkg unpack/configure, not just this hook.
+touch /run/fleeting-plugin-aliyun-package-operation

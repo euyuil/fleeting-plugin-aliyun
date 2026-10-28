@@ -21,6 +21,17 @@ is development evidence, not a macOS Manager release/support claim. Windows
 workers do not require a Windows Manager build. Cross-compilation is distinct
 from execution and live executor acceptance.
 
+## Debian
+
+For native Debian package installation and service management, see the
+[Debian guide](debian-installation.md). Linux `make dist` also produces `.deb`
+packages for amd64 and arm64 with `dpkg-deb`. These contain the exact native/OCI
+plugin binary, local `manager` commands, service and example files, and retained
+licenses. Debian versions map prerelease `-` to `~`; package checksums are included
+in `SHA256SUMS`. Packages do not bundle GitLab Runner or start a service on install.
+The CI artifact includes these packages; a public release still requires the
+existing explicit release gates. There is no hosted APT repository.
+
 ## OCI
 
 ### Verified prerelease

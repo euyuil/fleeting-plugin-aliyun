@@ -25,6 +25,23 @@ The component-only endpoint override is excluded from release binaries. They do 
 On a native Linux host, `make dist` also publishes the complete generated OCI
 payload to a loopback registry and installs it with the pinned official library.
 Other hosts cross-build the Linux archives but skip their execution check.
+On Linux, `make dist` also builds amd64 and arm64 `.deb` packages using
+`dpkg-deb` from `dpkg-dev`, with the same binaries and license inventory.
+macOS distribution builds skip Debian packaging. For a **disposable Linux host**
+with systemd, Python 3.11+, OpenSSH, `dpkg-dev`, and the package dependencies installed:
+
+```sh
+python3 tools/fetch-runner.py
+sudo python3 tools/test-debian-lifecycle.py --disposable-host \
+  --runner .cache/gitlab-runner-linux-amd64 --packages dist
+```
+
+Use the arm64 Runner filename on an arm64 host. This test installs and removes
+packages and creates a temporary service account. It refuses existing installations.
+It uses real dpkg, systemd and pinned Runner parsing; a local fake busy job tests
+SIGQUIT draining. It never calls GitLab or Alibaba Cloud, and needs no credentials.
+Do not run it on a shared manager. Normal Go tests exercise configuration rejection,
+retry, private file handling and preservation without root or systemd.
 Do not disable Go checksum verification. `make lint` installs pinned actionlint
 1.7.12 and validates the configuration examples. CI also parses them using the
 pinned, checksum-verified Runner binary.
