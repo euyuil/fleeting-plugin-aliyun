@@ -1,0 +1,53 @@
+name: Cloud configuration check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: aliyun-pre-release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN || vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_FIXTURE_CONFIG || vars.RELEASE_ALIYUN_FIXTURE_CONFIG }}
+      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS || vars.RELEASE_ALIYUN_CLEANUP_REGIONS }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Validate configuration while paid acceptance remains disabled
+        run: |
+          python3 tools/cloud_fixture.py preflight --read-only
+          python3 tools/fetch-aliyun.py
+          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
+      - name: Authenticate the acceptance role
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ env.RELEASE_ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: config-check-${{ github.run_id }}
+      - name: Check expected account and read-only inventory access
+        run: python3 tools/cloud_fixture.py check
+      - name: Authenticate the optional independent cleanup role
+        if: env.RELEASE_ALIYUN_CLEANUP_ROLE_ARN != '' && env.RELEASE_ALIYUN_CLEANUP_ROLE_ARN != env.RELEASE_ALIYUN_ROLE_ARN
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ env.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+          oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: cleanup-check-${{ github.run_id }}
+      - name: Check optional cleanup identity and inventories
+        if: env.RELEASE_ALIYUN_CLEANUP_ROLE_ARN != '' && env.RELEASE_ALIYUN_CLEANUP_ROLE_ARN != env.RELEASE_ALIYUN_ROLE_ARN
+        run: python3 tools/cloud_fixture.py check

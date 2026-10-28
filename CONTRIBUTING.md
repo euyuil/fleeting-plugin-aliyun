@@ -40,6 +40,16 @@ The `main` ruleset requires the `offline` check from GitHub Actions before mergi
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 
+After configuring the new account's OIDC role and initial read-only policy,
+check identity and inventory access while paid acceptance remains disabled:
+
+```sh
+gh workflow run cloud-config-check.yml --ref main
+```
+
+This manual check neither creates resources nor proves write permissions or
+cloud scenario success. Follow the [RAM setup guide](docs/pre-release-cloud.md#ram-setup-walkthrough).
+
 After separately authorizing the paid operation and configuring the dedicated
 new account, run one plugin-only scenario without publishing:
 

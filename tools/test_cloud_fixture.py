@@ -280,9 +280,38 @@ class IdentityAndInventoryTests(unittest.TestCase):
             self.assertEqual(call.call_count, 1)
             self.assertEqual(call.call_args.args, ("sts", "GetCallerIdentity"))
 
+    def test_disabled_read_only_identity_still_rejects_foreign_accounts_and_writes(self):
+        env = {**self.environment(), "RELEASE_CLOUD_ACCEPTANCE_ENABLED": "false",
+               "ALIBABA_CLOUD_ACCESS_KEY_ID": "synthetic", "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "synthetic",
+               "ALIBABA_CLOUD_SECURITY_TOKEN": "synthetic"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch("subprocess.run") as run:
+            with self.assertRaises(ValueError):
+                fixture.Cloud(CONFIG["region"])
+            run.assert_not_called()
+            run.return_value = subprocess.CompletedProcess([], 0, '{"AccountId":"1234567890123456"}')
+            cloud = fixture.Cloud(CONFIG["region"], read_only=True)
+            self.assertEqual(run.call_count, 1)
+            for service, action in (("ecs", "RunInstances"), ("ecs", "DeleteInstance"), ("ess", "ScaleWithAdjustment")):
+                with self.assertRaisesRegex(ValueError, "only identity"):
+                    cloud.call(service, action)
+            self.assertEqual(run.call_count, 1)
+            run.return_value = subprocess.CompletedProcess([], 0, '{"AccountId":"9999999999999999"}')
+            with self.assertRaisesRegex(ValueError, "authenticated account differs"):
+                fixture.Cloud(CONFIG["region"], read_only=True)
+
+    def test_configuration_check_only_reads_each_inventory_and_never_enables_acceptance(self):
+        env = {**CONFIG_ENV, "RELEASE_CLOUD_ACCEPTANCE_ENABLED": "false"}
+        with mock.patch.dict(os.environ, env), mock.patch("cloud_fixture.Cloud") as cloud:
+            fixture.check_configuration()
+            cloud.assert_called_once_with(CONFIG["region"], read_only=True)
+            self.assertEqual([c.args[0] for c in cloud.return_value.inventory.call_args_list], list(fixture.SPECS))
+            self.assertEqual(os.environ["RELEASE_CLOUD_ACCEPTANCE_ENABLED"], "false")
+            cloud.return_value.call.assert_not_called()
+
     def test_pagination_rejects_incomplete_or_duplicated_inventory(self):
         cloud = object.__new__(fixture.Cloud)
         cloud.region = CONFIG["region"]
+        cloud.read_only = False
         for response in ({"Vpcs": {"Vpc": []}}, {"TotalCount": 1, "Vpcs": {"Vpc": []}},
                          {"TotalCount": 2, "Vpcs": {"Vpc": [{"VpcId": "vpc-test"}, {"VpcId": "vpc-test"}]}}):
             with mock.patch.object(cloud, "call", return_value=response):
@@ -305,6 +334,7 @@ class IdentityAndInventoryTests(unittest.TestCase):
     def test_cloud_command_errors_never_print_private_request_arguments(self):
         cloud = object.__new__(fixture.Cloud)
         cloud.region = CONFIG["region"]
+        cloud.read_only = False
         sensitive = "synthetic-host-private-key-and-access-key-and-token"
         def fail(command, **_kwargs):
             raise subprocess.TimeoutExpired(command, 60, output=sensitive, stderr=sensitive)

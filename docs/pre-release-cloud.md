@@ -42,9 +42,10 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
    | `RELEASE_ALIYUN_FIXTURE_CONFIG` | Required resource configuration JSON described below |
    | `RELEASE_ALIYUN_CLEANUP_REGIONS` | Required JSON array of region IDs, including the fixture region and previous regions with outstanding resources |
 
-5. Review the action/region/resource scopes below, then explicitly enable the
-   gate. Before any writes, STS `GetCallerIdentity` must match the configured
-   account. Every ARN must belong to that same account. Each scenario gets fresh
+5. Follow the RAM walkthrough below and run **Cloud configuration check** on
+   main while the enabled flag is still false. Review write scopes separately
+   before explicitly enabling paid acceptance. Before any writes, STS
+   `GetCallerIdentity` must match the configured account. Every ARN must belong to that same account. Each scenario gets fresh
    one-hour STS credentials; no local profile fallback is permitted.
 
 The acceptance role needs the [provider's ESS/ECS actions](cloud-api.md), plus
@@ -56,11 +57,93 @@ reads. Create calls attach tags atomically, so include each API's dependent tag
 permissions. Existing acceptance also manages owned ingress and instance expiry.
 With the default single role, both workflows receive the acceptance role
 permissions. An optional separate cleanup role only needs these inventories,
-ESS member reads and deletion actions, without create or scale-out permissions. Restrict to the configured regions and
+ESS member reads and deletion actions, without create or scale-out permissions.
+Restrict to the configured regions and
 test purpose/project tags wherever the API's RAM authorization metadata supports
 those conditions. Some Describe actions require account-wide resource scope.
 Review the official action metadata rather than granting administrator policies.
 Dedicated account isolation is required even with these application checks.
+
+## RAM setup walkthrough
+
+1. Sign in to the new account as a RAM administrator. Open **Integrations > SSO >
+   Role-based SSO > OIDC** (some console versions call this **Identity providers**).
+   Create a provider, use the issuer/audience above, and obtain its certificate
+   thumbprint using the console's **Get Fingerprint** control. Follow the
+   [official provider procedure](https://help.aliyun.com/en/ram/manage-an-oidc-idp).
+2. Open **Identities > Roles > Create role**, select the OIDC identity provider,
+   or switch to the script editor. Create one role, for example
+   `fleeting-pre-release`. Replace the provider ARN and owner/repository
+   placeholders in this trust policy; keep the exact subject and `StringEquals`:
+
+   ```json
+   {
+     "Version": "1",
+     "Statement": [{
+       "Effect": "Allow",
+       "Principal": {"Federated": "OIDC_PROVIDER_ARN_FROM_NEW_ACCOUNT"},
+       "Action": "sts:AssumeRole",
+       "Condition": {"StringEquals": {
+         "oidc:iss": "https://token.actions.githubusercontent.com",
+         "oidc:aud": "sts.aliyuncs.com",
+         "oidc:sub": "repo:OWNER/REPOSITORY:environment:aliyun-pre-release"
+       }}
+     }]
+   }
+   ```
+
+   The trust-policy action is `sts:AssumeRole`, including for OIDC. Retain a
+   maximum session duration of at least one hour. See the
+   [official role procedure](https://help.aliyun.com/zh/ram/user-guide/create-a-ram-role-for-a-trusted-idp).
+3. Copy the account ID, provider ARN and role ARN directly into the three required
+   GitHub **Environment Secrets** above. Leave the optional cleanup-role secret
+   absent for the single-role setup. No AccessKey, SSH private key or developer
+   login profile is needed.
+4. In **RAM > Permissions > Policies**, create a custom policy with the following
+   content and attach it to the role. This initial policy permits only the setup
+   check's inventory reads. It deliberately does not enable paid acceptance:
+
+   ```json
+   {
+     "Version": "1",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": [
+         "vpc:DescribeVpcs", "vpc:DescribeVSwitches",
+         "ecs:DescribeSecurityGroups", "ecs:DescribeKeyPairs",
+         "ecs:DescribeLaunchTemplates", "ess:DescribeScalingGroups",
+         "ecs:DescribeInstances", "ecs:DescribeDisks",
+         "ecs:DescribeNetworkInterfaces"
+       ],
+       "Resource": "*"
+     }]
+   }
+   ```
+
+5. Run **Cloud configuration check** on main. It validates external configuration,
+   obtains fresh OIDC credentials, checks the expected account with STS, and
+   queries all nine inventories in each configured cleanup region. It also checks
+   an optional separate cleanup role if configured. The CLI client has a read-only
+   action allowlist; creation, deletion and scaling calls are rejected locally.
+   The workflow never enables acceptance or uploads inventory/account values.
+6. A passing check proves the selected identity, network and inventory reads.
+   It does **not** prove create/delete permissions, service-linked-role readiness,
+   instance quota, image availability, Spot capacity, SSH or cleanup behavior.
+   Have the administrator add the acceptance operations listed above, scoped by
+   the selected account/region/resource and supported tags. Verify each API's RAM
+   authorization metadata; for example, `RemoveInstances` authorizes through
+   [`ess:DetachInstances`](https://help.aliyun.com/zh/auto-scaling/developer-reference/api-ess-2022-02-22-removeinstances),
+   while expansion uses
+   [`ess:ScaleWithAdjustment`](https://help.aliyun.com/zh/auto-scaling/developer-reference/api-ess-2022-02-22-scalewithadjustment).
+   Do not grant administrator policies to solve a missing action. Enable the gate
+   only when this review and separate paid-operation authorization are complete.
+
+If the setup check fails, use its step to locate the boundary: local preflight
+means missing/invalid configuration; OIDC authentication means issuer/audience,
+subject, provider or role trust; `GetCallerIdentity` means wrong account or STS;
+`Describe*` means inventory permission/service availability. Do not paste raw
+credentials or inventory responses into public issues. The
+[contributor guide](../CONTRIBUTING.md) owns workflow dispatch commands.
 
 ## Candidate and scenarios
 
@@ -168,7 +251,8 @@ An unresolved create or ownership change prevents a clean result.
 `Pre-release cloud janitor` runs independently after Release/Cloud acceptance,
 hourly, and on manual dispatch. It discovers labelled fixtures without relying
 on a prior runner's files/artifacts, verifies the owning GitHub run attempt is
-completed, and uses the configured role (the acceptance role by default). A completed-run event can recover
+completed, and uses the configured role (the acceptance role by default).
+A completed-run event can recover
 that exact run/attempt immediately; scheduled/manual scans recover expired
 fixtures. Manual cleanup can also select an exact completed run and attempt.
 ECS auto-release is an additional one-hour bound, not a substitute for

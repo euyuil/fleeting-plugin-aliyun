@@ -31,9 +31,9 @@ SPECS = {
 }
 
 
-def preflight(env=os.environ):
+def preflight(env=os.environ, *, read_only=False):
     required = ("RELEASE_ALIYUN_ACCOUNT_ID", "RELEASE_ALIYUN_ROLE_ARN", "RELEASE_ALIYUN_OIDC_PROVIDER_ARN")
-    if env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true" or any(not env.get(k) for k in required):
+    if (not read_only and env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true") or any(not env.get(k) for k in required):
         raise ValueError("configure the dedicated pre-release account and explicitly enable cloud acceptance")
     account = env["RELEASE_ALIYUN_ACCOUNT_ID"]
     if not re.fullmatch(r"[0-9]{16}", account):
@@ -105,15 +105,18 @@ def verified_members(response, group, owned):
 
 
 class Cloud:
-    def __init__(self, region):
-        self.region = region
-        self.account = preflight()
+    def __init__(self, region, *, read_only=False):
+        self.region, self.read_only = region, read_only
+        self.account = preflight(read_only=read_only)
         if any(not os.environ.get(k) for k in ("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", "ALIBABA_CLOUD_SECURITY_TOKEN")):
             raise ValueError("fresh OIDC STS credentials are required; profiles and long-lived keys are not used")
         if self.call("sts", "GetCallerIdentity").get("AccountId") != self.account:
             raise ValueError("authenticated account differs from the dedicated expected account")
 
     def call(self, service, action, **params):
+        reads = {(s[0], s[1]) for s in SPECS.values()} | {("sts", "GetCallerIdentity")}
+        if self.read_only and (service, action) not in reads:
+            raise ValueError("configuration checks permit only identity and resource inventories")
         command = ["aliyun", service, action, "--mode", "StsToken", "--region", self.region,
                    "--retry-count", "0", "--connect-timeout", "10", "--read-timeout", "30"]
         if service != "sts":
@@ -466,11 +469,21 @@ def janitor_region(cloud, directory, completed_run, completed_attempt):
     print(json.dumps({"result": "PASS", "cleaned_fixtures": len(fixtures)}))
 
 
+def check_configuration():
+    fixture_config()
+    for region in cleanup_regions():
+        cloud = Cloud(region, read_only=True)
+        for kind in SPECS:
+            cloud.inventory(kind)
+    print(json.dumps({"result": "PASS", "scope": "identity-and-inventory-only",
+                      "write_permissions_verified": False, "resources_created": 0}))
+
+
 def main():
     os.umask(0o077)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("preflight", "run", "janitor"))
+    parser.add_argument("operation", choices=("preflight", "run", "janitor", "check"))
     parser.add_argument("--root", type=Path)
     parser.add_argument("--digest")
     parser.add_argument("--sha")
@@ -478,12 +491,13 @@ def main():
     parser.add_argument("--mode", choices=MODES)
     parser.add_argument("--directory", type=Path, default=Path(".live/cloud"))
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--read-only", action="store_true", help="allow disabled acceptance during configuration preflight")
     parser.add_argument("--cleanup", action="store_true", help="validate only identity and recovery regions")
     parser.add_argument("--completed-run")
     parser.add_argument("--completed-attempt")
     args = parser.parse_args()
     if args.operation == "preflight":
-        preflight()
+        preflight(read_only=args.read_only)
         cleanup_regions() if args.cleanup else fixture_config()
         if os.environ.get("GITHUB_ACTIONS") == "true":
             for key, value in os.environ.items():
@@ -491,6 +505,8 @@ def main():
                     for line in value.splitlines():
                         if line:
                             print("::add-mask::" + line.replace("%", "%25").replace("\r", "%0D"))
+    elif args.operation == "check":
+        check_configuration()
     elif args.operation == "janitor":
         janitor(args.directory, args.completed_run, args.completed_attempt)
     else:
