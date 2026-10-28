@@ -2,7 +2,7 @@
   "schema_version": 1,
   "implementation_status": "implemented_with_partial_live_validation_and_documented_gates",
   "offline_validation_status": "pass",
-  "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
+  "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_AND_RELEASED_VM_DOCKER_JOBS",
   "publication_status": "prerelease_published_anonymous_runner_installation_passed",
   "published_release": {
     "version": "0.1.0-rc.2",
@@ -70,7 +70,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Not all nine methods or a GitLab job were live exercised.",
+      "gap": "Not all nine methods or supported configurations have live evidence.",
       "verified_scope": "Real gRPC scaling, ready-worker and accepted-creation/removal restarts, plus instrumented lost-expansion-response restart; authenticated SSH and normal release."
     },
     {
@@ -78,7 +78,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Larger pools and GitLab job behavior remain unverified.",
+      "gap": "Larger pools and broader GitLab job features remain unverified.",
       "verified_scope": "One-worker and two-worker actual fixed-type Spot scale-out from an empty ESS group through the real plugin."
     },
     {
@@ -86,7 +86,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Larger release batches and GitLab job cleanup remain unverified.",
+      "gap": "Larger release batches and multi-worker GitLab job cleanup remain unverified.",
       "verified_scope": "One selected worker released from a two-worker pool; target ESS/ECS/disk/ENI absent, original retained worker running with fresh SSH, then normal release of the last worker."
     },
     {
@@ -133,7 +133,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Upstream connector does not verify server host keys. GitLab job, other images and architectures remain unverified.",
+      "gap": "Upstream connector does not verify server host keys. Other images and architectures remain unverified.",
       "verified_scope": "Fresh SSH nonces passed after specified scale-in, ready-worker plugin restart and accepted-creation plugin restart on actual Ubuntu 26.04 Spot workers."
     },
     {
@@ -147,15 +147,17 @@
       "capability": "instance_executor",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "failed_during_preparation",
-      "gap": "The released-plugin GitLab job timed out during executor preparation, before checkout or the fixture script. No successful full-job acceptance."
+      "live_validation": "pass",
+      "gap": "Other worker images, architectures, larger pools and broader job features remain unverified.",
+      "verified_scope": "Released 0.1.0-rc.2 with Runner 19.5.1 on one Linux amd64 2-vCPU/2-GiB Spot worker: checkout, script, correlated artifact, normal release to zero and full fixture cleanup."
     },
     {
       "capability": "docker_autoscaler",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Example parsed and common provider protocol tested. No Docker executor job has run."
+      "live_validation": "pass",
+      "gap": "Other worker images, architectures, larger pools and broader job features remain unverified.",
+      "verified_scope": "Released 0.1.0-rc.2 with Runner 19.5.1 on one Linux amd64 2-vCPU/2-GiB Spot worker: checkout, script, correlated artifact, normal release to zero and full fixture cleanup."
     },
     {
       "capability": "windows_static_winrm",
@@ -211,22 +213,22 @@
   "live_tooling": {
     "implementation": "implemented",
     "offline_validation": "pass",
-    "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
+    "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_AND_RELEASED_VM_DOCKER_JOBS",
     "entry_point": "docs/testing.md",
-    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart and cloud-increase-response-loss passed with CLI OAuth. The response-loss case uses a responsegate test build. The first GitLab job failed during preparation. Successful job acceptance, lost-removal-response recovery, interruption/suspend, GitHub OIDC and scheduled janitor remain unrun."
+    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart and cloud-increase-response-loss passed with CLI OAuth. The response-loss case uses a responsegate test build. Released Linux amd64 VM and Docker job cycles passed separately. Lost-removal-response recovery, interruption/suspend, GitHub OIDC and scheduled janitor remain unrun."
   },
   "milestones": {
     "M0": "complete",
     "M1": "offline_complete",
-    "M2": "tooling_complete_plugin_smoke_scale_restart_pass_gitlab_job_failed_preparation",
+    "M2": "tooling_complete_plugin_smoke_scale_restart_and_released_vm_docker_jobs_pass",
     "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
     "M4": "prerelease_published_anonymous_runner_installation_verified"
   },
   "cleanup": {
     "cloud_resources_created": true,
-    "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_CYCLES",
+    "cloud_cleanup": "PASS_CONNECTIVITY_PLUGIN_AND_RELEASED_JOB_FIXTURES",
     "known_cloud_leftovers": [],
-    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. The failed released-job and image-preparation fixtures were also independently cleaned and confirmed absent twice. Normal GitLab job cleanup, the scheduled janitor and broader lifecycle recovery remain unverified."
+    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. All six Spot instances across released-job preparation and job attempts were also deleted; every fixture was confirmed absent twice. The temporary prepared image and its one snapshot were deleted. Both successful jobs passed normal release before fallback cleanup. The scheduled janitor and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -275,7 +277,7 @@
     "temporary_github_secrets_retained": false,
     "local_private_keys_retained": false
   },
-  "gitlab_validation_status": "NOT_RUN_MISSING_CONFIGURATION",
+  "gitlab_validation_status": "PASS_RELEASED_VM_AND_DOCKER_JOBS",
   "missing_live_configuration_scope": "GitHub Live acceptance workflow; the local private fixture is configured separately.",
   "plugin_cloud_smoke": {
     "status": "pass",
@@ -1173,42 +1175,119 @@
     "report": "docs/acceptance-report.md"
   },
   "gitlab_job_acceptance": {
-    "status": "not_passed",
+    "status": "pass",
     "release_version": "0.1.0-rc.2",
     "release_source_revision": "795f07f5c2771bf7f84154c6892d90ba77f26b8b",
     "runner_version": "19.5.1",
     "private_fixture_configured": true,
     "dedicated_locked_project_runner": true,
     "instance_job": {
-      "driver_result": "CLEANUP_FAILED",
-      "job_status": "failed",
-      "phase": "prepare_executor",
-      "job_timeout_seconds": 300,
-      "fixture_script_executed": false,
-      "successful_artifact": false,
-      "normal_release": false,
-      "spot_instances_created": 1,
+      "driver_result": "PASS",
+      "job_status": "success",
+      "job_duration_seconds": 121.725,
+      "fixture_checkout_and_command": true,
+      "artifact_identity_verified": true,
+      "container_detected": false,
+      "normal_release": true,
+      "driver_cleanup": "PASS",
       "outer_full_cleanup": "PASS",
-      "absence_confirmations": 2
+      "absence_confirmations": 2,
+      "spot_instances_created": 1,
+      "inventory_complete": true,
+      "deletion_verified": true
     },
     "image_preparation": {
-      "result": "FAIL_INFRASTRUCTURE",
-      "reason": "cloud_init_killed_by_kernel_oom_during_boot",
-      "instance_type": "ecs.e-c4m1.large",
-      "vcpus": 2,
-      "memory_gib": 0.5,
+      "result": "PASS",
+      "worker_os": "Ubuntu 26.04",
+      "package_snapshot": "20261027T000000Z",
       "spot_instances_created": 1,
-      "custom_images_created": 0,
+      "custom_images_created": 1,
+      "custom_images_deleted": 1,
+      "snapshots_created": 1,
+      "snapshots_deleted": 1,
       "full_cleanup": "PASS",
-      "absence_confirmations": 2
+      "absence_confirmations": 2,
+      "preparation_compute_deleted_before_jobs": true
     },
-    "docker_autoscaler_job": "not_run",
-    "total_spot_instances_created": 2,
+    "docker_autoscaler_job": {
+      "driver_result": "PASS",
+      "job_status": "success",
+      "job_duration_seconds": 146.765,
+      "fixture_checkout_and_command": true,
+      "artifact_identity_verified": true,
+      "container_detected": true,
+      "normal_release": true,
+      "driver_cleanup": "PASS",
+      "outer_full_cleanup": "PASS",
+      "absence_confirmations": 2,
+      "spot_instances_created": 1,
+      "inventory_complete": true,
+      "deletion_verified": true
+    },
+    "total_spot_instances_created": 6,
     "task_cloud_resources_remaining": 0,
     "gitlab_project_and_runner_retained": true,
     "temporary_private_keys_removed": true,
-    "gap": "A suitable explicitly selected worker type and prepared image are required before retrying. Neither execution mode has full GitLab job acceptance.",
-    "report": "docs/acceptance-report.md#released-plugin-job-preparation-attempts",
-    "manager_environment": "temporary_local_linux_amd64_container"
-  }
+    "gap": "Selected single-worker Linux amd64 cycles only. Windows, full arm64 jobs, other images, larger pools, interruption and production deployment remain outside this evidence.",
+    "report": "docs/acceptance-report.md#released-plugin-vm-and-docker-jobs",
+    "manager_environment": "temporary_local_linux_amd64_container",
+    "acceptance_driver_source_revision": "1f55016bf8416a87f80c53d8119ff047227362a2",
+    "architecture": "linux_amd64",
+    "worker_spec": {
+      "instance_type": "ecs.e-c1m1.large",
+      "vcpus": 2,
+      "memory_gib": 2,
+      "region": "us-east-1",
+      "zone": "us-east-1b",
+      "system_disk_gib": 20,
+      "system_disk_category": "cloud_essd",
+      "system_disk_performance_level": "PL0",
+      "spot_only": true,
+      "on_demand_fallback": false,
+      "configured_swap_gib": 1
+    },
+    "earlier_failed_attempts": {
+      "instance_0_5_gib": {
+        "driver_result": "CLEANUP_FAILED",
+        "job_status": "failed",
+        "phase": "prepare_executor",
+        "job_timeout_seconds": 300,
+        "fixture_script_executed": false,
+        "successful_artifact": false,
+        "normal_release": false,
+        "spot_instances_created": 1,
+        "outer_full_cleanup": "PASS",
+        "absence_confirmations": 2
+      },
+      "image_preparation_0_5_gib": {
+        "result": "FAIL_INFRASTRUCTURE",
+        "reason": "cloud_init_killed_by_kernel_oom_during_boot",
+        "instance_type": "ecs.e-c4m1.large",
+        "vcpus": 2,
+        "memory_gib": 0.5,
+        "spot_instances_created": 1,
+        "custom_images_created": 0,
+        "full_cleanup": "PASS",
+        "absence_confirmations": 2
+      },
+      "instance_2_gib_before_fixes": {
+        "driver_result": "CLEANUP_FAILED",
+        "job_status": "failed",
+        "phase": "prepare_script",
+        "reason": "sh_rejected_default_bash_style_escaping",
+        "job_duration_seconds": 96.71,
+        "fixture_script_executed": false,
+        "normal_release": false,
+        "spot_instances_created": 1,
+        "outer_full_cleanup": "PASS",
+        "absence_confirmations": 2
+      }
+    },
+    "job_image": "docker.io/library/buildpack-deps@sha256:57c2de9a151180bf9ba8eea8bbebf8c546ccaa629f4fec8ea9b18330226af31b",
+    "helper_image": "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v19.5.1",
+    "observed_helper_digest": "sha256:ca7cc8f66a6c6931281aa2ae974b62f80111a4f578cabc442b1d39388a0dee91",
+    "task_manager_containers_remaining": 0,
+    "runner_posix_escaping": true
+  },
+  "github_live_workflow_status": "NOT_RUN_MISSING_CONFIGURATION"
 }

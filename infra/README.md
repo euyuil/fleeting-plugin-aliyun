@@ -17,6 +17,8 @@ Before running, select an allowed region/zone and available small Spot instance
 type with enough memory for the OS, Runner and selected executor. The 0.5-GiB
 configuration used for SSH-only checks failed a later full-job preparation
 attempt; see the [acceptance report](../docs/acceptance-report.md#released-plugin-job-preparation-attempts).
+The successful VM/Docker cycles used 2 vCPU and 2 GiB; see the
+[recorded worker setup](../docs/acceptance-report.md#released-plugin-vm-and-docker-jobs).
 Select the exact immutable image ID. Prepare that image with
 `bootstrap-linux.sh` as root: supply Runner version/checksum from
 `upstream.lock.json`, the SSH public key/user, and exact distribution package
@@ -28,7 +30,10 @@ in the base/toolchain. No Manager/PAT/cloud credentials enter the worker image. 
 keys are preserved, and the user's home is resolved from passwd. Runner downloads
 use a unique temporary file. Bake the image without active job-user processes;
 the bootstrap rejects linked SSH directories and unexpected home/key-file owners.
-No image build or cloud setup has run in validation.
+Before capture, review shell startup files for noninteractive CI use, remove
+preparation credentials and clear stale cloud-init/machine/network state. If
+startup installs per-worker keys, create readiness only after that setup passes.
+The recorded acceptance used a separately owned CLI image-building fixture.
 
 ```sh
 export ALIYUN_REGION=REPLACE_REGION
@@ -54,7 +59,8 @@ if a call fails, inspect its recorded IDs and resume deliberately; do not rerun
 it blindly and duplicate infrastructure. VPC/vSwitch creation may take time;
 the script waits a bounded time for Available before dependent VPC/vSwitch
 operations. Reserve and document the reusable ownership IDs in your operations store.
-Infrastructure setup has not been executed against a real account.
+The general `prepare.sh` procedure itself has not been live validated; the
+recorded real acceptance used separate, individually tracked CLI fixtures.
 
 Set the resulting group ID and exact template fields in GitHub variables. The
 live acceptance must additionally check ownership and zero occupancy, the pinned launch template,
@@ -118,7 +124,9 @@ execution and SSH timing have not been validated on Alibaba Cloud.
 Use the [operating guide](../docs/operations.md) for Docker Autoscaler and static
 Windows workers. Prepare Docker Engine and the pinned job image separately;
 static Windows requires a licensed image and the documented upstream WinRM TLS
-identity limitation. Neither image path has live executor validation.
+identity limitation. The selected Linux Docker image has
+[live job evidence](../docs/acceptance-report.md#released-plugin-vm-and-docker-jobs);
+the Windows path remains unvalidated.
 
 ## Teardown and cost boundaries
 
