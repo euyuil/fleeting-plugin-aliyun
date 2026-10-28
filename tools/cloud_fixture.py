@@ -15,11 +15,8 @@ import tarfile
 import time
 
 from release_candidate import MODES, digest, revision, verify, write_json
+from cloud_config import cleanup_regions, fixture_config, config_digest
 
-REGION = "us-east-1"
-ZONE = "us-east-1b"
-INSTANCE_TYPE = "ecs.e-c4m1.large"
-IMAGE = "ubuntu_26_04_x64_20G_alibase_20260916.vhd"
 PURPOSE = "pre-release-acceptance"
 SPECS = {
     "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
@@ -35,13 +32,16 @@ SPECS = {
 
 
 def preflight(env=os.environ):
-    required = ("RELEASE_ALIYUN_ACCOUNT_ID", "RELEASE_ALIYUN_ROLE_ARN", "RELEASE_ALIYUN_OIDC_PROVIDER_ARN", "RELEASE_ALIYUN_CLEANUP_ROLE_ARN")
+    required = ("RELEASE_ALIYUN_ACCOUNT_ID", "RELEASE_ALIYUN_ROLE_ARN", "RELEASE_ALIYUN_OIDC_PROVIDER_ARN")
     if env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true" or any(not env.get(k) for k in required):
         raise ValueError("configure the dedicated pre-release account and explicitly enable cloud acceptance")
     account = env["RELEASE_ALIYUN_ACCOUNT_ID"]
     if not re.fullmatch(r"[0-9]{16}", account):
         raise ValueError("expected Alibaba account ID must have 16 digits")
-    for key, resource in ((required[1], "role"), (required[2], "oidc-provider"), (required[3], "role")):
+    identities = [(required[1], "role"), (required[2], "oidc-provider")]
+    if env.get("RELEASE_ALIYUN_CLEANUP_ROLE_ARN"):
+        identities.append(("RELEASE_ALIYUN_CLEANUP_ROLE_ARN", "role"))
+    for key, resource in identities:
         if not re.fullmatch(r"acs:ram::" + account + ":" + resource + r"/[A-Za-z0-9._-]+", env[key]):
             raise ValueError("role and OIDC provider must belong to the dedicated expected account")
     if env.get("GITHUB_REF") != "refs/heads/main":
@@ -105,7 +105,8 @@ def verified_members(response, group, owned):
 
 
 class Cloud:
-    def __init__(self):
+    def __init__(self, region):
+        self.region = region
         self.account = preflight()
         if any(not os.environ.get(k) for k in ("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", "ALIBABA_CLOUD_SECURITY_TOKEN")):
             raise ValueError("fresh OIDC STS credentials are required; profiles and long-lived keys are not used")
@@ -113,10 +114,10 @@ class Cloud:
             raise ValueError("authenticated account differs from the dedicated expected account")
 
     def call(self, service, action, **params):
-        command = ["aliyun", service, action, "--mode", "StsToken", "--region", REGION,
+        command = ["aliyun", service, action, "--mode", "StsToken", "--region", self.region,
                    "--retry-count", "0", "--connect-timeout", "10", "--read-timeout", "30"]
         if service != "sts":
-            params = {"RegionId": REGION, **params}
+            params = {"RegionId": self.region, **params}
         for key, value in params.items():
             command.extend(["--" + key, str(value)])
         try:
@@ -236,16 +237,18 @@ class Fixture:
             time.sleep(3)
         raise RuntimeError("fixture observation deadline: " + kind)
 
-    def prepare(self, cidr):
+    def prepare(self, cidr, config):
+        if config["region"] != self.cloud.region:
+            raise ValueError("fixture region differs from the authenticated client")
         if self.state["operations"]:
             raise ValueError("existing fixture state is preserved; clean up before retrying")
         for name, kind, extra in (("worker-key", "rsa", ["-b", "3072"]), ("host-key", "ed25519", [])):
             subprocess.run(["ssh-keygen", "-q", "-t", kind, *extra, "-N", "", "-C", PURPOSE,
                             "-f", str(self.directory / name)], check=True, capture_output=True)
         ids = self.state["ids"]
-        self.create("vpc", "CreateVpc", {"VpcName": self.name, "Description": PURPOSE, "CidrBlock": "10.43.0.0/16"})
+        self.create("vpc", "CreateVpc", {"VpcName": self.name, "Description": PURPOSE, "CidrBlock": config["vpc_cidr"]})
         self.wait("vpc")
-        self.create("vswitch", "CreateVSwitch", {"VSwitchName": self.name, "VpcId": ids["vpc"], "ZoneId": ZONE, "CidrBlock": "10.43.1.0/24"})
+        self.create("vswitch", "CreateVSwitch", {"VSwitchName": self.name, "VpcId": ids["vpc"], "ZoneId": config["zone"], "CidrBlock": config["vswitch_cidr"]})
         self.wait("vswitch")
         self.create("sg", "CreateSecurityGroup", {"SecurityGroupName": self.name, "VpcId": ids["vpc"], "Description": PURPOSE})
         self.cloud.call("ecs", "AuthorizeSecurityGroup", SecurityGroupId=ids["sg"], IpProtocol="tcp", PortRange="22/22", SourceCidrIp=cidr, Description=PURPOSE)
@@ -254,16 +257,18 @@ class Fixture:
         public = (self.directory / "host-key.pub").read_text().strip()
         user_data = "#cloud-config\ndisable_root: false\nssh_pwauth: false\nssh_genkeytypes: [ed25519]\nssh_keys:\n  ed25519_private: |\n"
         user_data += "".join("    " + line + "\n" for line in private.splitlines())
-        user_data += "  ed25519_public: " + public + "\nswap:\n  filename: /swapfile\n  size: 536870912\n"
+        user_data += "  ed25519_public: " + public + "\nswap:\n  filename: /swapfile\n  size: " + str(config["swap_mib"] * 1024 * 1024) + "\n"
         self.create("template", "CreateLaunchTemplate", {
-            "LaunchTemplateName": self.name, "VersionDescription": PURPOSE, "ImageId": IMAGE,
-            "InstanceType": INSTANCE_TYPE, "ZoneId": ZONE, "VSwitchId": ids["vswitch"], "SecurityGroupId": ids["sg"],
+            "LaunchTemplateName": self.name, "VersionDescription": PURPOSE, "ImageId": config["image"],
+            "InstanceType": config["instance_type"], "ZoneId": config["zone"], "VSwitchId": ids["vswitch"], "SecurityGroupId": ids["sg"],
             "KeyPairName": self.name, "InstanceName": self.name, "InstanceChargeType": "PostPaid",
-            "SpotStrategy": "SpotAsPriceGo", "SpotDuration": 1, "InternetChargeType": "PayByTraffic", "InternetMaxBandwidthOut": 1,
-            "SystemDisk.Category": "cloud_essd", "SystemDisk.Size": 20, "SystemDisk.PerformanceLevel": "PL0",
+            "SpotStrategy": "SpotAsPriceGo", "SpotDuration": config["spot_duration"], "InternetChargeType": "PayByTraffic", "InternetMaxBandwidthOut": config["internet_max_bandwidth_out"],
+            "SystemDisk.Category": config["disk_category"], "SystemDisk.Size": config["disk_size_gib"],
             "SystemDisk.DeleteWithInstance": "true", "SystemDisk.DiskName": self.name, "SystemDisk.Description": PURPOSE,
             "AutoReleaseTime": self.tags["fleeting-fixture-expires"], "HttpTokens": "required", "HttpEndpoint": "enabled",
-            "UserData": base64.b64encode(user_data.encode()).decode(), **tag_args(self.tags)}, "TemplateTag")
+            "UserData": base64.b64encode(user_data.encode()).decode(),
+            **({"SystemDisk.PerformanceLevel": config["disk_performance_level"]} if config["disk_performance_level"] else {}),
+            **tag_args(self.tags)}, "TemplateTag")
         self.create("group", "CreateScalingGroup", {
             "ScalingGroupName": self.name, "GroupType": "ECS", "MinSize": 0,
             "MaxSize": 2 if self.tags["fleeting-scenario"] == "cloud-scale" else 1, "DesiredCapacity": 0,
@@ -310,7 +315,7 @@ class Fixture:
                 path.unlink()
 
 
-def driver(fixture, root, manifest, cidr):
+def driver(fixture, root, manifest, cidr, config):
     mode = fixture.tags["fleeting-scenario"]
     binary = root / manifest["fault_binary" if mode == MODES[-1] else "normal_binary"]
     expected_hash = manifest["files"][str(binary.relative_to(root))]
@@ -326,9 +331,9 @@ def driver(fixture, root, manifest, cidr):
            ("ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_CREDENTIALS_FILE", "ALIBABA_CLOUD_ROLE_ARN",
             "ALIBABA_CLOUD_OIDC_TOKEN_FILE", "ALIBABA_CLOUD_OIDC_PROVIDER_ARN", "ALIYUN_COMPONENT_ENDPOINT",
             "ALIYUN_RESPONSE_GATE_ADDR", "ALIYUN_RESPONSE_GATE_CA")}
-    env.update(RUN_LIVE_ACCEPTANCE="1", LIVE_EXTENDED_MODE=mode, ALIYUN_REGION=REGION,
+    env.update(RUN_LIVE_ACCEPTANCE="1", LIVE_EXTENDED_MODE=mode, ALIYUN_REGION=config["region"],
                ALIYUN_SCALING_GROUP_ID=fixture.state["ids"]["group"], ACCEPTANCE_PROJECT=fixture.tags["fleeting-project"],
-               ALLOWED_INSTANCE_TYPE=INSTANCE_TYPE, ALLOWED_IMAGE_ID=IMAGE, ALLOWED_ZONE_ID=ZONE,
+               ALLOWED_INSTANCE_TYPE=config["instance_type"], ALLOWED_IMAGE_ID=config["image"], ALLOWED_ZONE_ID=config["zone"],
                WORKER_USER="root", WORKER_SSH_KEY=str((fixture.directory / "worker-key").resolve()),
                MANAGER_CIDR=cidr, PLUGIN_BINARY=str(binary.resolve()), PLUGIN_COMMIT=manifest["candidate_sha"],
                ACCEPTANCE_OUTPUT=str((fixture.directory / "evidence").resolve()))
@@ -395,17 +400,18 @@ def stopped_run(tags):
 
 def run(args):
     require_linux()
+    config = fixture_config()
     manifest = verify(args.root, args.digest, args.sha, args.version)
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     tags = labels(os.environ["GITHUB_REPOSITORY"], args.sha, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], args.mode, expires)
-    fixture = Fixture(Cloud(), args.directory, tags)
+    fixture = Fixture(Cloud(config["region"]), args.directory, tags)
     address = subprocess.check_output(["curl", "-4", "--fail", "--silent", "--show-error", "--max-time", "15", "https://api.ipify.org"], text=True).strip()
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
     status = cleanup_status = "FAIL"
     plugin_hash = ""
     try:
-        fixture.prepare(cidr)
-        plugin_hash = driver(fixture, args.root, manifest, cidr)
+        fixture.prepare(cidr, config)
+        plugin_hash = driver(fixture, args.root, manifest, cidr, config)
         status = "PASS"
     finally:
         try:
@@ -415,6 +421,7 @@ def run(args):
             write_json(args.receipt, {"schema_version": 1, "result": status, "cleanup_result": cleanup_status,
                 "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                 "mode": args.mode, "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
+                "fixture_config_sha256": config_digest(config),
                 "plugin_sha256": plugin_hash, "response_gate_instrumented": args.mode == MODES[-1],
                 "leftover_resources": 0 if cleanup_status == "PASS" else -1})
 
@@ -423,7 +430,19 @@ def janitor(directory, completed_run=None, completed_attempt=None):
     if completed_run or completed_attempt:
         if any(not isinstance(v, str) or not re.fullmatch(r"[1-9][0-9]*", v) for v in (completed_run, completed_attempt)):
             raise ValueError("both completed run and attempt must be positive identifiers")
-    cloud = Cloud()
+    failures = 0
+    for region in cleanup_regions():
+        try:
+            janitor_region(Cloud(region), directory / region, completed_run, completed_attempt)
+        except Exception:
+            # A malformed response in one region must not strand other regions.
+            # Process termination still propagates (BaseException).
+            failures += 1
+    if failures:
+        raise RuntimeError("cleanup failed in one or more configured regions; remaining regions were attempted")
+
+
+def janitor_region(cloud, directory, completed_run, completed_attempt):
     project = os.environ["GITHUB_REPOSITORY"]
     fixtures = {}
     # Every atomic create is labelled; scanning all kinds also recovers a setup
@@ -459,15 +478,19 @@ def main():
     parser.add_argument("--mode", choices=MODES)
     parser.add_argument("--directory", type=Path, default=Path(".live/cloud"))
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--cleanup", action="store_true", help="validate only identity and recovery regions")
     parser.add_argument("--completed-run")
     parser.add_argument("--completed-attempt")
     args = parser.parse_args()
     if args.operation == "preflight":
         preflight()
+        cleanup_regions() if args.cleanup else fixture_config()
         if os.environ.get("GITHUB_ACTIONS") == "true":
             for key, value in os.environ.items():
                 if key.startswith("RELEASE_ALIYUN_") and value:
-                    print("::add-mask::" + value)
+                    for line in value.splitlines():
+                        if line:
+                            print("::add-mask::" + line.replace("%", "%25").replace("\r", "%0D"))
     elif args.operation == "janitor":
         janitor(args.directory, args.completed_run, args.completed_attempt)
     else:

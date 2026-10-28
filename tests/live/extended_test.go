@@ -95,8 +95,8 @@ func TestExtendedCloud(t *testing.T) {
 					tags = strings.FieldsFunc(setting.Value, func(r rune) bool { return r == ',' || r == ' ' })
 				}
 			}
-			if !slices.Contains(tags, "responsegate") || slices.Contains(tags, "componenttest") || os.Getenv("ALIYUN_REGION") != "us-east-1" {
-				t.Fatal("response-loss mode requires a responsegate build without componenttest and the fixed US East fixture")
+			if !slices.Contains(tags, "responsegate") || slices.Contains(tags, "componenttest") {
+				t.Fatal("response-loss mode requires a responsegate build without componenttest")
 			}
 		}
 	}
@@ -241,7 +241,7 @@ func TestExtendedCloud(t *testing.T) {
 		launcher := filepath.Join(pluginDir, "launch.sh")
 		script := "#!/bin/sh\nset -eu\numask 077\nprintf '%s\\n' \"$$\" > " + quote(filepath.Join(pluginDir, "pid")) + "\nexec " + quote(copyPath) + "\n"
 		if lostIncrease {
-			gate, e = acceptance.NewResponseGate(cloud.GroupID)
+			gate, e = acceptance.NewResponseGate(cloud.Region, cloud.GroupID)
 			if e != nil {
 				t.Fatal(e)
 			}

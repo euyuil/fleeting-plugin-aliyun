@@ -43,6 +43,7 @@ class CandidateTests(unittest.TestCase):
         for mode in candidate.MODES:
             binary = self.manifest["fault_binary" if mode == candidate.MODES[-1] else "normal_binary"]
             receipt = {"schema_version": 1, "result": "PASS", "cleanup_result": "PASS",
+                       "fixture_config_sha256": "e" * 64,
                        "candidate_sha": self.sha, "version": self.version,
                        "manifest_sha256": self.digest, "mode": mode, "run_id": "123", "run_attempt": "1",
                        "plugin_sha256": self.manifest["files"][binary],
@@ -75,7 +76,7 @@ class CandidateTests(unittest.TestCase):
     def test_receipt_failures_and_identity_mismatches_block_publication(self):
         path = self.receipts / "cloud-smoke.json"
         original = json.loads(path.read_text())
-        mutations = {"result": "NOT_RUN_MISSING_CONFIGURATION", "cleanup_result": "CLEANUP_FAILED",
+        mutations = {"fixture_config_sha256": "f" * 64, "result": "NOT_RUN_MISSING_CONFIGURATION", "cleanup_result": "CLEANUP_FAILED",
                      "candidate_sha": "b" * 40, "version": "1.2.4", "run_id": "124", "run_attempt": "2",
                      "manifest_sha256": "0" * 64, "plugin_sha256": "0" * 64, "leftover_resources": 1,
                      "response_gate_instrumented": True}

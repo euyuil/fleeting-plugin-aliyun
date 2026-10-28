@@ -12,11 +12,11 @@ profile or the older `ALIYUN_*` repository configuration. Nothing is enabled by
 merging the workflow: incomplete configuration fails the release gate before
 resource creation. Do not supply an AccessKey or a browser-login refresh token.
 
-1. In the **new account**, activate ECS, VPC and ESS, confirm US East Spot quota,
+1. In the **new account**, activate ECS, VPC and ESS, confirm Spot quota in the configured region,
    and prepare the ESS service-linked role required to create/release workers.
 2. Create a RAM OIDC provider for issuer
    `https://token.actions.githubusercontent.com` and audience `sts.aliyuncs.com`.
-   Create separate acceptance and cleanup RAM roles. Configure their OIDC trust
+   Create one RAM role for acceptance and cleanup. Configure its OIDC trust
    for the exact subject `repo:OWNER/REPOSITORY:environment:aliyun-pre-release`.
    Replace OWNER/REPOSITORY with this repository. Follow the
    [official Alibaba OIDC action documentation](https://github.com/aliyun/configure-aliyun-credentials-action).
@@ -25,15 +25,22 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
    pending human approval; release initiation itself remains an explicit manual
    operation. Trust the exact repository/environment, not every repository in
    the owner account. See [GitHub OIDC guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-cloud-providers).
-4. Set these **environment variables**, initially leaving the enabled flag false:
+4. Set the following in that **Environment**, initially leaving the enabled flag false.
+   Account identifiers and ARNs should normally be **Secrets**. The workflow also
+   accepts Variables; a nonempty Secret takes precedence. Resource settings may
+   be Variables or Secrets. Do not keep duplicate names in both stores. The
+   reusable Release workflow explicitly forwards these named secrets. Values
+   are never committed; local/offline tests use synthetic fixtures only:
 
-   | Variable | Value |
+   | Name | Value |
    | --- | --- |
    | `RELEASE_CLOUD_ACCEPTANCE_ENABLED` | `true` only after reviewing the new account and role scopes |
    | `RELEASE_ALIYUN_ACCOUNT_ID` | The new account's 16-digit account ID |
    | `RELEASE_ALIYUN_ROLE_ARN` | Acceptance role ARN in that account |
-   | `RELEASE_ALIYUN_CLEANUP_ROLE_ARN` | Cleanup-only role ARN in that account |
+   | `RELEASE_ALIYUN_CLEANUP_ROLE_ARN` | Optional separate cleanup role ARN; omitted by default, so cleanup uses the acceptance role |
    | `RELEASE_ALIYUN_OIDC_PROVIDER_ARN` | OIDC provider ARN in that account |
+   | `RELEASE_ALIYUN_FIXTURE_CONFIG` | Required resource configuration JSON described below |
+   | `RELEASE_ALIYUN_CLEANUP_REGIONS` | Required JSON array of region IDs, including the fixture region and previous regions with outstanding resources |
 
 5. Review the action/region/resource scopes below, then explicitly enable the
    gate. Before any writes, STS `GetCallerIdentity` must match the configured
@@ -47,8 +54,9 @@ Import/Describe/DeleteKeyPairs, Create/Describe/DeleteLaunchTemplate, instance,
 disk and ENI reads/deletes; and ESS Create/Enable/DeleteScalingGroup and member
 reads. Create calls attach tags atomically, so include each API's dependent tag
 permissions. Existing acceptance also manages owned ingress and instance expiry.
-The cleanup role needs these inventories, ESS member reads and deletion actions,
-but no create, scale-out or publication permissions. Restrict to `us-east-1` and
+With the default single role, both workflows receive the acceptance role
+permissions. An optional separate cleanup role only needs these inventories,
+ESS member reads and deletion actions, without create or scale-out permissions. Restrict to the configured regions and
 test purpose/project tags wherever the API's RAM authorization metadata supports
 those conditions. Some Describe actions require account-wide resource scope.
 Review the official action metadata rather than granting administrator policies.
@@ -80,12 +88,51 @@ installation verification remains separate.
 | `cloud-remove-restart` | Restart during accepted removal reaches zero | 1 |
 | `cloud-increase-response-loss` | Lost expansion reply and restart create only one worker | 1 |
 
-The fixed fixture uses `us-east-1b`, `ecs.e-c4m1.large` (2 vCPU, 0.5 GiB), image
-`ubuntu_26_04_x64_20G_alibase_20260916.vhd`, and a 20-GiB ESSD PL0 system disk.
-Cloud-init configures a 512-MiB swap file and per-run SSH keys. There is no
-on-demand fallback or replacement budget. A complete successful suite creates
-seven workers cumulatively, with at most two at once. Each driver has a 15-minute
-scenario deadline plus cleanup; each scenario job has a 45-minute ceiling.
+## External resource configuration
+
+`RELEASE_ALIYUN_FIXTURE_CONFIG` is one JSON object. Every field below is required;
+there are no deployed-account defaults in source control. Copy the field names
+into the GitHub Environment Variable/Secret and select actual values in the new
+account's ECS catalog. Do not paste private configuration into issues or commits.
+
+| JSON field | Value and validation |
+| --- | --- |
+| `region` | Exact ECS/VPC/ESS region ID; must also be in the cleanup region list |
+| `zone` | Exact zone ID in that region |
+| `instance_type` | Explicit `ecs.*` instance type; compatible with the selected image |
+| `image` | Immutable Linux image ID with cloud-init and root SSH support |
+| `disk_category` | `cloud_efficiency`, `cloud_ssd`, `cloud_essd`, `cloud_essd_entry` or `cloud_auto` |
+| `disk_size_gib` | Integer 20–2048; must satisfy the image/category's cloud requirements |
+| `disk_performance_level` | Explicit `PL0`–`PL3` for `cloud_essd`; empty string otherwise |
+| `internet_max_bandwidth_out` | Integer 1; the live acceptance policy currently requires 1-Mbps traffic billing |
+| `spot_duration` | Integer 0 or 1 (hours) |
+| `vpc_cidr` | Canonical RFC1918 IPv4 network, /8 through /28 |
+| `vswitch_cidr` | Canonical IPv4 subnet within that VPC, /16 through /29 |
+| `swap_mib` | Integer 0–2048; cloud-init swap size |
+
+Malformed JSON, duplicate/unknown/missing keys, wrong types, unsafe CIDRs, or a
+fixture region missing from the cleanup list fail before OIDC/resource creation.
+The selected size/category/image/Spot availability still requires cloud-side
+verification; syntactic validation does not promise capacity or a quoted price.
+Every scenario uses the selected values for creation and the driver's allowlist.
+Receipts contain only a canonical configuration digest, not private values;
+all six receipts must have the same digest to pass the release gate.
+
+Cloud-init creates per-run SSH keys. Fixed protocol and safety requirements
+remain in code: root SSH for these disposable Linux fixtures, strict Spot,
+traffic billing, no on-demand fallback, no worker RAM role, deletion-on-release,
+owned /32 SSH ingress, test purpose/ownership tags and bounded worker counts.
+These are test invariants, not a hidden deployment configuration.
+A complete successful suite creates seven workers cumulatively, with at most
+two at once. Each driver has a 15-minute scenario deadline plus cleanup; each
+scenario job has a 45-minute ceiling and a one-hour resource expiry.
+
+Before changing region, retain both old and new regions in
+`RELEASE_ALIYUN_CLEANUP_REGIONS` until the old region is proven empty. The janitor
+validates identity and that list independently; it does not require a valid
+fixture configuration. Before changing account/roles, finish cleanup with the
+old identity first: the new account cannot discover or delete old-account
+resources. Keep cleanup enabled until that proof is complete.
 
 ## Recognize test resources
 
@@ -121,7 +168,7 @@ An unresolved create or ownership change prevents a clean result.
 `Pre-release cloud janitor` runs independently after Release/Cloud acceptance,
 hourly, and on manual dispatch. It discovers labelled fixtures without relying
 on a prior runner's files/artifacts, verifies the owning GitHub run attempt is
-completed, and uses the separate cleanup role. A completed-run event can recover
+completed, and uses the configured role (the acceptance role by default). A completed-run event can recover
 that exact run/attempt immediately; scheduled/manual scans recover expired
 fixtures. Manual cleanup can also select an exact completed run and attempt.
 ECS auto-release is an additional one-hour bound, not a substitute for

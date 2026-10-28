@@ -23,7 +23,9 @@ checks finite limits and executor configuration boundaries using Python 3.11+.
 ## Network connectivity before live acceptance
 
 The manual **Network connectivity** workflow probes verified public HTTPS to the
-US East ECS endpoint, the ESS endpoint and STS without cloud credentials. Store
+API hosts listed in the required JSON-array repository Variable
+`ALIYUN_NETWORK_PROBE_ENDPOINTS`, without cloud credentials. Select the official
+ECS, ESS and STS hostnames for the region under test; arbitrary hosts are rejected. Store
 the temporary ECS public IPv4 address in `ALIYUN_NETWORK_PROBE_HOST` and its
 independently verified Ed25519 host-key fingerprint in
 `ALIYUN_NETWORK_PROBE_HOST_KEY_SHA256`, both as repository secrets. No SSH client
@@ -201,7 +203,7 @@ or Runner; lost API responses remain a separate case.
 
 ### Plugin restart before delivery of an expansion response
 
-`LIVE_EXTENDED_MODE=cloud-increase-response-loss` uses the fixed US East
+`LIVE_EXTENDED_MODE=cloud-increase-response-loss` uses the configured region
 **MaxSize=1** strict-Spot fixture and cumulative creation budget **one**.
 Build the separate test-instrumented plugin, then run the normal live driver:
 
@@ -215,8 +217,10 @@ unmodified release-artifact test or an observation of natural packet loss.
 Preflight checks the Go build information for `responsegate` and rejects
 `componenttest` before SDK construction. The real SDK retains its signing,
 official URL/Host/SNI, parser and retry logic. Only its ESS dial destination and
-per-process trust roots change. A dedicated numeric-loopback TLS gate forwards
-the original signed request to `https://ess.aliyuncs.com` using independent
+per-process trust roots change. The gate resolves the official ESS hostname
+from the same region mapping as the SDK; arbitrary endpoints are not accepted.
+A dedicated numeric-loopback TLS gate forwards
+the original signed request to that official HTTPS endpoint using independent
 system TLS verification, with no redirects or upstream retries. ECS remains on
 its ordinary route. No system certificate store is changed.
 

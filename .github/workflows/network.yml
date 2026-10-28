@@ -22,6 +22,7 @@ jobs:
           retention-days: 1
       - name: Probe public APIs and pinned SSH server
         env:
+          NETWORK_PROBE_ENDPOINTS: ${{ vars.ALIYUN_NETWORK_PROBE_ENDPOINTS }}
           NETWORK_PROBE_HOST: ${{ secrets.ALIYUN_NETWORK_PROBE_HOST }}
           NETWORK_PROBE_HOST_KEY_SHA256: ${{ secrets.ALIYUN_NETWORK_PROBE_HOST_KEY_SHA256 }}
         run: python3 tools/network-probe.py probe --output .network/result.json

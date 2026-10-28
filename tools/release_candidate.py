@@ -103,6 +103,8 @@ def check_receipt(receipt, manifest, manifest_digest, mode, run, attempt):
         raise ValueError("positive GitHub run and attempt identifiers are required")
     if mode not in MODES:
         raise ValueError("unknown cloud acceptance scenario")
+    if not isinstance(receipt.get("fixture_config_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", receipt["fixture_config_sha256"]):
+        raise ValueError("cloud receipt requires a fixture configuration digest")
     expected_binary = manifest["fault_binary" if mode == MODES[-1] else "normal_binary"]
     expected = {"schema_version": 1, "result": "PASS", "cleanup_result": "PASS",
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"],
@@ -118,7 +120,7 @@ def gate(root, receipts, expected_digest, sha, version, run, attempt):
         raise ValueError("positive GitHub run and attempt identifiers are required")
     manifest = verify(root, expected_digest, sha, version)
     paths = sorted(receipts.glob("*.json"))
-    seen = set()
+    seen, configs = set(), set()
     for path in paths:
         receipt = json.loads(path.read_text())
         mode = receipt.get("mode")
@@ -126,6 +128,9 @@ def gate(root, receipts, expected_digest, sha, version, run, attempt):
             raise ValueError("unexpected or duplicate cloud acceptance scenario")
         check_receipt(receipt, manifest, expected_digest, mode, run, attempt)
         seen.add(mode)
+        configs.add(receipt["fixture_config_sha256"])
+    if len(configs) != 1:
+        raise ValueError("all scenarios must use the same fixture configuration")
     if seen != set(MODES):
         raise ValueError("all six cloud acceptance scenarios must pass before publication")
 

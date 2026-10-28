@@ -27,12 +27,12 @@ func gateRequest(t *testing.T, g *ResponseGate, action, fields string) net.Conn 
 	t.Helper()
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(g.CA())
-	c, err := tls.Dial("tcp", g.Address(), &tls.Config{RootCAs: roots, ServerName: "ess.aliyuncs.com", MinVersion: tls.VersionTLS12})
+	c, err := tls.Dial("tcp", g.Address(), &tls.Config{RootCAs: roots, ServerName: g.endpoint, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	_, err = fmt.Fprintf(c, "POST / HTTP/1.1\r\nHost: ess.aliyuncs.com\r\nx-acs-action: %s\r\nAuthorization: synthetic-signature\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n%s", action, len(fields), fields)
+	_, err = fmt.Fprintf(c, "POST / HTTP/1.1\r\nHost: %s\r\nx-acs-action: %s\r\nAuthorization: synthetic-signature\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n%s", g.endpoint, action, len(fields), fields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func gateRequest(t *testing.T, g *ResponseGate, action, fields string) net.Conn 
 const selectedIncrease = "ScalingGroupId=asg-test&AdjustmentType=TotalCapacity&AdjustmentValue=1&SyncActivity=false&ClientToken=token-test"
 
 func TestResponseGateLocalDropCannotProvePeerExit(t *testing.T) {
-	g, err := newResponseGate("asg-test", gateTransport(func(*http.Request) (*http.Response, error) {
+	g, err := newResponseGate("cn-hangzhou", "asg-test", gateTransport(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"RequestId":"request-test"}`))}, nil
 	}))
 	if err != nil {
@@ -75,7 +75,7 @@ func TestResponseGateRejectsUntrustedUpstreamTLS(t *testing.T) {
 	var reached atomic.Bool
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached.Store(true) }))
 	defer upstream.Close()
-	g, err := NewResponseGate("asg-test")
+	g, err := NewResponseGate("cn-hangzhou", "asg-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestResponseGateHoldsAllHTTPBytesUntilPeerExitAndRejectsReplay(t *testing.T
 	for _, compressed := range []bool{false, true} {
 		t.Run(fmt.Sprint(compressed), func(t *testing.T) {
 			var calls atomic.Int32
-			g, err := newResponseGate("asg-test", gateTransport(func(r *http.Request) (*http.Response, error) {
+			g, err := newResponseGate("cn-hangzhou", "asg-test", gateTransport(func(r *http.Request) (*http.Response, error) {
 				calls.Add(1)
 				body, _ := io.ReadAll(r.Body)
 				if r.URL.Scheme != "https" || r.URL.Host != "ess.aliyuncs.com" || r.Host != "ess.aliyuncs.com" || r.Header.Get("Authorization") != "synthetic-signature" || string(body) != selectedIncrease {
@@ -160,7 +160,7 @@ func TestResponseGateForwardsOtherCallsAndRejectsUnsuccessfulAcceptance(t *testi
 	for _, mode := range []string{"read", "forbidden", "malformed", "wrong-group"} {
 		t.Run(mode, func(t *testing.T) {
 			var calls atomic.Int32
-			g, err := newResponseGate("asg-test", gateTransport(func(r *http.Request) (*http.Response, error) {
+			g, err := newResponseGate("cn-hangzhou", "asg-test", gateTransport(func(r *http.Request) (*http.Response, error) {
 				calls.Add(1)
 				status, body := 200, `{"RequestId":"request-test"}`
 				if mode == "forbidden" {
@@ -201,5 +201,14 @@ func TestResponseGateForwardsOtherCallsAndRejectsUnsuccessfulAcceptance(t *testi
 				t.Fatal("foreign expansion was forwarded")
 			}
 		})
+	}
+}
+
+func TestResponseGateRejectsEndpointInjection(t *testing.T) {
+	for _, region := range []string{"", "https://example.com", "../example", "valid-1.evil.com", "valid-1\n"} {
+		if g, err := NewResponseGate(region, "asg-test"); err == nil {
+			g.Close()
+			t.Fatal("invalid region accepted")
+		}
 	}
 }

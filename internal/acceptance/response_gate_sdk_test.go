@@ -18,10 +18,18 @@ import (
 )
 
 func TestResponseGateRetainsRealSDKSigningAndBlocksItsReturn(t *testing.T) {
+	for region, host := range map[string]string{"cn-hangzhou": "ess.aliyuncs.com", "eu-central-1": "ess.eu-central-1.aliyuncs.com"} {
+		t.Run(region, func(t *testing.T) {
+			testResponseGateSDKRegion(t, region, host)
+		})
+	}
+}
+
+func testResponseGateSDKRegion(t *testing.T, region, host string) {
 	var upstream atomic.Int32
-	g, err := newResponseGate("asg-test", gateTransport(func(r *http.Request) (*http.Response, error) {
+	g, err := newResponseGate(region, "asg-test", gateTransport(func(r *http.Request) (*http.Response, error) {
 		upstream.Add(1)
-		if r.URL.Host != "ess.aliyuncs.com" || r.Header.Get("Authorization") == "" {
+		if r.URL.Host != host || r.Header.Get("Authorization") == "" {
 			t.Error("official-host SDK signature was lost")
 		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"RequestId":"request-test"}`))}, nil
@@ -34,17 +42,17 @@ func TestResponseGateRetainsRealSDKSigningAndBlocksItsReturn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sdk, err := aliyun.NewSDKWithCredential("us-east-1", cred)
+	sdk, err := aliyun.NewSDKWithCredential(region, cred)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sdk.Close()
 	for _, address := range []string{"", "example.com:443", "192.0.2.1:443", "127.0.0.1:0"} {
-		if err := sdk.ConfigureESSResponseGate("us-east-1", address, g.CA()); err == nil {
+		if err := sdk.ConfigureESSResponseGate(region, address, g.CA()); err == nil {
 			t.Fatal("nonlocal or invalid route accepted", address)
 		}
 	}
-	if err := sdk.ConfigureESSResponseGate("us-east-1", g.Address(), g.CA()); err != nil {
+	if err := sdk.ConfigureESSResponseGate(region, g.Address(), g.CA()); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
