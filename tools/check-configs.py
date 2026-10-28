@@ -19,6 +19,8 @@ for path in pathlib.Path("examples").glob("*/config.toml"):
     assert config["max_use_count"] == 1
     assert config["connector_config"]["use_static_credentials"] is True
     assert set(config["plugin_config"]) == {"region", "scaling_group_id"}
+    if runner["shell"] == "sh":
+        assert runner["feature_flags"]["FF_POSIXLY_CORRECT_ESCAPES"] is True
     if args.runner:
         with tempfile.TemporaryDirectory() as folder:
             config = pathlib.Path(folder) / "config.toml"

@@ -457,6 +457,8 @@ func RunnerConfig(url, token, region, group, user, key string, options smokeOpti
  token = %s
  executor = %s
  shell = "sh"
+ [runners.feature_flags]
+ FF_POSIXLY_CORRECT_ESCAPES = true
  [runners.autoscaler]
  plugin = %s
  capacity_per_instance = 1

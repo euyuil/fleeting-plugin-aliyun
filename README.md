@@ -105,6 +105,13 @@ Edit that file and set:
 The downloaded example uses a native binary name. Replace its `plugin` value
 with the full OCI reference above. Pin this exact version for the prerelease.
 
+Also add this block if it is missing, to use `sh` on Linux:
+
+```toml
+[runners.feature_flags]
+  FF_POSIXLY_CORRECT_ESCAPES = true
+```
+
 Keep the private key readable only by the Manager user. Configure Alibaba Cloud
 credentials for that same user through a supported credential source; do not put
 cloud access keys in this file. For a short test, you can supply temporary STS

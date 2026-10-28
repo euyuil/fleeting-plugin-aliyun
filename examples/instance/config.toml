@@ -6,6 +6,8 @@ concurrent = 1
   token = "REPLACE_WITH_PROJECT_RUNNER_AUTH_TOKEN"
   executor = "instance"
   shell = "sh"
+  [runners.feature_flags]
+    FF_POSIXLY_CORRECT_ESCAPES = true
   [runners.autoscaler]
     plugin = "fleeting-plugin-aliyun"
     capacity_per_instance = 1

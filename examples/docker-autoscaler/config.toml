@@ -6,6 +6,8 @@ concurrent = 1
   token = "REPLACE_WITH_PROJECT_RUNNER_AUTH_TOKEN"
   executor = "docker-autoscaler"
   shell = "sh"
+  [runners.feature_flags]
+    FF_POSIXLY_CORRECT_ESCAPES = true
   [runners.docker]
     image = "REPLACE_WITH_PINNED_JOB_IMAGE_DIGEST"
   [runners.autoscaler]
