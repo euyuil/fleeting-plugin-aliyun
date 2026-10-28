@@ -25,12 +25,12 @@ from GitLab CE. Use the same plugin directory for installation and Runner.
 See [distribution](distribution.md) for the native binary alternative.
 
 Start from [`examples/instance/config.toml`](../examples/instance/config.toml).
-Set the GitLab URL and fixed runner authentication token, group and region,
-worker username and private-key file. Do not commit credentials. The
-example uses the native binary name; replace `plugin` with the exact OCI
-reference from the quick start when using OCI installation. Its default limits
-are max_instances=1, capacity_per_instance=1, and max_use_count=1. Jobs
-run on the VM without worker Docker or per-worker Runner registration.
+Set the GitLab URL and runner authentication token, group and region,
+worker username and private-key file. Do not commit credentials. The example
+already uses the pinned OCI plugin. Follow the [Linux service setup](installation.md)
+for the service account, credentials, plugin directory, and systemd unit.
+Its default limits are max_instances=1, capacity_per_instance=1, and max_use_count=1.
+Jobs run on the VM without worker Docker or per-worker Runner registration.
 
 The worker image must already contain the compatible Runner binary on PATH,
 the selected job shell/tools, an SSH service, the static public key, a writable
