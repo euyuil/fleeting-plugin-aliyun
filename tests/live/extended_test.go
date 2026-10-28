@@ -31,7 +31,8 @@ import (
 
 func TestExtendedCloud(t *testing.T) {
 	mode := os.Getenv("LIVE_EXTENDED_MODE")
-	pluginMode := mode == "cloud-smoke" || mode == "cloud-scale" || mode == "cloud-restart"
+	creatingRestart := mode == "cloud-create-restart"
+	pluginMode := mode == "cloud-smoke" || mode == "cloud-scale" || mode == "cloud-restart" || creatingRestart
 	required := []string{"ALIYUN_REGION", "ALIYUN_SCALING_GROUP_ID", "ACCEPTANCE_PROJECT", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "ALLOWED_INSTANCE_TYPE", "ALLOWED_IMAGE_ID", "ALLOWED_ZONE_ID", "WORKER_SSH_KEY", "WORKER_USER", "MANAGER_CIDR", "PLUGIN_COMMIT"}
 	missing := []string{}
 	if pluginMode {
@@ -42,12 +43,12 @@ func TestExtendedCloud(t *testing.T) {
 			missing = append(missing, key)
 		}
 	}
-	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "cloud-restart", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
+	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
 		dir := os.Getenv("ACCEPTANCE_OUTPUT")
 		if dir == "" {
 			dir = "../../.live/not-run"
 		}
-		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|cloud-restart|scale|interruption|suspend"}); e != nil {
+		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|cloud-restart|cloud-create-restart|scale|interruption|suspend"}); e != nil {
 			t.Fatal(e)
 		}
 		t.Skip("NOT_RUN_MISSING_CONFIGURATION: extended live entry is explicitly disabled")
@@ -159,7 +160,7 @@ func TestExtendedCloud(t *testing.T) {
 		if e := acceptance.Cleanup(cleanupCtx, cloud, ledger, false); e != nil {
 			result = "CLEANUP_FAILED"
 			t.Error(e)
-		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (pluginMode && len(ledger.Instances) != maxSize) || (mode == "cloud-scale" && !retainedVerified) || (mode == "cloud-restart" && !restartVerified) {
+		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (pluginMode && len(ledger.Instances) != maxSize) || (mode == "cloud-scale" && !retainedVerified) || ((mode == "cloud-restart" || creatingRestart) && !restartVerified) {
 			result = "FAIL_PRODUCT"
 		}
 		for _, resource := range ledger.Instances {
@@ -262,6 +263,40 @@ func TestExtendedCloud(t *testing.T) {
 	if _, err = worker.Init(ctx, nil, settings); err != nil {
 		t.Fatal(err)
 	}
+	restartPlugin := func(afterExit func() error) (int, error) {
+		oldPID := pluginPID
+		if oldPID <= 0 || oldPID == os.Getpid() {
+			return oldPID, errors.New("invalid owned plugin PID")
+		}
+		old, e := os.FindProcess(oldPID)
+		if e != nil {
+			return oldPID, e
+		}
+		if e = old.Kill(); e != nil {
+			return oldPID, e
+		}
+		worker = nil
+		killPlugin()
+		proofCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+		e = acceptance.WaitForProcessExit(proofCtx, oldPID)
+		stop()
+		if e != nil {
+			return oldPID, e
+		}
+		if afterExit != nil {
+			if e = afterExit(); e != nil {
+				return oldPID, e
+			}
+		}
+		if e = startPlugin(); e != nil {
+			return oldPID, e
+		}
+		if pluginPID == oldPID {
+			return oldPID, errors.New("restart did not produce a distinct plugin PID")
+		}
+		_, e = worker.Init(ctx, nil, settings)
+		return oldPID, e
+	}
 	observe := func() error {
 		return acceptance.ObserveBudget(ctx, cloud, ledger, budget, data.InstanceType, data.ImageId, data.ZoneId)
 	}
@@ -283,12 +318,43 @@ func TestExtendedCloud(t *testing.T) {
 			}
 		}
 	}
+	var creationBefore, creationAfter acceptance.CreatingSnapshot
+	if creatingRestart {
+		transitions = append(transitions, map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity})
+	}
 	increase := 1
 	if pluginMode {
 		increase = maxSize
 	}
 	if n, e := worker.Increase(ctx, increase); e != nil || n != increase {
 		t.Fatal(n, e)
+	}
+	if creatingRestart {
+		acceptedAt := time.Now().UTC()
+		var e error
+		creationBefore, e = acceptance.CaptureCreating(ctx, cloud, ledger)
+		if e != nil {
+			t.Fatal("creation restart window was not captured", e)
+		}
+		cutpointPath := filepath.Join(dir, "creation-cutpoint.json")
+		if e = acceptance.WriteJSON(cutpointPath, map[string]any{"before": creationBefore, "accepted_at": acceptedAt}); e != nil {
+			t.Fatal(e)
+		}
+		oldPID, e := restartPlugin(func() error {
+			var err error
+			creationAfter, err = acceptance.CaptureCreating(ctx, cloud, ledger)
+			if err != nil {
+				return fmt.Errorf("creation window ended before old process exit proof: %w", err)
+			}
+			if creationAfter.ActivityID != creationBefore.ActivityID || !slices.Equal(creationAfter.ActivityIDs, creationBefore.ActivityIDs) || (creationBefore.InstanceID != "" && creationAfter.InstanceID != "" && creationBefore.InstanceID != creationAfter.InstanceID) {
+				return errors.New("creation identity or activity changed at restart")
+			}
+			return acceptance.WriteJSON(cutpointPath, map[string]any{"accepted_at": acceptedAt, "before": creationBefore, "after_old_exit": creationAfter, "old_process_exit_confirmed": true})
+		})
+		if e != nil {
+			t.Fatal(e)
+		}
+		transitions = append(transitions, map[string]any{"action": "plugin_restart_during_creation", "accepted_at": acceptedAt, "before": creationBefore, "after_old_exit": creationAfter, "old_plugin_pid": oldPID, "new_plugin_pid": pluginPID, "old_process_exit_confirmed": true, "crash_without_provider_shutdown": true, "creating_before_and_after_old_exit": true, "observed_at": time.Now().UTC()})
 	}
 	if mode == "scale" {
 		if n, e := worker.Increase(ctx, 1); e != nil || n != 1 {
@@ -321,9 +387,10 @@ func TestExtendedCloud(t *testing.T) {
 		if e != nil || current.DesiredCapacity != maxSize || current.TotalCapacity != maxSize {
 			t.Fatal("plugin scale-out did not reach the exact requested capacity", e)
 		}
-		transitions = append(transitions,
-			map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity},
-			map[string]any{"action": "plugin_increase", "desired_capacity": current.DesiredCapacity, "total_capacity": current.TotalCapacity, "instance_ids": slices.Clone(ids), "observed_at": time.Now().UTC()})
+		if !creatingRestart {
+			transitions = append(transitions, map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity})
+		}
+		transitions = append(transitions, map[string]any{"action": "plugin_increase", "desired_capacity": current.DesiredCapacity, "total_capacity": current.TotalCapacity, "instance_ids": slices.Clone(ids), "observed_at": time.Now().UTC()})
 		for _, id := range ids {
 			var disks struct {
 				TotalCount *int
@@ -402,6 +469,36 @@ func TestExtendedCloud(t *testing.T) {
 	for _, id := range ids {
 		runSSH(id)
 	}
+	if creatingRestart {
+		original := ids[0]
+		if (creationBefore.InstanceID != "" && creationBefore.InstanceID != original) || (creationAfter.InstanceID != "" && creationAfter.InstanceID != original) {
+			t.Fatal("creation restart produced a different worker")
+		}
+		wait(func() (bool, error) {
+			history, e := acceptance.History(ctx, cloud)
+			if e != nil {
+				return false, e
+			}
+			var activityIDs []string
+			complete := false
+			for _, activity := range history {
+				activityIDs = append(activityIDs, activity.ScalingActivityId)
+				if activity.ScalingActivityId == creationBefore.ActivityID {
+					if activity.StatusCode != "InProgress" && activity.StatusCode != "Successful" {
+						return false, errors.New("accepted creation activity failed")
+					}
+					complete = activity.StatusCode == "Successful" && activity.CreatedCapacity == 1 && slices.Equal(activity.CreatedInstances.CreatedInstance, []string{original})
+				}
+			}
+			slices.Sort(activityIDs)
+			if !slices.Equal(activityIDs, creationBefore.ActivityIDs) {
+				return false, errors.New("creation restart introduced another scaling activity")
+			}
+			return complete, nil
+		})
+		restartVerified = true
+		transitions = append(transitions, map[string]any{"action": "creation_restart_recovered", "instance_id": original, "accepted_activity_id": creationBefore.ActivityID, "accepted_activity_created_exactly_one": true, "scaling_activity_ids_unchanged": true, "ssh_after_restart": true, "desired_capacity": 1, "total_capacity": 1, "observed_at": time.Now().UTC()})
+	}
 	if mode == "cloud-restart" {
 		original := ids[0]
 		activityIDs := func() ([]string, error) {
@@ -432,25 +529,8 @@ func TestExtendedCloud(t *testing.T) {
 		if journal != nil {
 			journalKind = journal.Kind
 		}
-		oldPID := pluginPID
-		old, e := os.FindProcess(oldPID)
+		oldPID, e := restartPlugin(nil)
 		if e != nil {
-			t.Fatal(e)
-		}
-		// Crash the owned subprocess without provider Shutdown. Kill then reaps
-		// its transport before a fresh process reads cloud state and journal.
-		if e = old.Kill(); e != nil {
-			t.Fatal(e)
-		}
-		worker = nil
-		killPlugin()
-		if e = startPlugin(); e != nil {
-			t.Fatal(e)
-		}
-		if pluginPID == oldPID {
-			t.Fatal("restart did not produce a distinct plugin PID")
-		}
-		if _, e = worker.Init(ctx, nil, settings); e != nil {
 			t.Fatal(e)
 		}
 		wait(func() (bool, error) {

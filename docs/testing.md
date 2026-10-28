@@ -124,6 +124,39 @@ its file is replaced. Separate full fixture teardown remains required. This
 covers restart after a ready worker, with no GitLab or Runner. Restart during a
 lost API reply, pending provisioning or removal requires separate live evidence.
 
+### Plugin restart during accepted creation
+
+`LIVE_EXTENDED_MODE=cloud-create-restart` uses the same separate empty
+**MaxSize=1** strict-Spot fixture and a cumulative creation budget of **one**.
+
+```sh
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-create-restart make test-live-extended
+```
+
+After the real plugin's `Increase(1)` returns accepted, a read-only timing probe
+requires the owned persisted 0-to-1 journal and exactly one new `InProgress`
+scaling activity. A complete timing response must show no member yet or one
+`Init`/`Pending` member. Instance IDs from the activity and membership are
+cross-checked and must agree when both exist. An identity supplied by either
+source must still be absent, `Pending`, `Starting` or `Stopped` in ECS; an already
+`Running` worker cannot satisfy this mode.
+The special probe can record Init's unassigned ID without admitting a partial
+snapshot for normal membership, allocation or cleanup.
+
+The driver captures that state immediately before killing the old plugin and
+again after proving its exit, before launching the new PID. Both captures must
+still prove creation in progress with the same activity. If the window is missed,
+the run fails and cleans up rather than claiming a ready-worker restart result.
+Private `creation-cutpoint.json` retains the captures before further recovery.
+
+No second `Increase` is issued. The new plugin must eventually discover exactly
+one running worker, verify its actual disk and complete fresh SSH. The original
+accepted activity must finish successfully with exactly that one instance ID;
+its activity-ID set and the cumulative worker count must not increase. Normal
+specified scale-in to zero and full fixture cleanup remain mandatory. This mode
+covers an accepted response during creation, not a lost API response or deletion
+in progress, and requires neither GitLab nor Runner.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its
