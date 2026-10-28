@@ -297,6 +297,45 @@ func TestRestartCreditShrinksAfterDiscovery(t *testing.T) {
 	}
 }
 
+func TestRestartAfterAcceptedRemovalFinishesWithoutReplay(t *testing.T) {
+	f := testutil.New()
+	f.Group.MaxSize = 1
+	f.Add("i-worker")
+	f.ActivityStatus = "InProgress"
+	g := setup(t, f)
+	if ids, err := g.Decrease(context.Background(), []string{"i-worker"}); err != nil || len(ids) != 1 || ids[0] != "i-worker" {
+		t.Fatal(ids, err)
+	}
+	j, err := aliyun.ReadJournal(f.Group)
+	if err != nil || j == nil || j.Activity == "" || j.AcceptedMask != 1 || j.Target != 0 || len(f.Instances) != 1 {
+		t.Fatal("missing accepted removal or target already absent", j, err)
+	}
+	restarted := setup(t, f)
+	if got := states(t, restarted); got["i-worker"] != upstream.StateDeleting {
+		t.Fatal("new process did not restore the deleting target", got)
+	}
+	f.ActivityStatus = "Successful"
+	if _, err := restarted.Decrease(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	j, err = aliyun.ReadJournal(f.Group)
+	if err != nil || j != nil || f.Group.DesiredCapacity != 0 || len(f.Instances) != 0 || len(f.Members) != 0 {
+		t.Fatal("accepted removal did not converge and clear its journal", j, err)
+	}
+	removals := 0
+	for _, call := range f.Calls {
+		if call.Action == "ScaleWithAdjustment" {
+			t.Fatal("removal recovery changed capacity through another scaling request")
+		}
+		if call.Action == "RemoveInstances" {
+			removals++
+		}
+	}
+	if removals != 1 {
+		t.Fatal("accepted removal was replayed", removals)
+	}
+}
+
 func TestAcceptedRemovalFactsAreRetriedBeforeProgress(t *testing.T) {
 	f := testutil.New()
 	f.Add("i-worker")

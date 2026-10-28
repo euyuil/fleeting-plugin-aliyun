@@ -32,7 +32,9 @@ import (
 func TestExtendedCloud(t *testing.T) {
 	mode := os.Getenv("LIVE_EXTENDED_MODE")
 	creatingRestart := mode == "cloud-create-restart"
-	pluginMode := mode == "cloud-smoke" || mode == "cloud-scale" || mode == "cloud-restart" || creatingRestart
+	removingRestart := mode == "cloud-remove-restart"
+	restartMode := mode == "cloud-restart" || creatingRestart || removingRestart
+	pluginMode := mode == "cloud-smoke" || mode == "cloud-scale" || restartMode
 	required := []string{"ALIYUN_REGION", "ALIYUN_SCALING_GROUP_ID", "ACCEPTANCE_PROJECT", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "ALLOWED_INSTANCE_TYPE", "ALLOWED_IMAGE_ID", "ALLOWED_ZONE_ID", "WORKER_SSH_KEY", "WORKER_USER", "MANAGER_CIDR", "PLUGIN_COMMIT"}
 	missing := []string{}
 	if pluginMode {
@@ -43,12 +45,12 @@ func TestExtendedCloud(t *testing.T) {
 			missing = append(missing, key)
 		}
 	}
-	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
+	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "cloud-remove-restart", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
 		dir := os.Getenv("ACCEPTANCE_OUTPUT")
 		if dir == "" {
 			dir = "../../.live/not-run"
 		}
-		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|cloud-restart|cloud-create-restart|scale|interruption|suspend"}); e != nil {
+		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|cloud-restart|cloud-create-restart|cloud-remove-restart|scale|interruption|suspend"}); e != nil {
 			t.Fatal(e)
 		}
 		t.Skip("NOT_RUN_MISSING_CONFIGURATION: extended live entry is explicitly disabled")
@@ -160,7 +162,7 @@ func TestExtendedCloud(t *testing.T) {
 		if e := acceptance.Cleanup(cleanupCtx, cloud, ledger, false); e != nil {
 			result = "CLEANUP_FAILED"
 			t.Error(e)
-		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (pluginMode && len(ledger.Instances) != maxSize) || (mode == "cloud-scale" && !retainedVerified) || ((mode == "cloud-restart" || creatingRestart) && !restartVerified) {
+		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (pluginMode && len(ledger.Instances) != maxSize) || (mode == "cloud-scale" && !retainedVerified) || (restartMode && !restartVerified) {
 			result = "FAIL_PRODUCT"
 		}
 		for _, resource := range ledger.Instances {
@@ -696,8 +698,61 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		runSSH(ids[0])
 	}
-	if accepted, e := worker.Decrease(ctx, ids); e != nil || len(accepted) != len(ids) {
+	var removalBefore, removalAfter acceptance.RemovingSnapshot
+	var beforeRemovalActivities []string
+	if removingRestart {
+		wait(func() (bool, error) {
+			history, e := acceptance.History(ctx, cloud)
+			if e != nil {
+				return false, e
+			}
+			beforeRemovalActivities = nil
+			for _, a := range history {
+				if a.StatusCode != "Successful" {
+					return false, nil
+				}
+				beforeRemovalActivities = append(beforeRemovalActivities, a.ScalingActivityId)
+			}
+			return true, nil
+		})
+	}
+	if accepted, e := worker.Decrease(ctx, ids); e != nil || len(accepted) != len(ids) || (removingRestart && !slices.Equal(accepted, ids)) {
 		t.Fatal(accepted, e)
+	}
+	if removingRestart {
+		acceptedAt := time.Now().UTC()
+		var e error
+		removalBefore, e = acceptance.CaptureRemoving(ctx, cloud, ledger, ids[0], beforeRemovalActivities)
+		if e != nil {
+			t.Fatal("removal restart window was not captured", e)
+		}
+		cutpointPath := filepath.Join(dir, "removal-cutpoint.json")
+		if e = acceptance.WriteJSON(cutpointPath, map[string]any{"accepted_at": acceptedAt, "before": removalBefore}); e != nil {
+			t.Fatal(e)
+		}
+		oldPID, e := restartPlugin(func() error {
+			var err error
+			removalAfter, err = acceptance.CaptureRemoving(ctx, cloud, ledger, ids[0], beforeRemovalActivities)
+			if err != nil {
+				return fmt.Errorf("removal window ended before old process exit proof: %w", err)
+			}
+			if removalAfter.ActivityID != removalBefore.ActivityID || !slices.Equal(removalAfter.ActivityIDs, removalBefore.ActivityIDs) || removalAfter.InstanceID != removalBefore.InstanceID {
+				return errors.New("removal identity or activity changed at restart")
+			}
+			return acceptance.WriteJSON(cutpointPath, map[string]any{"accepted_at": acceptedAt, "before": removalBefore, "after_old_exit": removalAfter, "old_process_exit_confirmed": true})
+		})
+		if e != nil {
+			t.Fatal(e)
+		}
+		g, e := cloud.Group(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		j, e := aliyun.ReadJournal(g)
+		if e != nil || j == nil || j.Kind != "remove" || j.Activity != removalBefore.ActivityID || j.Before != 1 || j.Target != 0 || j.AcceptedMask != 1 || !slices.Equal(j.IDs, ids) {
+			t.Fatal("new process did not retain the accepted removal journal", e)
+		}
+		transitions = append(transitions, map[string]any{"action": "plugin_restart_during_removal", "accepted_at": acceptedAt, "before": removalBefore, "after_old_exit": removalAfter, "old_plugin_pid": oldPID, "new_plugin_pid": pluginPID, "old_process_exit_confirmed": true, "crash_without_provider_shutdown": true, "target_present_before_and_after_old_exit": true, "accepted_journal_after_init": true, "observed_at": time.Now().UTC()})
 	}
 	wait(func() (bool, error) {
 		if _, e := worker.Decrease(ctx, nil); e != nil {
@@ -719,6 +774,31 @@ func TestExtendedCloud(t *testing.T) {
 			t.Fatal(err)
 		}
 		transitions = append(transitions, map[string]any{"action": "plugin_decrease", "desired_capacity": 0, "total_capacity": 0, "associated_resources_absent": true, "observed_at": time.Now().UTC()})
+	}
+	if removingRestart {
+		history, e := acceptance.History(ctx, cloud)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var activityIDs []string
+		acceptedFinished := false
+		for _, a := range history {
+			activityIDs = append(activityIDs, a.ScalingActivityId)
+			if a.ScalingActivityId == removalBefore.ActivityID {
+				acceptedFinished = a.StatusCode == "Successful" && a.CreatedCapacity == 0 && len(a.CreatedInstances.CreatedInstance) == 0
+			}
+		}
+		slices.Sort(activityIDs)
+		g, e := cloud.Group(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		j, e := aliyun.ReadJournal(g)
+		if e != nil || j != nil || !acceptedFinished || !slices.Equal(activityIDs, removalAfter.ActivityIDs) || len(ledger.Instances) != 1 || ledger.Instances[0].InstanceID != ids[0] {
+			t.Fatal("removal recovery changed activities, left a journal or changed worker identity", e)
+		}
+		restartVerified = true
+		transitions = append(transitions, map[string]any{"action": "removal_restart_recovered", "instance_id": ids[0], "accepted_activity_id": removalBefore.ActivityID, "accepted_activity_successful": true, "scaling_activity_ids_unchanged": true, "journal_cleared": true, "desired_capacity": 0, "total_capacity": 0, "observed_at": time.Now().UTC()})
 	}
 	normalReleased = true
 	fmt.Printf("extended %s normal release observed; final cleanup is mandatory\n", mode)
