@@ -3,20 +3,30 @@ import argparse
 import base64
 import copy
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import shutil
+import ssl
 import sys
 import tempfile
+import threading
 import traceback
 import unittest
 from unittest import mock
+from urllib.parse import parse_qs, quote, urlsplit
 
 import cloud_fixture as fixture
 from test_cloud_config import CONFIG, CONFIG_ENV
+
+STS_ENV = {"ALIBABA_CLOUD_ACCESS_KEY_ID": "synthetic-sts-id",
+           "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "synthetic-sts-secret",
+           "ALIBABA_CLOUD_SECURITY_TOKEN": "synthetic-sts-token"}
 
 
 class FakeCloud:
@@ -316,6 +326,99 @@ class IdentityAndInventoryTests(unittest.TestCase):
             self.assertEqual(os.environ["RELEASE_CLOUD_ACCEPTANCE_ENABLED"], "false")
             cloud.return_value.call.assert_not_called()
 
+    def test_cli_credentials_are_private_temporary_and_removed_on_all_outcomes(self):
+        env = {**self.environment(), **STS_ENV, "ALIBABA_CLOUD_IGNORE_PROFILE": "TRUE",
+               "ALIBABACLOUD_IGNORE_PROFILE": "TRUE"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(fixture.Cloud, "call", return_value={"AccountId": env["RELEASE_ALIYUN_ACCOUNT_ID"]}):
+            cloud = fixture.Cloud(CONFIG["region"], read_only=True)
+        paths = []
+        for outcome in ("success", "failure", "timeout"):
+            with self.subTest(outcome=outcome):
+                def run(command, **kwargs):
+                    config = Path(command[command.index("--config-path") + 1])
+                    paths.append(config)
+                    self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+                    self.assertEqual(config.parent.stat().st_mode & 0o777, 0o700)
+                    profile = json.loads(config.read_text())
+                    self.assertEqual(profile["current"], "pre-release")
+                    self.assertEqual(profile["profiles"], [cloud.cli_profile])
+                    self.assertEqual(command[command.index("--profile") + 1], "pre-release")
+                    for value in STS_ENV.values():
+                        self.assertNotIn(value, " ".join(command))
+                    self.assertEqual(kwargs["env"]["ALIBABA_CLOUD_IGNORE_PROFILE"], "FALSE")
+                    self.assertEqual(kwargs["env"]["ALIBABACLOUD_IGNORE_PROFILE"], "FALSE")
+                    if outcome == "timeout":
+                        raise subprocess.TimeoutExpired(command, 60)
+                    return subprocess.CompletedProcess(command, int(outcome == "failure"), '{}', "synthetic private error")
+                with mock.patch.dict(os.environ, env), mock.patch("subprocess.run", side_effect=run):
+                    if outcome == "success":
+                        self.assertEqual(cloud.call("sts", "GetCallerIdentity"), {})
+                    else:
+                        with self.assertRaises(RuntimeError) as caught:
+                            cloud.call("sts", "GetCallerIdentity")
+                        self.assertNotIn("synthetic private error", str(caught.exception))
+                self.assertFalse(paths[-1].parent.exists())
+
+    @unittest.skipUnless(shutil.which("aliyun"), "pinned CLI is installed by CI for offline authentication checks")
+    def test_real_cli_uses_fresh_sts_credentials_against_loopback(self):
+        requests = []
+        account = self.environment()["RELEASE_ALIYUN_ACCOUNT_ID"]
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                params = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+                params.update(parse_qs(self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode(), keep_blank_values=True))
+                requests.append(params)
+                body = json.dumps({"AccountId": account}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        certificates = tempfile.TemporaryDirectory(prefix="synthetic-cli-tls-")
+        self.addCleanup(certificates.cleanup)
+        cert, key = (str(Path(certificates.name) / name) for name in ("cert.pem", "key.pem"))
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                        "-subj", "/CN=localhost", "-keyout", key, "-out", cert], check=True, capture_output=True)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        real_run = subprocess.run
+        cli = shutil.which("aliyun")
+        paths = []
+        def run(command, **kwargs):
+            paths.append(Path(command[command.index("--config-path") + 1]))
+            # Only this synthetic loopback test accepts a self-signed certificate.
+            kwargs["env"] = {**kwargs["env"], "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+            result = real_run([cli, *command[1:], "--endpoint", f"127.0.0.1:{server.server_port}",
+                               "--skip-secure-verify"], **kwargs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result
+        try:
+            with mock.patch.dict(os.environ, {**self.environment(), **STS_ENV}), mock.patch("subprocess.run", side_effect=run):
+                cloud = fixture.Cloud("cn-hangzhou", read_only=True)
+            self.assertEqual(cloud.account, account)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0]["AccessKeyId"], [STS_ENV["ALIBABA_CLOUD_ACCESS_KEY_ID"]])
+            self.assertEqual(requests[0]["SecurityToken"], [STS_ENV["ALIBABA_CLOUD_SECURITY_TOKEN"]])
+            canonical = "&".join(quote(key, safe="~") + "=" + quote(values[0], safe="~")
+                                 for key, values in sorted(requests[0].items()) if key != "Signature")
+            signed = ("POST&%2F&" + quote(canonical, safe="~")).encode()
+            expected = base64.b64encode(hmac.new((STS_ENV["ALIBABA_CLOUD_ACCESS_KEY_SECRET"] + "&").encode(),
+                                                signed, hashlib.sha1).digest()).decode()
+            self.assertEqual(requests[0]["Signature"], [expected])
+            self.assertFalse(paths[0].parent.exists())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_pagination_rejects_incomplete_or_duplicated_inventory(self):
         cloud = object.__new__(fixture.Cloud)
         cloud.region = CONFIG["region"]
@@ -343,6 +446,7 @@ class IdentityAndInventoryTests(unittest.TestCase):
         cloud = object.__new__(fixture.Cloud)
         cloud.region = CONFIG["region"]
         cloud.read_only = False
+        cloud.cli_profile = {"name": "synthetic", "mode": "StsToken"}
         sensitive = "synthetic-host-private-key-and-access-key-and-token"
         def fail(command, **_kwargs):
             raise subprocess.TimeoutExpired(command, 60, output=sensitive, stderr=sensitive)

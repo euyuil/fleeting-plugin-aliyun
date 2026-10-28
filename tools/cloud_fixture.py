@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 
 from release_candidate import MODES, digest, revision, verify, write_json
@@ -109,7 +110,13 @@ class Cloud:
         self.region, self.read_only = region, read_only
         self.account = preflight(read_only=read_only)
         if any(not os.environ.get(k) for k in ("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", "ALIBABA_CLOUD_SECURITY_TOKEN")):
-            raise ValueError("fresh OIDC STS credentials are required; profiles and long-lived keys are not used")
+            raise ValueError("fresh OIDC STS credentials are required; developer profiles and long-lived keys are not used")
+        self.cli_profile = {
+            "name": "pre-release", "mode": "StsToken", "region_id": region,
+            "access_key_id": os.environ["ALIBABA_CLOUD_ACCESS_KEY_ID"],
+            "access_key_secret": os.environ["ALIBABA_CLOUD_ACCESS_KEY_SECRET"],
+            "sts_token": os.environ["ALIBABA_CLOUD_SECURITY_TOKEN"],
+        }
         if self.call("sts", "GetCallerIdentity").get("AccountId") != self.account:
             raise ValueError("authenticated account differs from the dedicated expected account")
 
@@ -124,7 +131,15 @@ class Cloud:
         for key, value in params.items():
             command.extend(["--" + key, str(value)])
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            # CLI 3.5.2 validates the profile before reading credential overrides.
+            # Isolate fresh STS credentials from developer profiles and argv.
+            with tempfile.TemporaryDirectory(prefix="fleeting-cli-") as directory:
+                config = Path(directory) / "config.json"
+                with os.fdopen(os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
+                    json.dump({"current": "pre-release", "profiles": [self.cli_profile]}, stream)
+                command.extend(["--config-path", str(config), "--profile", "pre-release"])
+                env = {**os.environ, "ALIBABA_CLOUD_IGNORE_PROFILE": "FALSE", "ALIBABACLOUD_IGNORE_PROFILE": "FALSE"}
+                result = subprocess.run(command, capture_output=True, text=True, timeout=60, env=env)
         except (subprocess.SubprocessError, OSError):
             # UserData contains a per-run host private key. Subprocess exceptions
             # include argv, so neither their text nor exception chain may escape.
