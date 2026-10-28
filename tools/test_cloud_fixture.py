@@ -348,6 +348,34 @@ class FixtureTests(unittest.TestCase):
                 self.assertIsNone(result["workers_observed"])
                 self.assertTrue(all(v is None for v in result["checks"].values()))
 
+    def test_error_templates_return_public_source_literals_without_interpolated_values(self):
+        source = '\n'.join(('return errors.New("incomplete disk inventory")',
+                            't.Fatalf("live plugin SSH did not become ready: %v; last attempt: %v", err, last)',
+                            'return fmt.Errorf("short: %v", err)',
+                            'const unrelated = "private-source-value"'))
+        log = ('extended_test.go:606: live plugin SSH did not become ready: private-timeout; '
+               'last attempt: dial private-host with private-key\nincomplete disk inventory\nshort: private-value')
+        result = fixture.matching_error_templates(log, source)
+        self.assertEqual(result, ["incomplete disk inventory",
+                                  "live plugin SSH did not become ready: %v; last attempt: %v"])
+        self.assertNotIn("private", json.dumps(result))
+
+    def test_worker_diagnostics_only_count_strict_true_checks(self):
+        receipt = {"resources": {"evidence_incomplete": True, "instances": [
+            {"instance_id": "private-worker", "inventory_complete": True, "spot_verified": True},
+            {"deletion_verified": "private-value", "inventory_complete": 1}, "private-row"]}}
+        result = fixture.driver_diagnostic(receipt, 1, "")
+        self.assertEqual(result["worker_checks"], {"inventory_complete": 1, "spot_verified": 1, "deletion_verified": 0})
+        self.assertIs(result["evidence_incomplete"], True)
+        self.assertNotIn("private", json.dumps(result))
+
+    def test_transport_diagnostics_only_emit_fixed_categories(self):
+        log = ('ssh: handshake failed: ssh: unable to authenticate using private-key\n'
+               'dial private-address: i/o timeout\nknownhosts: key mismatch for private-host')
+        result = fixture.driver_diagnostic({}, 1, log)
+        self.assertEqual(result["transport_error_categories"], ["authentication", "host_key", "timeout", "handshake"])
+        self.assertNotIn("private", json.dumps(result))
+
     @unittest.skipUnless(shutil.which("aliyun"), "pinned CLI is installed by CI for offline metadata checks")
     def test_fixture_requests_match_pinned_official_cli_metadata_without_credentials(self):
         version = subprocess.check_output(["aliyun", "version"], text=True)

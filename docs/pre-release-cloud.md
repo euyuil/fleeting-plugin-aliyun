@@ -182,7 +182,9 @@ instrumented binary. This is Linux amd64 Manager cloud evidence; arm64 native
 installation verification remains separate.
 
 Driver failures print a restricted diagnostic summary: test source line numbers,
-fixed API error categories, observed worker count, and boolean acceptance checks.
+fixed API/transport error categories, observed worker/check counts, boolean acceptance
+checks, and matching error-message templates from the candidate's public Go
+source. Templates retain format placeholders instead of private runtime values.
 Raw driver logs, resource identities, API request IDs, and cloud error messages
 remain private. The summary does not replace a passing scenario/cleanup receipt.
 
