@@ -190,6 +190,50 @@ func TestRestartPreparedIncreaseDoesNotDoubleAllocate(t *testing.T) {
 	}
 }
 
+func TestRestartAfterAcceptedIncreaseWaitsForOneWorkerWithoutReplay(t *testing.T) {
+	f := testutil.New()
+	f.Group.MaxSize = 1
+	g := setup(t, f)
+	if n, err := g.Increase(context.Background(), 1); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	f.Group.PendingCapacity = 1
+	restarted := setup(t, f)
+	if got := states(t, restarted); len(got) != 0 {
+		t.Fatal("unassigned pending worker was invented", got)
+	}
+	f.Add("i-creating")
+	i := f.Instances["i-creating"]
+	i.Status = "Starting"
+	f.Instances[i.InstanceId] = i
+	m := f.Members[i.InstanceId]
+	m.LifecycleState = "Pending"
+	f.Members[i.InstanceId] = m
+	if got := states(t, restarted); got[i.InstanceId] != upstream.StateCreating {
+		t.Fatal("new process did not preserve creating state", got)
+	}
+	i.Status, m.LifecycleState, f.Group.PendingCapacity = "Running", "InService", 0
+	f.Instances[i.InstanceId], f.Members[i.InstanceId] = i, m
+	if got := states(t, restarted); len(got) != 1 || got[i.InstanceId] != upstream.StateRunning {
+		t.Fatal("new process did not discover the completed original worker", got)
+	}
+	if ids, err := restarted.Decrease(context.Background(), []string{i.InstanceId}); err != nil || len(ids) != 1 {
+		t.Fatal(ids, err)
+	}
+	if _, err := restarted.Decrease(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	scaleCalls := 0
+	for _, call := range f.Calls {
+		if call.Action == "ScaleWithAdjustment" {
+			scaleCalls++
+		}
+	}
+	if scaleCalls != 1 || f.Group.DesiredCapacity != 0 || len(f.Instances) != 0 {
+		t.Fatal("accepted increase was replayed or final release failed", scaleCalls, f.Group)
+	}
+}
+
 func TestUpdatePublicationGateHonorsCancellation(t *testing.T) {
 	f := testutil.New()
 	f.Add("i-a")
