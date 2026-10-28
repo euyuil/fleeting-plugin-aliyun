@@ -4,6 +4,11 @@ Run GitLab CI/CD jobs on Alibaba Cloud ECS machines that scale with your workloa
 `fleeting-plugin-aliyun` connects GitLab Runner to Alibaba Cloud Auto Scaling
 (ESS). Runner requests workers when jobs need them and releases them after use.
 
+Install GitLab Runner, install this plugin, and run Runner as a service. Runner
+starts and manages the plugin for you. This running Runner process is called the
+**Runner Manager**. You can run it on the same server as GitLab or on another host.
+Your jobs run on separate ECS **workers**.
+
 This is a community project under active development. Real cloud scaling and SSH
 tests have passed. Full Linux amd64 VM and Docker job cycles have also passed
 with Runner 19.5.1; see the [acceptance report](docs/acceptance-report.md#released-plugin-vm-and-docker-jobs).
@@ -27,128 +32,77 @@ workers. See [supported configurations](docs/operations.md).
 
 ## Quick start: run a job on a Linux VM
 
-### 1. Install GitLab Runner on the Manager
+### Before you start
 
-The **Manager** is the host that runs GitLab Runner and this plugin. **Workers**
-are the ECS machines that run your jobs. Start with a Linux amd64 or arm64
-Manager that can reach GitLab, Alibaba Cloud APIs, and your workers over SSH.
+You need a Linux amd64 or arm64 host for Runner, a GitLab project where you can
+create a runner, and prepared Alibaba Cloud resources:
 
-The plugin runs as a separate process managed by Runner. The Manager can be a
-separate server from GitLab CE, or share its host.
+- A worker image with SSH, Git, the matching Runner binary, and your build tools.
+- A launch template and a dedicated, active ESS group. Start with minimum and
+  desired capacity `0` and maximum capacity `1`.
+- Cloud permissions for the Manager and a working network route to the workers.
 
-Install **GitLab Runner 19.5.1** using the
-[GitLab installation guide](https://docs.gitlab.com/runner/install/linux-repository/)
-and its instructions for choosing a specific version. Also install `curl`.
-Check Runner on the Manager:
+See [worker and cloud prerequisites](docs/installation.md#worker-and-cloud-prerequisites)
+for the full checklist. You can use existing resources that meet these requirements.
+Spot workers, disks, images, and network traffic can cost money.
+
+### 1. Install or reuse GitLab Runner
+
+Use **GitLab Runner 19.5.1**, the version tested with this prerelease. Follow the
+[official Linux installation guide](https://docs.gitlab.com/runner/install/linux-repository/)
+and its instructions for installing a specific version. Check your installation:
 
 ```sh
 gitlab-runner --version
 ```
 
-Runner will download the plugin from public GHCR in step 5. Use the same Linux
-user for installation and for running the Manager. You can use an ordinary user
-for this foreground quick start. See [installation details](docs/distribution.md)
-for native archives and source builds.
+Keep any existing Runner configuration. The service guide below uses a separate
+service and private directories for this worker pool.
 
-### 2. Prepare a worker image and an ESS group
+### 2. Create a runner in GitLab
 
-Follow the [infrastructure setup guide](infra/README.md) to prepare:
+In your project, open **Settings > CI/CD > Runners** and create a project runner.
+Give it the tag `aliyun-vm` and turn off **Run untagged jobs**. Save its runner
+authentication token. This is the token the Manager needs to receive jobs.
+Workers do not register themselves with GitLab.
 
-- A Linux image with Git, the matching GitLab Runner binary, SSH, your public
-  key, and the tools your jobs need. The guide's bootstrap script creates the
-  readiness marker required by the example configuration.
-- A launch template with your image, ECS instance type, disk, and network settings.
-- A dedicated, active ECS scaling group that uses a fixed launch-template version.
-  Start with desired capacity `0`, minimum size `0`, and maximum size `1`.
-- Alibaba Cloud credentials for the Manager, with the permissions listed in the
-  [operating guide](docs/operations.md#authentication-and-permissions).
+### 3. Configure Runner and install the plugin
 
-Each Runner pool needs its own ESS group. Let one Manager control its capacity.
-Workers need the Runner binary, but do not run a Runner service or register each
-worker with GitLab. Keep the SSH private key on the Manager.
-
-Cloud machines, disks, images, and traffic can cost money. The setup guide's
-creation script uses Spot instances. Review its settings before running it.
-
-### 3. Create a project runner in GitLab
-
-In your GitLab project, open **Settings > CI/CD > Runners** and create a project
-runner. Give it the tag `aliyun-vm` and turn off **Run untagged jobs**. Save the
-runner authentication token for the next step. Use an authentication token, not
-a legacy registration token.
-
-### 4. Configure the Manager
-
-Download the [VM configuration example](examples/instance/config.toml) to a
-private directory:
-
-```sh
-mkdir -p "$HOME/.config/gitlab-runner-aliyun"
-chmod 700 "$HOME/.config/gitlab-runner-aliyun"
-curl --fail --location --show-error \
-  https://raw.githubusercontent.com/euyuil/fleeting-plugin-aliyun/v0.1.0-rc.2/examples/instance/config.toml \
-  --output "$HOME/.config/gitlab-runner-aliyun/config.toml"
-chmod 600 "$HOME/.config/gitlab-runner-aliyun/config.toml"
-```
-
-Edit that file and set:
+Save the complete [VM configuration example](examples/instance/config.toml) as
+`config.toml` in a private directory outside your checkout. It already includes
+the OCI plugin reference and the Linux shell settings. Fill in these values:
 
 | Setting | Your value |
 |---|---|
-| `url` | Your GitLab URL |
-| `token` | The project runner authentication token |
-| `plugin` | `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2` |
+| `url` | Your GitLab URL, reachable by the Manager and workers |
+| `token` | The runner authentication token from step 2 |
 | `region` | The Alibaba Cloud region of your ESS group |
 | `scaling_group_id` | Your dedicated ESS group ID |
 | `username` | The SSH user in your worker image, such as `ci` |
-| `key_path` | The absolute path to the matching private key on the Manager |
+| `key_path` | The private-key path used by the service setup |
 
-The downloaded example uses a native binary name. Replace its `plugin` value
-with the full OCI reference above. Pin this exact version for the prerelease.
+Keep `plugin = "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2"` pinned to this
+exact version. If using a reachable private worker network, set
+`use_external_addr = false`.
 
-Also add this block if it is missing, to use `sh` on Linux:
+Follow the [Linux service setup](docs/installation.md#linux-service-setup) to
+place the configuration and key in private directories, configure cloud
+credentials, and run `gitlab-runner fleeting install` as the service user.
+The public plugin package needs no registry login or Docker daemon.
 
-```toml
-[runners.feature_flags]
-  FF_POSIXLY_CORRECT_ESCAPES = true
-```
+### 4. Start Runner as a service
 
-Keep the private key readable only by the Manager user. Configure Alibaba Cloud
-credentials for that same user through a supported credential source; do not put
-cloud access keys in this file. For a short test, you can supply temporary STS
-credentials through `ALIBABA_CLOUD_ACCESS_KEY_ID`,
-`ALIBABA_CLOUD_ACCESS_KEY_SECRET`, and `ALIBABA_CLOUD_SECURITY_TOKEN` in the shell
-that starts Runner. Restart the Manager with fresh credentials before they
-expire. See [authentication setup](docs/operations.md#authentication-and-permissions)
-for role-based and other credential sources.
+Complete the [systemd service setup](docs/installation.md#start-the-service),
+then check its status and logs using the commands in that guide. The service
+uses the same configuration, credentials, and plugin directory as the install
+step. It keeps running when you disconnect from the host.
 
-The example connects to a public worker address. For a reachable private network,
-set `use_external_addr = false`. The pinned upstream connector does not check SSH
-server host keys. Use a trusted, isolated route and restrict SSH access to the
-Manager. See [connection limits](docs/adr/0003-state-and-connections.md).
+Starting the service allows queued jobs to create billable workers. Use one
+Manager configuration per ESS group. Runner starts the plugin automatically.
 
-### 5. Install the plugin and run your first job
+### 5. Run a job and check cleanup
 
-Install and list the plugin with Runner:
-
-```sh
-gitlab-runner fleeting --config "$HOME/.config/gitlab-runner-aliyun/config.toml" install
-gitlab-runner fleeting --config "$HOME/.config/gitlab-runner-aliyun/config.toml" list
-```
-
-The public package supports Linux amd64 and arm64. Registry login and a Docker
-daemon are not required for this VM quick start. Installation stores the plugin
-under `~/.config/fleeting/plugins` for the current user.
-
-Start Runner in the foreground and leave it running. This allows jobs to create
-billable workers:
-
-```sh
-gitlab-runner run --config "$HOME/.config/gitlab-runner-aliyun/config.toml"
-```
-
-Add this job to your GitLab project's `.gitlab-ci.yml`, commit it, and run a
-pipeline:
+Add this job to your project's `.gitlab-ci.yml`, commit it, and run a pipeline:
 
 ```yaml
 hello-aliyun:
@@ -161,17 +115,11 @@ hello-aliyun:
     paths: [hello.txt]
 ```
 
-With the example settings, Runner creates one VM, runs one job, and releases the
-VM after use. Check the job output and download `hello.txt`. Then check that the
+Check the job output and download `hello.txt`. With the example settings, Runner
+creates one worker, runs one job, and releases the worker after use. Confirm that
 ESS desired capacity returns to `0` and that the worker and its disks are gone.
-Reusable infrastructure, such as the ESS group and VPC, stays in place; see
-[teardown](infra/README.md#teardown-and-cost-boundaries) when you no longer need it.
-
-For a long-running Manager, run Runner as a service with the same configuration,
-credentials, and access to the installed plugin directory. Install the plugin
-as the service user, or set the same `FLEETING_PLUGIN_PATH` for installation and
-the service. See the
-[GitLab Runner service commands](https://docs.gitlab.com/runner/commands/#service-related-commands).
+The ESS group, image, and network remain available for the next job. See
+[teardown](infra/README.md#teardown-and-cost-boundaries) when you no longer need them.
 
 ## Choose CPU and memory
 
@@ -191,10 +139,13 @@ use one slot per VM and release each VM after one job.
 ## Run jobs in containers
 
 Use the [Docker Autoscaler example](examples/docker-autoscaler/config.toml)
-instead of the VM example. Prepare a worker image with Docker Engine, allow the
-SSH user to access Docker, and set a job image pinned by digest. Jobs can then use
-the Docker executor's `image` and `services` features. Set the same OCI `plugin`
-reference as in step 4, then run the install command with that configuration.
+instead of the VM example. This selects where jobs run; running the Manager
+itself in Docker is a separate deployment choice. Prepare a worker image with
+Docker Engine, allow the SSH user to access Docker, and set a job image pinned
+by digest. Jobs can then use
+the Docker executor's `image` and `services` features. The example includes the
+same pinned OCI plugin. Use the service setup with this configuration and a
+dedicated ESS group for the Docker pool.
 
 To limit the job container, add `cpus` and `memory` to the existing
 `[runners.docker]` section. For example:
@@ -218,6 +169,7 @@ jobs also passed checkout, scripts, artifacts, and normal release to zero.
 Other images, larger pools, Windows, full arm64 jobs, and production acceptance
 still need validation. Suspend/resume is disabled.
 
+- [Linux service setup](docs/installation.md): configuration, plugin installation, and systemd.
 - [Operating guide](docs/operations.md): credentials, connections, and recovery.
 - [Infrastructure guide](infra/README.md): images, networking, and teardown.
 - [Acceptance report](docs/acceptance-report.md): what has been tested and what remains.

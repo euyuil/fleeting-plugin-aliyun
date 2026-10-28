@@ -9,7 +9,7 @@ concurrent = 1
   [runners.feature_flags]
     FF_POSIXLY_CORRECT_ESCAPES = true
   [runners.autoscaler]
-    plugin = "fleeting-plugin-aliyun"
+    plugin = "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2"
     capacity_per_instance = 1
     max_use_count = 1
     max_instances = 1
