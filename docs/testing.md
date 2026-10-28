@@ -135,7 +135,11 @@ RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-create-restart make test-live-ext
 
 After the real plugin's `Increase(1)` returns accepted, a read-only timing probe
 requires the owned persisted 0-to-1 journal and exactly one new `InProgress`
-scaling activity. A complete timing response must show no member yet or one
+activity triggered by `Ess`. A successful `Api` desired-capacity record may
+accompany it only with zero created capacity and no created IDs. All activity
+IDs remain in the before/after equality checks; additional provisioning activity
+is rejected. See [activity trigger definitions](https://help.aliyun.com/en/auto-scaling/developer-reference/api-ess-2014-08-28-describescalingactivities).
+A complete timing response must show no member yet or one
 `Init`/`Pending` member. Instance IDs from the activity and membership are
 cross-checked and must agree when both exist. An identity supplied by either
 source must still be absent, `Pending`, `Starting` or `Stopped` in ECS; an already

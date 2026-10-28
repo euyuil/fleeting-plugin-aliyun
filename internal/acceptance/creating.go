@@ -13,6 +13,8 @@ type CreatingSnapshot struct {
 	ObservedAt      time.Time `json:"observed_at"`
 	ActivityID      string    `json:"activity_id"`
 	ActivityStatus  string    `json:"activity_status"`
+	ActivityTrigger string    `json:"activity_trigger_type"`
+	APIRecords      int       `json:"completed_zero_capacity_api_records"`
 	ActivityIDs     []string  `json:"scaling_activity_ids"`
 	JournalKind     string    `json:"journal_kind"`
 	JournalTarget   int       `json:"journal_target"`
@@ -55,10 +57,17 @@ func CaptureCreating(ctx context.Context, c *aliyun.Client, l *Ledger) (Creating
 	for _, a := range history {
 		s.ActivityIDs = append(s.ActivityIDs, a.ScalingActivityId)
 		if !slices.Contains(l.BaselineActivities, a.ScalingActivityId) {
-			if s.ActivityID != "" || a.StatusCode != "InProgress" {
-				return s, errors.New("creation cutpoint requires exactly one new in-progress activity")
+			// A successful desired-capacity API record can accompany the actual
+			// ESS provisioning activity. It must contain no created capacity/IDs.
+			if a.TriggerSourceType == "Api" && a.StatusCode == "Successful" && a.CreatedCapacity == 0 && len(a.CreatedInstances.CreatedInstance) == 0 {
+				s.APIRecords++
+				continue
+			}
+			if s.ActivityID != "" || a.StatusCode != "InProgress" || a.TriggerSourceType != "Ess" {
+				return s, errors.New("creation cutpoint requires one ESS provisioning activity and only completed zero-capacity API records")
 			}
 			s.ActivityID, s.ActivityStatus = a.ScalingActivityId, a.StatusCode
+			s.ActivityTrigger = a.TriggerSourceType
 			if a.CreatedCapacity > 1 || len(a.CreatedInstances.CreatedInstance) > 1 {
 				return s, errors.New("creation activity exceeds the one-worker budget")
 			}
