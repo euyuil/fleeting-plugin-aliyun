@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -267,5 +268,18 @@ func TestReadPrivateRejectsSymlinks(t *testing.T) {
 	os.Symlink(f.key, path)
 	if _, err := readPrivate(path); err == nil {
 		t.Fatal("followed private input symlink")
+	}
+}
+
+func TestSetupUsesExplicitDirectoryModes(t *testing.T) {
+	f := newFixture(t)
+	previous := syscall.Umask(0077)
+	defer syscall.Umask(previous)
+	if err := f.setup(f.config, f.key, ""); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(f.path(configDir))
+	if err != nil || info.Mode().Perm() != 0750 {
+		t.Fatal("restrictive umask broke service directory access")
 	}
 }

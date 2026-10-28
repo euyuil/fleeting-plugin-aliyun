@@ -370,6 +370,9 @@ func (h host) directory(path string, uid, gid int, mode os.FileMode) error {
 	if err := os.Mkdir(target, mode); err != nil {
 		return errors.New("cannot create managed directory")
 	}
+	if err := os.Chmod(target, mode); err != nil {
+		return errors.New("cannot set managed directory permissions")
+	}
 	return h.chown(target, uid, gid)
 }
 
@@ -379,6 +382,10 @@ func (h host) write(path string, data []byte, uid, gid int) error {
 		return errors.New("cannot create private temporary file")
 	}
 	defer os.Remove(f.Name())
+	if err := f.Chmod(0600); err != nil {
+		f.Close()
+		return errors.New("cannot set private file permissions")
+	}
 	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return errors.New("cannot write private file")

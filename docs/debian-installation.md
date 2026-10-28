@@ -9,6 +9,8 @@ The package is built and tested in GitHub Actions on every PR and push to main.
 Until a release containing this feature is published, download the `release-candidate`
 artifact from a successful **main** CI run for evaluation. Existing `0.1.0-rc.2`
 releases do not contain a Debian package. A hosted APT repository is not provided.
+CI executes the service lifecycle on Ubuntu 24.04 amd64 and checks the payloads
+of both architecture packages; arm64 lifecycle execution is not covered yet.
 
 ## Install
 

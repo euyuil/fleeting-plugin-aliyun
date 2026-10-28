@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 exec 9>/run/fleeting-plugin-aliyun-manager.lock
 flock -n 9 || { echo "Another manager operation is in progress." >&2; exit 1; }
 case "$1" in

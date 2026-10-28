@@ -117,6 +117,7 @@ while True:
         finally:
             local_unit.unlink()
         run("apt-get", "install", "--no-install-recommends", "-y", package)
+        assert Path("/run/fleeting-plugin-aliyun-manager.lock").stat().st_mode & 0o777 == 0o600
         run("systemd-analyze", "verify", "/usr/lib/systemd/system/" + SERVICE)
         assert run("systemctl", "show", SERVICE, "--property=ActiveState", "--value") == "inactive"
         run("systemctl", "is-enabled", SERVICE, ok=False)
@@ -140,7 +141,11 @@ while True:
                 # second executor after testing the complete lifecycle below.
                 if mode == "instance":
                     setup = [CLI, "manager", "setup", "--config", config, "--ssh-key", key]
-                    run(*setup)
+                    previous_umask = os.umask(0o077)
+                    try:
+                        run(*setup)
+                    finally:
+                        os.umask(previous_umask)
                     before = snapshot()
                     run(*setup)
                     assert snapshot() == before
