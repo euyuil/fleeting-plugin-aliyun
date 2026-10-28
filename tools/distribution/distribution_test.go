@@ -31,11 +31,17 @@ func TestOfficialInstallerRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(folder, "plugin")
-	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-ldflags", "-X main.version=0.1.0", "-o", binary, "../../cmd/fleeting-plugin-aliyun")
+	const revision = "0000000000000000000000000000000000000001"
+	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-ldflags", "-X main.version=0.1.0 -X main.revision="+revision, "-o", binary, "../../cmd/fleeting-plugin-aliyun")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatal(string(out), err)
 	}
-	t.Setenv("DOCKER_CONFIG", t.TempDir())
+	dockerConfig := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dockerConfig)
+	t.Setenv("REGISTRY_AUTH_FILE", "")
+	if err := os.WriteFile(filepath.Join(dockerConfig, "config.json"), []byte(`{"auths":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	original := remote.DefaultTransport
 	target, _ := url.Parse(server.URL)
 	remote.DefaultTransport = roundTripper(func(r *http.Request) (*http.Response, error) {
@@ -74,6 +80,20 @@ func TestOfficialInstallerRoundTrip(t *testing.T) {
 	version, err := exec.CommandContext(ctx, installed, "version").CombinedOutput()
 	if err != nil || !strings.Contains(string(version), "0.1.0") {
 		t.Fatal(string(version), err)
+	}
+	t.Setenv("FLEETING_PLUGIN_PATH", dest)
+	if err := verifyInstall(ctx, ref, "0.1.0", revision, binary); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyInstall(ctx, ref, "0.1.0", "unexpected-source", binary); err == nil {
+		t.Fatal("wrong installed source accepted")
+	}
+	tampered := filepath.Join(t.TempDir(), "tampered")
+	if err := os.WriteFile(tampered, []byte("different release bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyInstall(ctx, ref, "0.1.0", revision, tampered); err == nil {
+		t.Fatal("different release bytes accepted")
 	}
 }
 

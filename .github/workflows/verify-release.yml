@@ -1,0 +1,79 @@
+name: Verify public release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published exact version without v, for example 0.1.0-rc.1
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ inputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: v${{ inputs.version }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+      - name: Verify the exact version and pinned Runner
+        run: |
+          go run ./tools/distribution -validate-version "$VERSION"
+          python3 tools/fetch-runner.py
+          ".cache/gitlab-runner-linux-$ARCH" --version
+      - name: Download and install without registry credentials
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/anonymous-docker
+          FLEETING_PLUGIN_PATH: ${{ runner.temp }}/anonymous-plugins
+        run: |
+          unset GH_TOKEN GITHUB_TOKEN DOCKER_AUTH_CONFIG REGISTRY_AUTH_FILE
+          mkdir "$DOCKER_CONFIG" "$FLEETING_PLUGIN_PATH"
+          test -z "$(ls -A "$DOCKER_CONFIG")"
+          test -z "$(ls -A "$FLEETING_PLUGIN_PATH")"
+          printf '{"auths":{}}\n' > "$DOCKER_CONFIG/config.json"
+          release_dir="$RUNNER_TEMP/release"
+          mkdir "$release_dir"
+          archive="fleeting-plugin-aliyun_${VERSION}_linux_${ARCH}.tar.gz"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
+          curl --fail --location --silent --show-error --retry 3 "$base/$archive" -o "$release_dir/$archive"
+          curl --fail --location --silent --show-error --retry 3 "$base/SHA256SUMS" -o "$release_dir/SHA256SUMS"
+          (cd "$release_dir" && sha256sum --check --ignore-missing SHA256SUMS)
+          tar -xzf "$release_dir/$archive" -C "$release_dir"
+          config="$RUNNER_TEMP/runner.toml"
+          python3 - "$config" <<'PY'
+          import os, pathlib, sys
+          ref = "ghcr.io/" + os.environ["GITHUB_REPOSITORY"] + ":" + os.environ["VERSION"]
+          pathlib.Path(sys.argv[1]).write_text(
+              '[[runners]]\n  executor = "instance"\n  [runners.autoscaler]\n'
+              + '    plugin = "' + ref + '"\n'
+          )
+          PY
+          runner_binary=".cache/gitlab-runner-linux-$ARCH"
+          "$runner_binary" fleeting --config "$config" install
+          "$runner_binary" fleeting --config "$config" list
+          go run ./tools/distribution \
+            -verify-ref "ghcr.io/$GITHUB_REPOSITORY:$VERSION" \
+            -expected-version "$VERSION" -expected-revision "$(git rev-parse HEAD)" \
+            -expected-binary "$release_dir/fleeting-plugin-aliyun" \
+            | tee "install-receipt-$ARCH.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-install-${{ matrix.arch }}
+          path: install-receipt-*.json
+          if-no-files-found: error
+          retention-days: 7
