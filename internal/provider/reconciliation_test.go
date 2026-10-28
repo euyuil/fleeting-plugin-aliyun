@@ -190,6 +190,48 @@ func TestRestartPreparedIncreaseDoesNotDoubleAllocate(t *testing.T) {
 	}
 }
 
+func TestRestartAfterLostIncreaseResponseDoesNotReplayAcceptedMutation(t *testing.T) {
+	f := testutil.New()
+	f.Group.MaxSize = 1
+	g := setup(t, f)
+	f.After = func(action string, _ map[string]string) error {
+		if action == "ScaleWithAdjustment" {
+			return &aliyun.Error{Code: "TransportError", Retryable: true}
+		}
+		return nil
+	}
+	if n, err := g.Increase(context.Background(), 1); n != 0 || !aliyun.IsAmbiguous(err) {
+		t.Fatal(n, err)
+	}
+	if f.Group.DesiredCapacity != 1 {
+		t.Fatal("cloud mutation did not happen")
+	}
+	f.After = nil
+	restarted := setup(t, f)
+	if n, err := restarted.Increase(context.Background(), 1); n != 1 || err != nil {
+		t.Fatal(n, err)
+	}
+	f.Add("i-worker")
+	if got := states(t, restarted); len(got) != 1 || got["i-worker"] != upstream.StateRunning {
+		t.Fatal(got)
+	}
+	if _, err := restarted.Decrease(context.Background(), []string{"i-worker"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restarted.Decrease(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	writes := 0
+	for _, call := range f.Calls {
+		if call.Action == "ScaleWithAdjustment" {
+			writes++
+		}
+	}
+	if writes != 1 || f.Group.DesiredCapacity != 0 || len(f.Instances) != 0 {
+		t.Fatal("accepted mutation replayed or release failed", writes)
+	}
+}
+
 func TestRestartAfterAcceptedIncreaseWaitsForOneWorkerWithoutReplay(t *testing.T) {
 	f := testutil.New()
 	f.Group.MaxSize = 1

@@ -38,7 +38,7 @@ func TestExtendedCleanupRequiresTerminatedDriver(t *testing.T) {
 }
 
 func TestPluginCloudCleanupRequiresOwnedPluginTermination(t *testing.T) {
-	for _, mode := range []string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "cloud-remove-restart"} {
+	for _, mode := range []string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "cloud-remove-restart", "cloud-increase-response-loss"} {
 		t.Run(mode, func(t *testing.T) { checkOwnedPluginTermination(t, mode) })
 	}
 }

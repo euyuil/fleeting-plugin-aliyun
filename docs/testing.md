@@ -194,6 +194,53 @@ verified before fallback cleanup. Separate full fixture teardown remains
 mandatory. This covers an acknowledged response during removal, without GitLab
 or Runner; lost API responses remain a separate case.
 
+### Plugin restart before delivery of an expansion response
+
+`LIVE_EXTENDED_MODE=cloud-increase-response-loss` uses the fixed US East
+**MaxSize=1** strict-Spot fixture and cumulative creation budget **one**.
+Build the separate test-instrumented plugin, then run the normal live driver:
+
+```sh
+GOFLAGS=-tags=responsegate make build
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-increase-response-loss make test-live-extended
+```
+
+This is a real-cloud fault injection using a `responsegate` build, not an
+unmodified release-artifact test or an observation of natural packet loss.
+Preflight checks the Go build information for `responsegate` and rejects
+`componenttest` before SDK construction. The real SDK retains its signing,
+official URL/Host/SNI, parser and retry logic. Only its ESS dial destination and
+per-process trust roots change. A dedicated numeric-loopback TLS gate forwards
+the original signed request to `https://ess.aliyuncs.com` using independent
+system TLS verification, with no redirects or upstream retries. ECS remains on
+its ordinary route. No system certificate store is changed.
+
+The gate selects this group's `ScaleWithAdjustment` to total capacity one,
+checks the real HTTP 200 response with a nonempty RequestId and no error Code,
+then hijacks the downstream connection without sending any HTTP response bytes.
+The driver's original Increase must remain pending. Its durable 0-to-1 journal
+token must equal the intercepted request token. Two persisted creation captures,
+before termination and after proven old-process exit, must retain the same
+activity and identities. The peer disconnect must follow the termination signal;
+an earlier disconnect, timeout or additional expansion attempt fails the run.
+The kill must begin within ten seconds of the gate receiving the request.
+
+The new PID uses the same verified test binary and retries Increase(1). The
+reported recovered credit may be zero or one, but exactly one expansion attempt
+may have reached the gate and official ESS. Any repeat is rejected before
+forwarding and invalidates the run. The original activity must create exactly
+one eventual worker, the full activity-ID set must remain unchanged, and actual
+disk checks and authenticated SSH must pass. Normal scale-in to zero, associated
+resource absence and separate full fixture cleanup remain mandatory.
+
+The gate's CA and leaf private keys live only in driver memory. It does not
+record authorization headers, security tokens, raw requests or raw responses.
+Private receipts retain only the group, idempotency token, request ID, timing
+and counters; public reports must redact these identities. Stopping the driver
+also stops the gate. On failure the plugin is killed before cloud cleanup, so
+the blocked writer cannot race teardown. The default release build has no gate
+configuration entry point. Lost removal responses remain a separate case.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its
