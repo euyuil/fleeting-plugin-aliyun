@@ -1,5 +1,9 @@
 # Dedicated infrastructure preparation
 
+The [pre-release cloud gate](../docs/pre-release-cloud.md) owns fresh, labelled
+fixtures in a separate test account using `tools/cloud_fixture.py`. The reusable
+fixture procedure below belongs to the independently configured GitLab path.
+
 ## Primary path: official Alibaba CLI
 
 Use Python 3.11+, an OpenSSH client, and official aliyun CLI 3.5.2, with its download/checksum verified through the

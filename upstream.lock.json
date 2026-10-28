@@ -38,6 +38,9 @@
     "download_artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093"
   },
   "aliyun_cli": "3.5.2",
+  "aliyun_cli_sha256": {
+    "linux-amd64": "8058cb91fa0e2d46a7c5fd47e44ab6a465be8477b28595d408dcc03a0ed5bd4e"
+  },
   "tools": {
     "actionlint": "v1.7.12"
   }

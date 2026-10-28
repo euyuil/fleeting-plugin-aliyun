@@ -42,6 +42,11 @@ statuses and timings without the target address.
 
 ## Plugin-only cloud smoke without GitLab
 
+The [pre-release cloud gate](pre-release-cloud.md) automates the six modes below
+with fresh fixtures, a separate account and exact candidate-artifact binding.
+Its manual entry can also run a single mode without publication. The older
+`Live acceptance` workflow and one-time setup below remain the GitLab path.
+
 `LIVE_EXTENDED_MODE=cloud-smoke` runs one real release-plugin process through
 the pinned Fleeting gRPC host. It requires a separately authorized, dedicated
 idle ESS group with MinSize/desired/total=0, MaxSize=1, a pinned strict-Spot launch

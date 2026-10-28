@@ -1,0 +1,225 @@
+name: Cloud acceptance
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      candidate_sha:
+        required: true
+        type: string
+    outputs:
+      artifact_id:
+        value: ${{ jobs.build.outputs.artifact_id }}
+      manifest_sha256:
+        value: ${{ jobs.build.outputs.manifest_sha256 }}
+      candidate_sha:
+        value: ${{ jobs.build.outputs.candidate_sha }}
+      release_ready:
+        value: ${{ jobs.gate.outputs.release_ready }}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Unpublished candidate version
+        required: true
+        default: 0.1.0-dev
+        type: string
+      candidate_sha:
+        description: Full main commit SHA (empty selects the dispatch commit)
+        type: string
+      mode:
+        description: One scenario or the complete pre-release gate
+        type: choice
+        default: all
+        options: [all, cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart, cloud-increase-response-loss]
+permissions:
+  contents: read
+concurrency:
+  group: aliyun-pre-release-acceptance
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      manifest_sha256: ${{ steps.candidate.outputs.digest }}
+      candidate_sha: ${{ steps.source.outputs.sha }}
+      matrix: ${{ steps.source.outputs.matrix }}
+      mode: ${{ steps.source.outputs.mode }}
+    env:
+      VERSION: ${{ inputs.version }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
+      MODE: ${{ inputs.mode || 'all' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin a trusted main candidate
+        id: source
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          sys.path.insert(0, 'tools')
+          from release_candidate import MODES, revision
+          sha = revision(os.environ['CANDIDATE_SHA'])
+          mode = os.environ['MODE']
+          if mode != 'all' and mode not in MODES:
+              raise SystemExit('unknown cloud acceptance mode')
+          subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], check=True)
+          subprocess.run(['git', 'checkout', '--detach', sha], check=True)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('sha=' + sha + '\nmode=' + mode + '\n')
+              output.write('matrix=' + json.dumps({'mode': list(MODES) if mode == 'all' else [mode]}) + '\n')
+          PY
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+          cache: true
+      - name: Validate and build the unpublished distribution
+        run: |
+          go run ./tools/distribution -validate-version "$VERSION"
+          python3 tools/fetch-aliyun.py
+          export PATH="$GITHUB_WORKSPACE/.cache/tools:$PATH"
+          make deps test lint dist VERSION="$VERSION"
+          (cd dist && sha256sum -c SHA256SUMS)
+          go test -race ./...
+          go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
+          mkdir -p .cache/candidate/responsegate
+          cp -a dist .cache/candidate/dist
+          GOFLAGS=-tags=responsegate make build VERSION="$VERSION"
+          cp bin/fleeting-plugin-aliyun .cache/candidate/responsegate/plugin
+      - name: Seal the exact distribution
+        id: candidate
+        run: |
+          digest=$(python3 tools/release_candidate.py create --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION")
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          tar -cf .cache/candidate.tar -C .cache/candidate .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: upload
+        with:
+          name: cloud-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/candidate.tar
+          if-no-files-found: error
+          retention-days: 7
+  scenario:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: aliyun-pre-release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.build.outputs.matrix) }}
+    env:
+      VERSION: ${{ inputs.version }}
+      CANDIDATE_SHA: ${{ needs.build.outputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+      MODE: ${{ matrix.mode }}
+      RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ vars.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ vars.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.build.outputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+          cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - name: Verify candidate and dedicated account configuration before cloud access
+        run: |
+          mkdir -p .cache/candidate
+          tar -xf .cache/download/candidate.tar -C .cache/candidate
+          python3 tools/release_candidate.py verify --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256"
+          python3 tools/cloud_fixture.py preflight
+          python3 tools/fetch-aliyun.py
+          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
+      - name: Obtain fresh credentials in the dedicated account
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ vars.RELEASE_ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: pre-release-${{ github.run_id }}
+      - name: Run the scenario and verify full fixture teardown
+        run: |
+          python3 tools/cloud_fixture.py run --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256" --mode "$MODE" --directory ".live/$MODE" --receipt ".cache/receipts/$MODE.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cloud-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.mode }}
+          path: .cache/receipts/*.json
+          if-no-files-found: warn
+          retention-days: 7
+  gate:
+    if: always()
+    needs: [build, scenario]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release_ready: ${{ steps.result.outputs.release_ready }}
+    env:
+      VERSION: ${{ inputs.version }}
+      CANDIDATE_SHA: ${{ needs.build.outputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+      MODE: ${{ needs.build.outputs.mode }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      SCENARIO_RESULT: ${{ needs.scenario.result }}
+    steps:
+      - name: Require completed build and cloud scenarios
+        run: test "$BUILD_RESULT" = success && test "$SCENARIO_RESULT" = success
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.build.outputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.2'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: cloud-receipt-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: .cache/receipts
+          merge-multiple: true
+      - name: Require matching successful receipts including cleanup
+        id: result
+        run: |
+          mkdir -p .cache/candidate
+          tar -xf .cache/download/candidate.tar -C .cache/candidate
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+          sys.path.insert(0, 'tools')
+          from release_candidate import check_receipt, gate, verify
+          root, receipts = pathlib.Path('.cache/candidate'), pathlib.Path('.cache/receipts')
+          sha, version, digest = os.environ['CANDIDATE_SHA'], os.environ['VERSION'], os.environ['MANIFEST_SHA256']
+          run, attempt, mode = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT'], os.environ['MODE']
+          if mode == 'all':
+              gate(root, receipts, digest, sha, version, run, attempt)
+          else:
+              manifest = verify(root, digest, sha, version)
+              paths = list(receipts.glob('*.json'))
+              if len(paths) != 1:
+                  raise SystemExit('exactly one scenario receipt is required')
+              check_receipt(json.loads(paths[0].read_text()), manifest, digest, mode, run, attempt)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('release_ready=' + ('true' if mode == 'all' else 'false') + '\n')
+          PY
