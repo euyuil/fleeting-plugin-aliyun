@@ -84,7 +84,8 @@ is not evidence that a live job or publication happened.
 Plugin-only cloud smoke, two-worker scale-in, ready-worker restart and
 accepted-creation and accepted-removal restart recovery: **PASS** on 2026-10-28. Real plugin processes completed
 **0→1→authenticated SSH→0**, **0→2→1→0**, and same-instance rediscovery/SSH after
-plugin termination. Full GitLab job acceptance is
+plugin termination. An instrumented expansion-response-loss restart also passed.
+Full GitLab job acceptance is
 still **NOT_RUN_MISSING_CONFIGURATION**. No GitLab project/job, custom worker
 image, persistent Manager or cloud OIDC configuration was created. All temporary
 cloud resources from these cycles and the earlier connectivity preflight were
@@ -249,7 +250,7 @@ publishing cloud IDs or local PIDs.
 
 This verifies restart after a ready worker with accepted increase intent. The
 accepted-creation and accepted-removal cases are recorded separately below. Lost
-API replies, multi-page cloud snapshots and other recovery states remain unverified. GitLab, restricted
+removal API replies, multi-page cloud snapshots and other recovery states remain unverified. GitLab, restricted
 roles/OIDC and upstream SSH server-host-key verification remain outside this
 run. See [the reproducible restart mode](testing.md#plugin-restart-recovery-without-gitlab).
 
@@ -295,7 +296,7 @@ defines those trigger sources. Tooling and the observed-contract fix were
 merged in [#30](https://github.com/euyuil/fleeting-plugin-aliyun/pull/30) and
 [#31](https://github.com/euyuil/fleeting-plugin-aliyun/pull/31).
 
-This covers an acknowledged expansion during provisioning. Lost API replies,
+This covers an acknowledged expansion during provisioning. Lost removal replies,
 multi-page cloud snapshots and actual Spot interruptions
 remain unverified. GitLab, restricted roles/OIDC and upstream SSH server-host-key
 verification remain outside this run. See [the reproducible mode](testing.md#plugin-restart-during-accepted-creation).
@@ -335,10 +336,57 @@ public JSON preserve identity relationships without cloud IDs or local PIDs.
 The reproducible tool and its regressions were merged in
 [#36](https://github.com/euyuil/fleeting-plugin-aliyun/pull/36).
 
-This covers an acknowledged removal while the target still exists. Lost API
+This covers an acknowledged removal while the target still exists. Lost removal
 responses, multi-page cloud snapshots and actual Spot interruptions remain
 unverified. GitLab jobs, restricted roles/OIDC and upstream SSH server-host-key
 verification remain outside this run. See [the reproducible mode](testing.md#plugin-restart-during-accepted-removal).
+
+### Real expansion-response loss and restart
+
+A separate `cloud-increase-response-loss` run on 2026-10-28 passed
+**0→ESS accepts expansion/response withheld→plugin termination→retry/one worker/SSH→0**.
+One isolated attempt created exactly one Spot instance without GitLab or Runner.
+It executed source
+[`a27d9887f18fc5b8a5ede075c810b1a59223ec79`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/a27d9887f18fc5b8a5ede075c810b1a59223ec79),
+integrated as
+[`87c1c742e25943db3d78895d63b8ee5a05d6ed53`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/87c1c742e25943db3d78895d63b8ee5a05d6ed53).
+The plugin SHA-256 was
+`ddf2757d3c213981648f481a5f9dce320300f35484323929ec562bb174c98ea3`.
+
+This was fault-injected real-cloud acceptance using the explicitly marked
+`responsegate` test build. Its real SDK kept the official URL, Host, SNI,
+signing, parsing and retry logic. A per-process dial/trust override routed ESS
+through a numeric-loopback TLS gate, whose upstream independently verified
+official ESS HTTPS. The gate withheld the selected successful response before
+any HTTP status, headers or body could reach the old plugin. It changed no
+system trust store. Unmodified release bytes and natural packet loss were not
+tested by this run. The tool and isolation regressions were merged in
+[#40](https://github.com/euyuil/fleeting-plugin-aliyun/pull/40).
+
+| Event | Observed evidence (UTC) |
+|---|---|
+| Real expansion accepted | The gate received the request at 06:52:52.070006 and validated ESS HTTP 200, a nonempty RequestId and no error Code at 06:52:52.892838. The request's token matched the persisted 0-to-1 journal. |
+| Before termination | At 06:52:53.763819, the same provisioning activity was `Ess/InProgress` and membership was `Init`. The selected response remained withheld and the original Increase was still pending. |
+| Termination and peer exit | The kill signal began at 06:52:54.050830; the original peer disconnected at 06:52:54.054729. The old PID was proven gone. The gate did not deliver the response or count a local drop as peer exit. |
+| After old process exited | At 06:52:54.886589, the same activity and complete activity-ID set remained, with `Init` membership. Neither timing snapshot reported an instance ID; `NotAssigned` is a probe sentinel, not an ECS power-state query. |
+| New process and retry | A distinct PID completed fresh Init and retried Increase(1) by 06:52:59.295804. It returned zero additional capacity; the gate recorded exactly one expansion attempt and one forwarding to ESS. |
+| Original worker and SSH | One actual running worker was observed at 06:53:10; authenticated SSH returned a fresh nonce at 06:53:35.397993. By 06:53:39.554049, the original activity had successfully produced exactly that one ID and its activity-ID set was unchanged through recovered SSH, before requested scale-in. |
+| Normal zero | At 06:54:16.962891, ESS/ECS zero and disk/ENI absence passed before fallback cleanup. |
+| Full teardown | Driver/plugin and gate stopped; all resources owned by this run across ten checked kinds were absent in two complete independent inventories. Temporary SSH keys, encoded server-key user data and the gate CA file were removed; the independent guard disarmed. |
+
+The instance retained `us-east-1b`, 2 vCPU / 512 MiB, Ubuntu 26.04 and a 20 GiB
+ESSD PL0 system disk, verified against actual cloud inventory. Concurrent and
+cumulative creation budgets were both one, with no on-demand fallback.
+Configured swap remained 512 MiB; runtime swap state was not measured.
+Driver and independent resource audit both recorded `PASS`, including
+`restart_recovered=true` and `normal_release=true`. Private persisted cutpoints
+bind the held response, journal token, activity, process and eventual worker;
+public JSON uses synthetic identities and omits credential-bearing traffic.
+
+Lost removal responses, other failure timings, multi-page snapshots and genuine
+Spot interruptions remain unverified. GitLab jobs, restricted roles/OIDC and
+upstream SSH server-host-key verification remain outside this run. See
+[the reproducible fault-injection mode](testing.md#plugin-restart-before-delivery-of-an-expansion-response).
 
 The following gates remain specific and visible:
 
@@ -346,9 +394,10 @@ The following gates remain specific and visible:
 |---|---|---|
 | Plugin-only 0→1→SSH→0 | Real plugin, actual Spot/disk checks, authenticated SSH, normal specified release and full fixture cleanup passed | Broader lifecycle scenarios remain separate. |
 | Plugin-only 0→2→1→0 | Target-only release, original retained-worker SSH and final normal release passed; full fixture cleanup confirmed twice | Larger release batches and recovery remain separate. |
-| Ready-worker plugin restart | Old process exit, distinct new PID, original instance rediscovery, fresh SSH, unchanged activity IDs and normal release passed; fixture cleanup confirmed twice | Lost API replies and multi-page cloud snapshots remain unverified. |
-| Accepted-creation plugin restart | Nonready snapshots before/after old exit, one eventual worker from the original activity, SSH, normal release and full cleanup passed | Lost responses and multi-page snapshots remain separate. |
-| Accepted-removal plugin restart | SSH before removal, same still-existing target/activity around old exit, new-process recovery, journal clearance and normal zero passed; full cleanup confirmed twice | Lost responses and multi-page snapshots remain separate. |
+| Ready-worker plugin restart | Old process exit, distinct new PID, original instance rediscovery, fresh SSH, unchanged activity IDs and normal release passed; fixture cleanup confirmed twice | Lost removal replies and multi-page cloud snapshots remain unverified. |
+| Accepted-creation plugin restart | Nonready snapshots before/after old exit, one eventual worker from the original activity, SSH, normal release and full cleanup passed | Lost removal responses and multi-page snapshots remain separate. |
+| Accepted-removal plugin restart | SSH before removal, same still-existing target/activity around old exit, new-process recovery, journal clearance and normal zero passed; full cleanup confirmed twice | Lost removal responses and multi-page snapshots remain separate. |
+| Lost expansion response | Real ESS success withheld before SDK delivery; pending old call, peer exit after kill, fresh-process retry with one cloud expansion, original worker/SSH and normal zero passed; full cleanup confirmed twice | Instrumented test build only; lost removal responses, other fault timings and multi-page snapshots remain separate. |
 | Basic 0→1→job→0 | Plugin-only cloud smoke passed; real job driver and fixed GitLab fixture implemented | Authorized configured run with the pinned Manager, exact GitLab job/nonce, actual Spot identity, normal release, and zero verified leftovers. |
 | Extended scale/replacement | Real-plugin two-worker scale-in passed; fixed budgets and tagged recovery suites implemented | Larger scales and replacement need a separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
@@ -358,7 +407,7 @@ The following gates remain specific and visible:
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
 its plugin-only smoke, scale-in, ready-worker, accepted-creation and accepted-removal restarts passed,
-while the GitLab job cycle is unrun. M3
+and the instrumented lost-expansion-response restart passed, while the GitLab job cycle is unrun. M3
 retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
 maintenance tooling are delivered; corrected public Runner installation passed
