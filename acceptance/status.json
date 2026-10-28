@@ -2,7 +2,7 @@
   "schema_version": 1,
   "implementation_status": "implemented_with_partial_live_validation_and_documented_gates",
   "offline_validation_status": "pass",
-  "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE",
+  "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_AND_SCALE",
   "publication_status": "not_run",
   "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
   "runner_version": "19.5.1",
@@ -15,30 +15,30 @@
       "offline_validation": "pass",
       "live_validation": "partial_pass",
       "gap": "Not all nine methods or a GitLab job were live exercised.",
-      "verified_scope": "Real gRPC plugin Init/Update/Increase/ConnectInfo/Decrease/Shutdown path."
+      "verified_scope": "Real gRPC plugin path including single-worker and two-worker scaling with specified release and SSH."
     },
     {
       "capability": "scale_out",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Multi-instance and GitLab job behavior remain unverified.",
-      "verified_scope": "One actual fixed-type Spot instance created by the plugin from an empty ESS group."
+      "gap": "Larger pools and GitLab job behavior remain unverified.",
+      "verified_scope": "One-worker and two-worker actual fixed-type Spot scale-out from an empty ESS group through the real plugin."
     },
     {
       "capability": "specified_scale_in",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Retention of other workers, batched release and GitLab job cleanup remain unverified.",
-      "verified_scope": "Plugin released the exact single instance; normal ESS/ECS/disk/ENI absence verified before fallback cleanup."
+      "gap": "Larger release batches and GitLab job cleanup remain unverified.",
+      "verified_scope": "One selected worker released from a two-worker pool; target ESS/ECS/disk/ENI absent, original retained worker running with fresh SSH, then normal release of the last worker."
     },
     {
       "capability": "restart_pagination",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
+      "gap": "This capability has not been live validated; the plugin-only cloud cycles cover bounded single-worker and two-worker paths."
     },
     {
       "capability": "eventual_consistency",
@@ -53,7 +53,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
+      "gap": "This capability has not been live validated; the plugin-only cloud cycles cover bounded single-worker and two-worker paths."
     },
     {
       "capability": "configured_purchase_policy",
@@ -77,14 +77,14 @@
       "offline_validation": "pass",
       "live_validation": "partial_pass",
       "gap": "Upstream connector does not verify server host keys. GitLab job, other images and architectures remain unverified.",
-      "verified_scope": "Ubuntu 26.04 on one actual Alibaba Cloud Spot worker; exact SSH nonce returned using the pinned upstream connector."
+      "verified_scope": "Ubuntu 26.04 on actual Alibaba Cloud Spot workers; both workers passed distinct SSH nonces and the retained worker passed a fresh nonce after specified scale-in."
     },
     {
       "capability": "connector_overrides",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
+      "gap": "This capability has not been live validated; the plugin-only cloud cycles cover bounded single-worker and two-worker paths."
     },
     {
       "capability": "instance_executor",
@@ -119,7 +119,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
+      "gap": "This capability has not been live validated; the plugin-only cloud cycles cover bounded single-worker and two-worker paths."
     },
     {
       "capability": "suspend_resume",
@@ -153,22 +153,22 @@
   "live_tooling": {
     "implementation": "implemented",
     "offline_validation": "pass",
-    "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE",
+    "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_AND_SCALE",
     "entry_point": "docs/testing.md",
-    "gap": "The local cloud-smoke driver passed with the real plugin and local CLI OAuth. GitLab job smoke, extended scale/interruption/suspend, GitHub OIDC and the scheduled janitor remain unrun."
+    "gap": "Local cloud-smoke and cloud-scale drivers passed with real plugins and local CLI OAuth. GitLab job smoke, interruption/suspend, GitHub OIDC and the scheduled janitor remain unrun."
   },
   "milestones": {
     "M0": "complete",
     "M1": "offline_complete",
-    "M2": "tooling_complete_plugin_cloud_smoke_pass_gitlab_job_not_run",
+    "M2": "tooling_complete_plugin_cloud_smoke_and_scale_pass_gitlab_job_not_run",
     "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
     "M4": "local_distribution_complete_external_publication_not_run"
   },
   "cleanup": {
     "cloud_resources_created": true,
-    "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_SMOKE",
+    "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_CYCLES",
     "known_cloud_leftovers": [],
-    "limitation": "All resources owned by the direct preflight and three isolated plugin attempts were confirmed absent twice per attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
+    "limitation": "All resources owned by the connectivity preflight, three single-worker attempts and one two-worker cycle were confirmed absent twice per isolated attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -323,5 +323,137 @@
     "report": "docs/acceptance-report.md",
     "configured_swap_mib": 512,
     "swap_runtime_verified": false
+  },
+  "plugin_cloud_scale": {
+    "status": "pass",
+    "date": "2026-10-28",
+    "mode": "cloud-scale",
+    "scope": "Real plugin-only 0 to 2 to 1 to 0 with specified target release and retained SSH; no GitLab or Runner Manager",
+    "plugin_commit": "94cfed170949721bafae39b39eb02a746f5046f3",
+    "integrated_commit": "dcc736d50701e625aea5a191bd7c520d7526b955",
+    "plugin_sha256": "9c7663ee8e2f5f89f951be454a3fac33a8279aedcd5493edb8fceb997181f6de",
+    "real_plugin_process": true,
+    "credential_mode": "local_cli_oauth",
+    "region": "us-east-1",
+    "zone": "us-east-1b",
+    "instance_type": "ecs.e-c4m1.large",
+    "image_id": "ubuntu_26_04_x64_20G_alibase_20260916.vhd",
+    "vcpu_per_worker": 2,
+    "memory_mib_per_worker": 512,
+    "system_disk_per_worker": {
+      "category": "cloud_essd",
+      "performance_level": "PL0",
+      "size_gib": 20,
+      "delete_with_instance": true
+    },
+    "configured_swap_mib_per_worker": 512,
+    "swap_runtime_verified": false,
+    "actual_configuration_verified_for_both_workers": true,
+    "spot_only": true,
+    "on_demand_fallback": false,
+    "attempt_count": 1,
+    "instances_created_total": 2,
+    "concurrent_worker_limit": 2,
+    "cumulative_creation_budget": 2,
+    "both_workers_authenticated_ssh": true,
+    "specified_release": true,
+    "target_associated_resources_absent": true,
+    "original_retained_worker_running": true,
+    "retained_worker_authenticated_ssh_after_scale_in": true,
+    "distinct_ssh_nonce_count": 3,
+    "ssh_server_host_key_verified": false,
+    "normal_release_before_fallback_cleanup": true,
+    "worker_labels": "Synthetic stable labels mapped to private instance identities within this run.",
+    "transitions": [
+      {
+        "action": "initial",
+        "desired_capacity": 0,
+        "total_capacity": 0
+      },
+      {
+        "action": "plugin_increase",
+        "desired_capacity": 2,
+        "observed_at": "2026-10-28T03:38:58.383654Z",
+        "total_capacity": 2,
+        "workers": [
+          "worker_a",
+          "worker_b"
+        ]
+      },
+      {
+        "action": "actual_disk",
+        "category": "cloud_essd",
+        "delete_with_instance": true,
+        "performance_level": "PL0",
+        "size_gib": 20,
+        "worker": "worker_a"
+      },
+      {
+        "action": "actual_disk",
+        "category": "cloud_essd",
+        "delete_with_instance": true,
+        "performance_level": "PL0",
+        "size_gib": 20,
+        "worker": "worker_b"
+      },
+      {
+        "action": "plugin_connect_info_ssh",
+        "nonce_verified": true,
+        "observed_at": "2026-10-28T03:39:30.136033Z",
+        "sequence": 1,
+        "worker": "worker_a"
+      },
+      {
+        "action": "plugin_connect_info_ssh",
+        "nonce_verified": true,
+        "observed_at": "2026-10-28T03:39:39.823077Z",
+        "sequence": 2,
+        "worker": "worker_b"
+      },
+      {
+        "action": "plugin_connect_info_ssh",
+        "nonce_verified": true,
+        "observed_at": "2026-10-28T03:40:16.857566Z",
+        "sequence": 3,
+        "worker": "worker_b"
+      },
+      {
+        "action": "plugin_specified_decrease",
+        "desired_capacity": 1,
+        "observed_at": "2026-10-28T03:40:16.857602Z",
+        "retained_ssh_verified": true,
+        "target_associated_resources_absent": true,
+        "total_capacity": 1,
+        "removed_worker": "worker_a",
+        "retained_worker": "worker_b"
+      },
+      {
+        "action": "plugin_decrease",
+        "associated_resources_absent": true,
+        "desired_capacity": 0,
+        "observed_at": "2026-10-28T03:40:47.15022Z",
+        "total_capacity": 0
+      }
+    ],
+    "cleanup": "pass",
+    "owned_resources_remaining": 0,
+    "consecutive_absence_confirmations": 2,
+    "verified_resource_kinds": [
+      "instance",
+      "disk",
+      "eni",
+      "snapshot",
+      "scaling_group",
+      "launch_template",
+      "key_pair",
+      "security_group",
+      "vswitch",
+      "vpc"
+    ],
+    "temporary_keys_retained": false,
+    "cloud_credentials_on_workers": false,
+    "github_cloud_secrets_created": false,
+    "gitlab_job_executed": false,
+    "report": "docs/acceptance-report.md"
   }
 }

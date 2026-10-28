@@ -80,11 +80,13 @@ is not evidence that a live job or publication happened.
 
 ## Live acceptance and resource outcomes
 
-Plugin-only cloud smoke: **PASS** on 2026-10-28. The real plugin process completed
-**0→1→authenticated SSH→0** against Alibaba Cloud. Full GitLab job acceptance is
+Plugin-only cloud smoke and two-worker scale-in: **PASS** on 2026-10-28. Real
+plugin processes completed **0→1→authenticated SSH→0** and **0→2→1→0** against
+Alibaba Cloud, including fresh SSH on the retained worker after specified
+scale-in. Full GitLab job acceptance is
 still **NOT_RUN_MISSING_CONFIGURATION**. No GitLab project/job, custom worker
 image, persistent Manager or cloud OIDC configuration was created. All temporary
-cloud resources from this smoke and the earlier connectivity preflight were
+cloud resources from these cycles and the earlier connectivity preflight were
 deleted and their absence was verified.
 
 Raw evidence, resource identities, account information and local runtime paths
@@ -172,20 +174,58 @@ that separate identity property. It also does not exercise a GitLab job, all nin
 provider methods, multi-instance retention, restart recovery, real Spot
 interruption, dynamic SSH, Windows, Docker or suspend/resume.
 
+### Real two-worker specified scale-in
+
+A separate `cloud-scale` run on 2026-10-28 passed **0→2→1→0** without GitLab.
+It used release-build source
+[`94cfed170949721bafae39b39eb02a746f5046f3`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/94cfed170949721bafae39b39eb02a746f5046f3),
+squash-merged with identical content as
+[`dcc736d50701e625aea5a191bd7c520d7526b955`](https://github.com/euyuil/fleeting-plugin-aliyun/commit/dcc736d50701e625aea5a191bd7c520d7526b955).
+The executed plugin SHA-256 was
+`9c7663ee8e2f5f89f951be454a3fac33a8279aedcd5493edb8fceb997181f6de`.
+The real gRPC plugin, fixed type/image/zone, public Ubuntu 26.04 image,
+20 GiB ESSD PL0 disk per worker and narrow SSH ingress match the preceding smoke.
+Both actual workers and disks were individually checked. The configured swap
+size remained 512 MiB per worker; runtime swap state was not measured.
+
+One attempt created exactly two Spot instances, with concurrency and cumulative
+creation limits both fixed at two, no replacements and no on-demand fallback.
+The synthetic labels below map to the same two private instance identities
+throughout this run; cloud IDs and raw receipts remain outside Git.
+
+| Transition | Observed evidence (UTC) |
+|---|---|
+| 0→2 | Plugin `Increase(2)` reached desired/total=2 with two actual Spot workers at 03:38:58. |
+| SSH before scale-in | Worker A returned its fresh nonce at 03:39:30; worker B returned a distinct nonce at 03:39:39. |
+| 2→1 | `Decrease` accepted exactly A. Two stable snapshots confirmed desired/total=1, pending/removing=0, A absent from ESS/ECS with its disk/ENI gone, and original B still `InService`/`Running`. B then returned a third fresh SSH nonce at 03:40:16. |
+| 1→0 | Plugin released B; ESS/ECS zero and both workers' disk/ENI absence were verified at 03:40:47 before fallback cleanup. |
+| Full teardown | Driver/plugin stopped, fixture deleted, and two complete independent inventories found no owned resources across all ten checked resource kinds. Temporary client/server keys and encoded server-key user data were removed. |
+
+The driver recorded `PASS`, `specified_release=true`, `normal_release=true`
+and completed authenticated SSH. Independent inventories matched exactly two
+instance IDs and two actual disks to the driver receipts. No retry creation was
+needed. This verifies target-only deletion and retained-worker SSH for this
+bounded two-worker case. Larger pools, multi-batch deletion, restart recovery,
+real Spot interruption and GitLab executor jobs remain unverified. The upstream
+server-host-key limitation still applies; no OIDC or restricted-role acceptance
+is claimed. See [the reproducible mode](testing.md#two-worker-specified-scale-in-without-gitlab).
+
 The following gates remain specific and visible:
 
 | Gate | Completed work | Next evidence required |
 |---|---|---|
 | Plugin-only 0→1→SSH→0 | Real plugin, actual Spot/disk checks, authenticated SSH, normal specified release and full fixture cleanup passed | Broader lifecycle scenarios remain separate. |
+| Plugin-only 0→2→1→0 | Target-only release, original retained-worker SSH and final normal release passed; full fixture cleanup confirmed twice | Larger release batches and recovery remain separate. |
 | Basic 0→1→job→0 | Plugin-only cloud smoke passed; real job driver and fixed GitLab fixture implemented | Authorized configured run with the pinned Manager, exact GitLab job/nonce, actual Spot identity, normal release, and zero verified leftovers. |
-| Extended scale/replacement | Tagged SDK/provider/SSH suites and fixed budgets | Separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
+| Extended scale/replacement | Real-plugin two-worker scale-in passed; fixed budgets and tagged recovery suites implemented | Larger scales and replacement need a separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows and Docker | Connection logic, examples and offline checks | Prepared images, network route, and actual Windows/Docker executor jobs. |
 | Formal suspend/resume | Standard unsupported production methods; isolated controller and offline tests | Same-ID ESS/ECS terminal states, unchanged capacity, fresh SSH after resume, interruption recovery and verified cleanup before capability activation. |
 | External publication | Reproducible native/OCI code and manual release workflow | Explicit version/publication authorization, suitable GitHub package/release access, actual GHCR visibility and anonymous Runner installation. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
-its plugin-only cloud smoke passed, while the GitLab job cycle is unrun. M3
+its plugin-only cloud smoke and two-worker scale-in passed, while the GitLab job
+cycle is unrun. M3
 retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
 maintenance tooling are delivered; external publication is unrun. These limits
