@@ -255,7 +255,17 @@ class Fixture:
     def wait(self, kind, absent=False, seconds=120):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            rows = self.owned(kind, pending_tags=not absent)
+            if absent:
+                known = self.state["ids"].get(kind, [])
+                known = known if isinstance(known, list) else [known]
+                # Accepted deletion can remove tags before the resource itself.
+                # Observe recorded IDs until absent without authorizing another
+                # delete, then retain the strict check for any owned resources.
+                rows = [row for row in self.cloud.inventory(kind) if row.get(SPECS[kind][4]) in known]
+                if not rows:
+                    rows = self.owned(kind)
+            else:
+                rows = self.owned(kind, pending_tags=True)
             if (absent and not rows) or (not absent and len(rows) == 1 and rows[0].get("Status") == "Available"):
                 return
             time.sleep(3)

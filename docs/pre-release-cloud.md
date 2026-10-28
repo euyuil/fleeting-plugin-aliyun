@@ -224,6 +224,9 @@ VPC and vSwitch readiness polling allows a bounded delay for atomic creation
 tags to become visible on the accepted resource ID. Conflicting tag values fail
 immediately. Missing tags never authorize deletion: cleanup still requires the
 complete ownership labels and matching resource identity and parents.
+After an authorized deletion is accepted, absence polling tracks the recorded
+resource IDs even if deletion has already removed their tags. It never issues
+another delete or treats missing tags as proof that a resource is gone.
 
 Cloud-init creates per-run SSH keys. Fixed protocol and safety requirements
 remain in code: root SSH for these disposable Linux fixtures, strict Spot,
