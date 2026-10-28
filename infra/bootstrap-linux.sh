@@ -51,6 +51,6 @@ printf '%s  %s\n' "$RUNNER_SHA256" "$runner_tmp" | sha256sum -c -
 install -m 755 "$runner_tmp" /usr/local/bin/gitlab-runner
 git --version
 gitlab-runner --version
-timeout 10 su -s /bin/sh "$WORKER_USER" -c 'test -w "$HOME" && git --version && gitlab-runner --version'
+timeout 10 su -s /bin/sh "$WORKER_USER" -c 'cd "$HOME" && test -w . && git --version && gitlab-runner --version'
 install -d -m 755 /var/lib/fleeting-worker
 touch /var/lib/fleeting-worker/ready
