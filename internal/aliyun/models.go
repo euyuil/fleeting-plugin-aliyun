@@ -68,6 +68,7 @@ type Template struct {
 		InternetChargeType                                                                                                          string
 		SystemDiskSize                                                                                                              int    `json:"SystemDisk.Size"`
 		SystemDiskCategory                                                                                                          string `json:"SystemDisk.Category"`
+		SystemDiskPerformanceLevel                                                                                                  string `json:"SystemDisk.PerformanceLevel"`
 		SystemDiskDeleteWithInstance                                                                                                *bool  `json:"SystemDisk.DeleteWithInstance"`
 		DataDisks                                                                                                                   struct {
 			DataDisk []struct{ DeleteWithInstance bool }
