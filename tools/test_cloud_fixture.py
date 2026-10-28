@@ -369,6 +369,13 @@ class FixtureTests(unittest.TestCase):
         self.assertIs(result["evidence_incomplete"], True)
         self.assertNotIn("private", json.dumps(result))
 
+    def test_transport_diagnostics_only_emit_fixed_categories(self):
+        log = ('ssh: handshake failed: ssh: unable to authenticate using private-key\n'
+               'dial private-address: i/o timeout\nknownhosts: key mismatch for private-host')
+        result = fixture.driver_diagnostic({}, 1, log)
+        self.assertEqual(result["transport_error_categories"], ["authentication", "host_key", "timeout", "handshake"])
+        self.assertNotIn("private", json.dumps(result))
+
     @unittest.skipUnless(shutil.which("aliyun"), "pinned CLI is installed by CI for offline metadata checks")
     def test_fixture_requests_match_pinned_official_cli_metadata_without_credentials(self):
         version = subprocess.check_output(["aliyun", "version"], text=True)

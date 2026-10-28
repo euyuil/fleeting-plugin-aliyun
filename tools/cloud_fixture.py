@@ -374,7 +374,7 @@ def driver_diagnostic(receipt, code, log):
     results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "CLEANUP_FAILED")
     root = Path(__file__).resolve().parent.parent
     sources = [root / "tests/live/extended_test.go"]
-    for package in ("acceptance", "aliyun"):
+    for package in ("acceptance", "aliyun", "provider"):
         sources.extend(p for p in (root / "internal" / package).glob("*.go") if not p.name.endswith("_test.go"))
     templates = set()
     for path in sources:
@@ -396,6 +396,13 @@ def driver_diagnostic(receipt, code, log):
     return {"exit_code": code, "result": receipt.get("result") if receipt.get("result") in results else "UNKNOWN",
             "test_lines": sorted({int(n) for n in re.findall(r"(?m)^\s+extended_test\.go:([1-9][0-9]{0,4}):", log)}),
             "api_error_categories": sorted(categories),
+            "transport_error_categories": [name for name, markers in (
+                ("authentication", ("ssh: unable to authenticate",)),
+                ("host_key", ("ssh: host key mismatch", "knownhosts: key mismatch")),
+                ("timeout", ("i/o timeout", "context deadline exceeded")),
+                ("connection_refused", ("connection refused",)),
+                ("connection_reset", ("connection reset by peer",)),
+                ("handshake", ("ssh: handshake failed",))) if any(marker in log for marker in markers)],
             "matched_error_templates": sorted(templates),
             "workers_observed": len(instances) if isinstance(instances, list) else None,
             "worker_checks": {k: sum(isinstance(row, dict) and row.get(k) is True for row in instances)
