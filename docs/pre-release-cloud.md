@@ -181,6 +181,11 @@ Linux amd64 archive's binary. The response-loss case uses its separately marked
 instrumented binary. This is Linux amd64 Manager cloud evidence; arm64 native
 installation verification remains separate.
 
+Driver failures print a restricted diagnostic summary: test source line numbers,
+fixed API error categories, observed worker count, and boolean acceptance checks.
+Raw driver logs, resource identities, API request IDs, and cloud error messages
+remain private. The summary does not replace a passing scenario/cleanup receipt.
+
 | Mode | Required outcome | Creation budget |
 | --- | --- | --- |
 | `cloud-smoke` | 0 → 1 → SSH → 0 | 1 |

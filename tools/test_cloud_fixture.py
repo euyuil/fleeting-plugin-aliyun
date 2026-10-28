@@ -302,6 +302,52 @@ class FixtureTests(unittest.TestCase):
             self.owner.cleanup()
         self.assertEqual(self.cloud.calls, [])
 
+    def test_driver_failure_reports_only_selected_public_diagnostics(self):
+        self.owner.tags["fleeting-scenario"] = fixture.MODES[-1]
+        self.owner.state["ids"]["group"] = "synthetic-group"
+        binary = self.directory / "candidate" / "responsegate" / "plugin"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("synthetic binary")
+        manifest = {"fault_binary": "responsegate/plugin", "candidate_sha": "a" * 40,
+                    "files": {"responsegate/plugin": fixture.digest(binary)}}
+        path = self.directory / "evidence" / "run-123-1" / "extended-result.json"
+        receipt = {"result": "FAIL_PRODUCT", "ssh_completed": True, "normal_release": False,
+                   "specified_release": False, "resources": {"instances": [{"instance_id": "private-worker"}],
+                   "scaling_group_id": "private-group"}}
+        fixture.write_json(path, receipt)
+        process = mock.Mock(pid=1234)
+        process.wait.return_value = 1
+        def spawn(*_args, **kwargs):
+            kwargs["stdout"].write("    extended_test.go:713: private-worker private-token\n"
+                                   "Alibaba Cloud API error: code=Forbidden.PrivateValue request_id=private-request\n")
+            return process
+        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}):
+            with mock.patch("subprocess.Popen", side_effect=spawn), mock.patch("cloud_fixture.stop_process_group") as stop:
+                with mock.patch("builtins.print") as output:
+                    with self.assertRaisesRegex(ValueError, "passing candidate receipt"):
+                        fixture.driver(self.owner, self.directory / "candidate", manifest, "192.0.2.1/32", CONFIG)
+        stop.assert_called_once_with(process)
+        self.assertIsNone(self.owner.state["driver_group"])
+        text = output.call_args.args[0]
+        self.assertNotIn("private", text.lower())
+        diagnostic = json.loads(text)["driver_diagnostic"]
+        self.assertEqual(diagnostic["test_lines"], [713])
+        self.assertEqual(diagnostic["workers_observed"], 1)
+        self.assertEqual(diagnostic["api_error_categories"], ["authorization"])
+        self.assertIs(diagnostic["checks"]["ssh_completed"], True)
+        self.assertIs(diagnostic["checks"]["normal_release"], False)
+
+    def test_driver_diagnostics_reject_unrecognized_or_mistyped_private_values(self):
+        for receipt in (None, [], {"result": "private-result", "resources": "private-resources",
+                                  "normal_release": "private-secret", "ssh_completed": 1}):
+            with self.subTest(receipt=receipt):
+                result = fixture.driver_diagnostic(receipt, 1, "private-token\n    other.go:123: private-path\n")
+                self.assertNotIn("private", json.dumps(result))
+                self.assertEqual(result["result"], "UNKNOWN")
+                self.assertEqual(result["test_lines"], [])
+                self.assertIsNone(result["workers_observed"])
+                self.assertTrue(all(v is None for v in result["checks"].values()))
+
     @unittest.skipUnless(shutil.which("aliyun"), "pinned CLI is installed by CI for offline metadata checks")
     def test_fixture_requests_match_pinned_official_cli_metadata_without_credentials(self):
         version = subprocess.check_output(["aliyun", "version"], text=True)
