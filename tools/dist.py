@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Build native archives and the directory consumed by fleeting-artifact."""
 import hashlib
-import gzip
 import json
 import os
 import pathlib
 import shutil
 import subprocess
-import tarfile
+from package_layout import stage_oci_notices, write_archive
 
 root = pathlib.Path(__file__).resolve().parents[1]
 version = os.environ.get("VERSION", "0.1.0-dev")
@@ -20,6 +19,8 @@ ldflags = f"-X main.version={version} -X main.revision={revision} -X main.builtA
 # Include all dependency licenses from selected module versions, including bundled code notices.
 modules = [json.loads(line) for line in subprocess.check_output(["go", "list", "-m", "-json", "all"], text=True).replace("\n}\n", "\n}\x00").split("\x00") if line.strip()]
 licenses = dist / "_licenses"
+if licenses.exists():
+    shutil.rmtree(licenses)
 licenses.mkdir(exist_ok=True)
 compiled = set()
 for architecture in ("amd64", "arm64"):
@@ -54,27 +55,23 @@ for name in ("LICENSE", "PATENTS"):
     shutil.copyfile(source, stdlib_license / name)
 (dist / "dependencies.json").write_text(json.dumps(inventory, indent=2) + "\n")
 checksums = []
+epoch = int(subprocess.check_output(["git", "show", "-s", "--format=%ct", "HEAD"], text=True).strip())
+notice_entries = [
+    ("LICENSE", root / "LICENSE"),
+    ("LICENSES", root / "LICENSES"),
+    ("_licenses", licenses),
+    ("dependencies.json", dist / "dependencies.json"),
+]
 for arch in ("amd64", "arm64"):
     folder = dist / "packages" / "linux" / arch
-    folder.mkdir(parents=True, exist_ok=True)
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True)
     env = dict(os.environ, GOOS="linux", GOARCH=arch, CGO_ENABLED="0")
     binary = folder / "plugin"
     subprocess.run(["go", "build", "-trimpath", "-ldflags", ldflags, "-o", str(binary), "./cmd/fleeting-plugin-aliyun"], cwd=root, env=env, check=True)
-    shutil.copyfile(root / "LICENSE", folder / "LICENSE")
-    shutil.copytree(root / "LICENSES", folder / "LICENSES", dirs_exist_ok=True)
-    shutil.copytree(licenses, folder / "_licenses", dirs_exist_ok=True)
-    shutil.copyfile(dist / "dependencies.json", folder / "dependencies.json")
+    stage_oci_notices(folder, notice_entries, epoch)
     archive = dist / f"fleeting-plugin-aliyun_{version}_linux_{arch}.tar.gz"
-    epoch = int(subprocess.check_output(["git", "show", "-s", "--format=%ct", "HEAD"], text=True).strip())
-    def normalized(info):
-        info.uid = info.gid = 0
-        info.uname = info.gname = ""
-        info.mtime = epoch
-        info.mode = 0o755 if info.isdir() or info.name == "fleeting-plugin-aliyun" else 0o644
-        return info
-    with archive.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=epoch) as compressed, tarfile.open(fileobj=compressed, mode="w") as out:
-        out.add(binary, arcname="fleeting-plugin-aliyun", filter=normalized)
-        for name in ("LICENSE", "LICENSES", "_licenses", "dependencies.json"):
-            out.add(folder / name, arcname=name, filter=normalized)
+    write_archive(archive, [("fleeting-plugin-aliyun", binary)] + notice_entries, epoch)
     checksums.append(hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name)
 (dist / "SHA256SUMS").write_text("\n".join(checksums) + "\n")

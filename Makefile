@@ -29,6 +29,7 @@ lint: tools
 
 dist:
 	VERSION=$(VERSION) REVISION=$(REVISION) BUILT_AT=$(BUILT_AT) $(PYTHON) tools/dist.py
+	OCI_PACKAGES="$(CURDIR)/dist/packages" VERSION="$(VERSION)" REVISION="$(REVISION)" $(GO) test -count=1 -run '^TestBuiltDistributionRoundTrip$$' ./tools/distribution
 test-oci:
 	$(GO) test -count=1 -timeout=5m ./tools/distribution
 

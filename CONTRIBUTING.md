@@ -20,6 +20,9 @@ make test-oci
 Tests replace the API boundary, sign loopback HTTP requests, or load the real
 plugin process and execute authenticated SSH commands on a loopback server.
 The component-only endpoint override is excluded from release binaries. They do not invoke the standard credential chain or contact cloud APIs.
+On a native Linux host, `make dist` also publishes the complete generated OCI
+payload to a loopback registry and installs it with the pinned official library.
+Other hosts cross-build the Linux archives but skip their execution check.
 Do not disable Go checksum verification. `make lint` installs pinned actionlint
 1.7.12 and validates the configuration examples. CI also parses them using the
 pinned, checksum-verified Runner binary.

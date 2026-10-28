@@ -5,8 +5,10 @@ Run GitLab CI/CD jobs on Alibaba Cloud ECS machines that scale with your workloa
 (ESS). Runner requests workers when jobs need them and releases them after use.
 
 This is a community project under active development. Real cloud scaling and SSH
-tests have passed. A full GitLab job has not yet been tested. No public release
-has been published; the quick start below builds from source.
+tests have passed. A full GitLab job has not yet been tested.
+[`0.1.0-rc.1`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.1)
+is available, but its OCI package has a confirmed installation issue. The quick
+start below uses source installation until a corrected OCI release is verified.
 
 ## Choose how jobs run
 

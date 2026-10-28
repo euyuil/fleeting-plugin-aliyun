@@ -22,6 +22,17 @@ from execution and live executor acceptance.
 
 ## OCI
 
+### Known issue in 0.1.0-rc.1
+
+The first prerelease is public, and anonymous GHCR manifest download passed.
+Actual Runner 19.5.1 installation failed on both Linux amd64 and arm64: the OCI
+payload contains nested license files, but the pinned installer skips directory
+entries and cannot create their parents. See the
+[installation run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865).
+The published version and assets are retained unchanged. Do not use its OCI
+reference as a working installation path. Native archives keep their existing
+layout; full GitLab job acceptance remains separate.
+
 The pinned Runner uses fleeting-artifact `1b7c6957ad1d`. Packages are built using
 its actual releaser library with `dist/packages/<os>/<arch>/plugin` inputs. It
 produces the layer annotations and bootstrap layout its matching installer
@@ -54,12 +65,18 @@ verify without registry credentials:
 
 Use a temporary empty DOCKER_CONFIG, FLEETING_PLUGIN_PATH and a temporary Runner
 config, then run `gitlab-runner fleeting --config <config> install`, list the
-installed plugin and load it through Runner. This external publication and
-anonymous installation have not been performed. The offline loopback test uses
+installed plugin and load it through Runner. Publication and anonymous manifest
+download passed for 0.1.0-rc.1, but installation failed as described above. The offline loopback test uses
 the identical releaser/installer module version and compares installed bytes.
 It also rejects a second publication of the same version. Local registry routing
 uses a test transport because the pinned upstream path escaper does not support
 registry ports in plugin install paths.
+
+Corrected builds keep `plugin`, `LICENSE`, `NOTICE`, and `licenses.tar.gz` at the
+OCI platform root. The archive preserves the complete license/source inventory
+tree; read `NOTICE` for extraction instructions. Native archives retain their
+original directory tree. The installer regression exercises this full generated
+payload, rather than only the plugin executable.
 
 The pinned upstream publisher also updates floating OCI aliases, including for
 prereleases. Pin an exact version when installing a release candidate; GitHub's
