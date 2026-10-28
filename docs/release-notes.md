@@ -51,8 +51,10 @@ server host keys, and its WinRM connector does not verify server certificates.
 Use an isolated, trusted network as described in the
 [connection guide](https://github.com/euyuil/fleeting-plugin-aliyun/blob/v0.1.0-rc.2/docs/adr/0003-state-and-connections.md).
 
-Public GHCR download and real Runner installation on both Linux architectures
-must be verified after this version is published. See the
+Public GHCR download and real Runner 19.5.1 installation passed on both Linux
+architectures after publication. Installed bytes match the native Release
+archives, and version/source and plugin protocol checks passed. See the
+[installation run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094) and the
 [distribution guide](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/docs/distribution.md) for installation and verification
 evidence. This prerelease does not claim production acceptance or full upstream
 capability parity.

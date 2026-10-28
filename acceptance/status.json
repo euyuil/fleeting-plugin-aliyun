@@ -3,19 +3,63 @@
   "implementation_status": "implemented_with_partial_live_validation_and_documented_gates",
   "offline_validation_status": "pass",
   "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
-  "publication_status": "prerelease_published_runner_installation_failed",
+  "publication_status": "prerelease_published_anonymous_runner_installation_passed",
   "published_release": {
-    "version": "0.1.0-rc.1",
-    "source_revision": "a5a7bd65ddf2eb344e7597ae509f5c8ecaffc197",
-    "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.1",
-    "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.1",
-    "manifest_digest": "sha256:6a638b1da483e14b24678bd0c01276d8f9816787540b30d995a99cf295d682d2",
+    "version": "0.1.0-rc.2",
+    "source_revision": "795f07f5c2771bf7f84154c6892d90ba77f26b8b",
+    "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.2",
+    "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2",
+    "manifest_digest": "sha256:9df40a99e6b5197a1eea0191b98bc79c84386b0dcb2b1533f6f50752ba09795a",
     "anonymous_manifest_download": "pass",
-    "linux_amd64_runner_installation": "failed_nested_license_paths",
-    "linux_arm64_runner_installation": "failed_nested_license_paths",
-    "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865",
-    "limitation": "Published version and assets are unchanged. The corrected OCI layout requires a new release before public installation can pass."
+    "linux_amd64_runner_installation": "pass",
+    "linux_arm64_runner_installation": "pass",
+    "runner_version": "19.5.1",
+    "publication_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639393805",
+    "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094",
+    "installation_receipts": [
+      {
+        "anonymous_manifest": true,
+        "architecture": "amd64",
+        "binary_sha256": "1317b5063669c750d87d23916db4cd2730c5085d9863d858572d187225b864bd",
+        "empty_configuration_rejected": true,
+        "manifest_digest": "sha256:9df40a99e6b5197a1eea0191b98bc79c84386b0dcb2b1533f6f50752ba09795a",
+        "os": "linux",
+        "plugin_protocol": true,
+        "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2",
+        "release_bytes_match": true,
+        "revision": "795f07f5c2771bf7f84154c6892d90ba77f26b8b",
+        "version": "0.1.0-rc.2"
+      },
+      {
+        "anonymous_manifest": true,
+        "architecture": "arm64",
+        "binary_sha256": "4c70c9977ef3861effbaaf8b2d4d7f3c863edb2f3876421bd588ed38c2d1efed",
+        "empty_configuration_rejected": true,
+        "manifest_digest": "sha256:9df40a99e6b5197a1eea0191b98bc79c84386b0dcb2b1533f6f50752ba09795a",
+        "os": "linux",
+        "plugin_protocol": true,
+        "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2",
+        "release_bytes_match": true,
+        "revision": "795f07f5c2771bf7f84154c6892d90ba77f26b8b",
+        "version": "0.1.0-rc.2"
+      }
+    ],
+    "limitation": "Public installation and pre-cloud plugin protocol validation only. No GitLab job or cloud worker was created by these checks; production acceptance is not claimed."
   },
+  "previous_releases": [
+    {
+      "version": "0.1.0-rc.1",
+      "source_revision": "a5a7bd65ddf2eb344e7597ae509f5c8ecaffc197",
+      "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.1",
+      "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.1",
+      "manifest_digest": "sha256:6a638b1da483e14b24678bd0c01276d8f9816787540b30d995a99cf295d682d2",
+      "anonymous_manifest_download": "pass",
+      "linux_amd64_runner_installation": "failed_nested_license_paths",
+      "linux_arm64_runner_installation": "failed_nested_license_paths",
+      "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865",
+      "limitation": "OCI installation failed on both architectures. Published tag, native assets and OCI version remain unchanged; fixed in 0.1.0-rc.2."
+    }
+  ],
   "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
   "runner_version": "19.5.1",
   "fleeting_version": "v0.0.0-20260915191451-6ed75a33d303",
@@ -153,8 +197,9 @@
       "capability": "native_oci_distribution",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "partial_pass",
-      "gap": "0.1.0-rc.1 publication and anonymous manifest access passed, but real Runner installation failed on both Linux architectures because of nested license paths. A corrected publication is required."
+      "live_validation": "pass",
+      "gap": "Installation validation does not establish full GitLab job or production acceptance.",
+      "verified_scope": "0.1.0-rc.2 anonymous GHCR download and actual Runner 19.5.1 install/list on native Linux amd64 and arm64; exact Release bytes, version/source and plugin protocol validated."
     }
   ],
   "infrastructure_fixture": {
@@ -175,7 +220,7 @@
     "M1": "offline_complete",
     "M2": "tooling_complete_plugin_smoke_scale_restart_pass_gitlab_job_not_run",
     "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
-    "M4": "prerelease_published_anonymous_manifest_pass_runner_install_failed"
+    "M4": "prerelease_published_anonymous_runner_installation_verified"
   },
   "cleanup": {
     "cloud_resources_created": true,

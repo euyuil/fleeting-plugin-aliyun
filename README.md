@@ -6,9 +6,9 @@ Run GitLab CI/CD jobs on Alibaba Cloud ECS machines that scale with your workloa
 
 This is a community project under active development. Real cloud scaling and SSH
 tests have passed. A full GitLab job has not yet been tested.
-[`0.1.0-rc.1`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.1)
-is available, but its OCI package has a confirmed installation issue. The quick
-start below uses source installation until a corrected OCI release is verified.
+[`0.1.0-rc.2`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.2)
+is available for evaluation. Anonymous OCI installation with Runner 19.5.1 has
+passed on Linux amd64 and arm64; see the [installation checks](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094).
 
 ## Choose how jobs run
 
@@ -26,31 +26,28 @@ real cloud workers. See [supported configurations](docs/operations.md).
 
 ## Quick start: run a job on a Linux VM
 
-### 1. Build and install on the Runner Manager
+### 1. Install GitLab Runner on the Manager
 
 The **Manager** is the host that runs GitLab Runner and this plugin. **Workers**
 are the ECS machines that run your jobs. Start with a Linux amd64 or arm64
 Manager that can reach GitLab, Alibaba Cloud APIs, and your workers over SSH.
 
-For this source install, use Git, GNU Make, Go 1.27.2, and Python 3.11 or later.
-Run these commands on the Manager:
+The plugin runs as a separate process managed by Runner. The Manager can be a
+separate server from GitLab CE, or share its host.
+
+Install **GitLab Runner 19.5.1** using the
+[GitLab installation guide](https://docs.gitlab.com/runner/install/linux-repository/)
+and its instructions for choosing a specific version. Also install `curl`.
+Check Runner on the Manager:
 
 ```sh
-git clone https://github.com/euyuil/fleeting-plugin-aliyun.git
-cd fleeting-plugin-aliyun
-make deps build
-python3 tools/fetch-runner.py
-mkdir -p "$HOME/.local/bin"
-install -m 755 bin/fleeting-plugin-aliyun "$HOME/.local/bin/"
-install -m 755 .cache/gitlab-runner-linux-$(go env GOARCH) "$HOME/.local/bin/gitlab-runner"
-export PATH="$HOME/.local/bin:$PATH"
 gitlab-runner --version
-fleeting-plugin-aliyun version
 ```
 
-The download script checks the Runner binary against its pinned checksum.
-GitLab Runner 19.5.1 is the current minimum and primary version. See
-[installation details](docs/distribution.md) for packaging and other install paths.
+Runner will download the plugin from public GHCR in step 5. Use the same Linux
+user for installation and for running the Manager. You can use an ordinary user
+for this foreground quick start. See [installation details](docs/distribution.md)
+for native archives and source builds.
 
 ### 2. Prepare a worker image and an ESS group
 
@@ -81,13 +78,15 @@ a legacy registration token.
 
 ### 4. Configure the Manager
 
-Copy the [VM configuration example](examples/instance/config.toml) to a private
-location outside the source checkout:
+Download the [VM configuration example](examples/instance/config.toml) to a
+private directory:
 
 ```sh
 mkdir -p "$HOME/.config/gitlab-runner-aliyun"
 chmod 700 "$HOME/.config/gitlab-runner-aliyun"
-cp examples/instance/config.toml "$HOME/.config/gitlab-runner-aliyun/config.toml"
+curl --fail --location --show-error \
+  https://raw.githubusercontent.com/euyuil/fleeting-plugin-aliyun/v0.1.0-rc.2/examples/instance/config.toml \
+  --output "$HOME/.config/gitlab-runner-aliyun/config.toml"
 chmod 600 "$HOME/.config/gitlab-runner-aliyun/config.toml"
 ```
 
@@ -97,10 +96,14 @@ Edit that file and set:
 |---|---|
 | `url` | Your GitLab URL |
 | `token` | The project runner authentication token |
+| `plugin` | `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2` |
 | `region` | The Alibaba Cloud region of your ESS group |
 | `scaling_group_id` | Your dedicated ESS group ID |
 | `username` | The SSH user in your worker image, such as `ci` |
 | `key_path` | The absolute path to the matching private key on the Manager |
+
+The downloaded example uses a native binary name. Replace its `plugin` value
+with the full OCI reference above. Pin this exact version for the prerelease.
 
 Keep the private key readable only by the Manager user. Configure Alibaba Cloud
 credentials for that same user through a supported credential source; do not put
@@ -116,7 +119,18 @@ set `use_external_addr = false`. The pinned upstream connector does not check SS
 server host keys. Use a trusted, isolated route and restrict SSH access to the
 Manager. See [connection limits](docs/adr/0003-state-and-connections.md).
 
-### 5. Start the Manager and run your first job
+### 5. Install the plugin and run your first job
+
+Install and list the plugin with Runner:
+
+```sh
+gitlab-runner fleeting --config "$HOME/.config/gitlab-runner-aliyun/config.toml" install
+gitlab-runner fleeting --config "$HOME/.config/gitlab-runner-aliyun/config.toml" list
+```
+
+The public package supports Linux amd64 and arm64. Registry login and a Docker
+daemon are not required for this VM quick start. Installation stores the plugin
+under `~/.config/fleeting/plugins` for the current user.
 
 Start Runner in the foreground and leave it running. This allows jobs to create
 billable workers:
@@ -146,7 +160,9 @@ Reusable infrastructure, such as the ESS group and VPC, stays in place; see
 [teardown](infra/README.md#teardown-and-cost-boundaries) when you no longer need it.
 
 For a long-running Manager, run Runner as a service with the same configuration,
-credentials, and plugin on its `PATH`. See the
+credentials, and access to the installed plugin directory. Install the plugin
+as the service user, or set the same `FLEETING_PLUGIN_PATH` for installation and
+the service. See the
 [GitLab Runner service commands](https://docs.gitlab.com/runner/commands/#service-related-commands).
 
 ## Choose CPU and memory
@@ -169,7 +185,8 @@ use one slot per VM and release each VM after one job.
 Use the [Docker Autoscaler example](examples/docker-autoscaler/config.toml)
 instead of the VM example. Prepare a worker image with Docker Engine, allow the
 SSH user to access Docker, and set a job image pinned by digest. Jobs can then use
-the Docker executor's `image` and `services` features.
+the Docker executor's `image` and `services` features. Set the same OCI `plugin`
+reference as in step 4, then run the install command with that configuration.
 
 To limit the job container, add `cpus` and `memory` to the existing
 `[runners.docker]` section. For example:

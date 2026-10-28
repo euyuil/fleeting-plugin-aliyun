@@ -39,8 +39,8 @@ Native Linux amd64/arm64 archives include version information, checksums, linked
 module licenses/notices, Go notices, and source locations. The OCI writer and
 installation test use the upstream Fleeting artifact implementation. The manual
 release workflow checks immutable versions/tags, serializes publication, and
-verifies the source tag before publishing. The first prerelease was published;
-its real OCI installation failed as described below.
+verifies the source tag before publishing. The corrected prerelease passed
+anonymous public installation on both Linux architectures, as described below.
 
 ## Selected baseline
 
@@ -62,15 +62,15 @@ supply the controlled boundaries.
 |---|---|
 | `make deps` | Locked complete module graph downloaded and verified; repeated installation left checksums stable. |
 | `make build` | Actual native plugin binary built with revision/version information. |
-| `make test` | Provider scenarios T01–T18, API signing/errors, journal/restart regressions, process/SSH, fixture and official OCI installer tests; seven Python guards. |
+| `make test` | Provider scenarios T01–T18, API signing/errors, journal/restart regressions, process/SSH, fixture and official OCI installer tests; eight Python guards. |
 | `make test-component` | Actual plugin process and SSH, helper file behavior, and synthetic fixture CLI requests. |
 | `make lint` | Formatting, vet, pinned actionlint, finite configuration checks, and tracked whitespace. No configured hook or security scanner is claimed. |
 | `go test -race ./...` | Offline Go packages passed race-enabled execution. |
 | `go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance` | Optional live CLI compiled; enabling live cloud operations was not part of this check. |
 | Live CLI with `RUN_LIVE_ACCEPTANCE` unset | Nonzero exit and `NOT_RUN_MISSING_CONFIGURATION` result; no SDK construction. |
 | `make test-live-extended` with live inputs absent | Tagged suite compiled and explicitly skipped with a NOT_RUN artifact; this is not a live PASS. |
-| `make dist` | Both Linux architectures cross-compiled and archive checksums/licenses generated. Linux amd64 `version` also executed in CI; arm64 execution is unverified. |
-| `make test-oci` | Official releaser-to-installer loopback round trip and exact installed bytes. External GHCR and Docker executor execution are unverified. |
+| `make dist` | Both Linux architectures cross-compiled and archive checksums/licenses generated. On native Linux, the complete generated OCI payload is installed and loaded through the official library. Non-Linux hosts skip execution of cross-built binaries. |
+| `make test-oci` | Official releaser-to-installer loopback round trip, retained notices, exact installed bytes, version/source and plugin protocol checks. External publication evidence is recorded separately below. |
 | Pinned Runner config parsing | All three examples parsed by the real checksum-verified Runner. No GitLab registration or job ran. |
 | Staged review | Full staged scope, new-file whitespace, and `git diff --cached --check` checked per commit. Significant implementation slices received independent review. |
 
@@ -313,15 +313,15 @@ The following gates remain specific and visible:
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows and Docker | Connection logic, examples and offline checks | Prepared images, network route, and actual Windows/Docker executor jobs. |
 | Formal suspend/resume | Standard unsupported production methods; isolated controller and offline tests | Same-ID ESS/ECS terminal states, unchanged capacity, fresh SSH after resume, interruption recovery and verified cleanup before capability activation. |
-| External publication | 0.1.0-rc.1 is published; anonymous manifest download passed | Both real Linux Runner installs failed on nested license paths. Publish a corrected new version and repeat both native installation checks. |
+| External publication | Corrected 0.1.0-rc.2 published; anonymous Runner install/list, exact native bytes, version/source and protocol checks passed on Linux amd64 and arm64 | Installation acceptance does not establish full GitLab job or production acceptance. The rc.1 failure remains recorded below. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
 its plugin-only smoke, scale-in, ready-worker and accepted-creation restarts passed,
 while the GitLab job cycle is unrun. M3
 retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
-maintenance tooling are delivered; first publication passed but public Runner
-installation failed. These limits
+maintenance tooling are delivered; corrected public Runner installation passed
+on both supported Linux architectures. These limits
 follow the specification's no-configuration path.
 
 ## First prerelease publication
@@ -338,10 +338,44 @@ failed on both Linux amd64 and arm64. The pinned installer skips directory
 headers and cannot create parent directories for the nested license files in
 this package. It did not reach installed-plugin protocol loading. The published
 version and assets remain unchanged, and its Release notes identify this issue.
-The corrected producer layout and full-payload regressions require a new version
-and a fresh successful public installation check before OCI installation is
-advertised as working. No cloud resources or GitLab jobs were created by these
-publication and installation checks.
+The corrected producer layout and full-payload regressions were published as
+`0.1.0-rc.2` and passed fresh public installation checks below. No cloud resources
+or GitLab jobs were created by these publication and installation checks.
+
+## Corrected prerelease installation
+
+The [release workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639393805)
+published `v0.1.0-rc.2` from
+`795f07f5c2771bf7f84154c6892d90ba77f26b8b` on 2026-10-28. GitHub confirms
+`prerelease=true`, the exact source tag, both native archives, checksums and the
+dependency inventory. An independent request without registry credentials
+returned HTTP 200 for `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2`, with
+index digest
+`sha256:9df40a99e6b5197a1eea0191b98bc79c84386b0dcb2b1533f6f50752ba09795a`.
+
+The [public installation workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094)
+passed on fresh native Linux amd64 and arm64 hosts. Each used the
+checksum-verified Runner 19.5.1, an empty plugin directory and an explicit empty
+Docker auth configuration. Registry and cloud credentials were absent from the
+installation step. Each job downloaded the native archive and checksum file
+anonymously, verified its checksum, and used the real Runner CLI to install and
+list the exact OCI reference.
+
+The verification tool confirmed identical installed/native binary bytes, exact
+version and source revision, and real Fleeting protocol loading. Empty plugin
+configuration was rejected before credential construction or cloud API calls.
+Both jobs completed successfully and retained JSON receipts; their selected
+fields are preserved in [`acceptance/status.json`](../acceptance/status.json).
+
+| Platform | Installed executable SHA-256 |
+|---|---|
+| Linux amd64 | `1317b5063669c750d87d23916db4cd2730c5085d9863d858572d187225b864bd` |
+| Linux arm64 | `4c70c9977ef3861effbaaf8b2d4d7f3c863edb2f3876421bd588ed38c2d1efed` |
+
+The flat OCI payload retains complete licenses/notices in `licenses.tar.gz`.
+This is public installation and pre-cloud protocol acceptance. It does not
+establish a successful GitLab job, Docker/Windows execution or production
+acceptance, and it created no cloud workers.
 
 ## One-time configuration and cost responsibilities
 
