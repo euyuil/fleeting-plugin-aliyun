@@ -496,6 +496,8 @@ def main():
     parser.add_argument("--completed-run")
     parser.add_argument("--completed-attempt")
     args = parser.parse_args()
+    if (args.read_only or args.cleanup) and args.operation != "preflight":
+        parser.error("--read-only and --cleanup apply only to preflight; use check for read-only cloud access")
     if args.operation == "preflight":
         preflight(read_only=args.read_only)
         cleanup_regions() if args.cleanup else fixture_config()

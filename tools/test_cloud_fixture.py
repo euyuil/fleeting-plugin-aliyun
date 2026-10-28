@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import shutil
+import sys
 import tempfile
 import traceback
 import unittest
@@ -250,6 +251,13 @@ class FixtureTests(unittest.TestCase):
 
 
 class IdentityAndInventoryTests(unittest.TestCase):
+    def test_preflight_flags_cannot_be_mistaken_for_read_only_mutations(self):
+        for operation in ("run", "janitor", "check"):
+            for flag in ("--read-only", "--cleanup"):
+                result = subprocess.run([sys.executable, fixture.__file__, operation, flag], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("apply only to preflight", result.stderr)
+
     def environment(self):
         return {"RELEASE_CLOUD_ACCEPTANCE_ENABLED": "true", "GITHUB_REF": "refs/heads/main",
                 "RELEASE_ALIYUN_ACCOUNT_ID": "1234567890123456",
