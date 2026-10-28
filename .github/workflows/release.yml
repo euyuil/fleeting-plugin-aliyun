@@ -90,4 +90,4 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             flags+=(--prerelease --latest=false)
           fi
-          gh release create "v$VERSION" dist/*.tar.gz dist/SHA256SUMS dist/dependencies.json "${flags[@]}"
+          gh release create "v$VERSION" dist/*.tar.gz dist/*.deb dist/SHA256SUMS dist/dependencies.json "${flags[@]}"

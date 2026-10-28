@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import tarfile
+from debian_package import debian_version
 
 MODES = ("cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart",
          "cloud-remove-restart", "cloud-increase-response-loss")
@@ -69,7 +70,8 @@ def create(root, sha, version):
     required = {"dist/SHA256SUMS", "dist/dependencies.json", "responsegate/plugin"}
     for arch in ("amd64", "arm64"):
         required.update({f"dist/packages/linux/{arch}/plugin",
-                         f"dist/fleeting-plugin-aliyun_{version}_linux_{arch}.tar.gz"})
+                         f"dist/fleeting-plugin-aliyun_{version}_linux_{arch}.tar.gz",
+                         f"dist/fleeting-plugin-aliyun_{debian_version(version)}_{arch}.deb"})
     if not required <= contents.keys():
         raise ValueError("candidate distribution is incomplete")
     distribution(root, version)
