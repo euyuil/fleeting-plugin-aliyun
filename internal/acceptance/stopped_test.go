@@ -36,7 +36,14 @@ func TestExtendedCleanupRequiresTerminatedDriver(t *testing.T) {
 	}
 }
 
-func TestCloudSmokeCleanupRequiresOwnedPluginTermination(t *testing.T) {
+func TestPluginCloudCleanupRequiresOwnedPluginTermination(t *testing.T) {
+	for _, mode := range []string{"cloud-smoke", "cloud-scale"} {
+		t.Run(mode, func(t *testing.T) { checkOwnedPluginTermination(t, mode) })
+	}
+}
+
+func checkOwnedPluginTermination(t *testing.T, mode string) {
+	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("independent termination proof requires Linux procfs")
 	}
@@ -49,7 +56,7 @@ func TestCloudSmokeCleanupRequiresOwnedPluginTermination(t *testing.T) {
 	if err := driver.Run(); err != nil {
 		t.Fatal(err)
 	}
-	l := &Ledger{Mode: "cloud-smoke", DriverPID: driver.Process.Pid, PluginDirectory: "plugin"}
+	l := &Ledger{Mode: mode, DriverPID: driver.Process.Pid, PluginDirectory: "plugin"}
 	if err := StopLocalManager(context.Background(), l, dir); err == nil {
 		t.Fatal("missing plugin PID proof accepted")
 	}

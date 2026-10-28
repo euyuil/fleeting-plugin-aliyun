@@ -31,9 +31,10 @@ import (
 
 func TestExtendedCloud(t *testing.T) {
 	mode := os.Getenv("LIVE_EXTENDED_MODE")
+	pluginMode := mode == "cloud-smoke" || mode == "cloud-scale"
 	required := []string{"ALIYUN_REGION", "ALIYUN_SCALING_GROUP_ID", "ACCEPTANCE_PROJECT", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "ALLOWED_INSTANCE_TYPE", "ALLOWED_IMAGE_ID", "ALLOWED_ZONE_ID", "WORKER_SSH_KEY", "WORKER_USER", "MANAGER_CIDR", "PLUGIN_COMMIT"}
 	missing := []string{}
-	if mode == "cloud-smoke" {
+	if pluginMode {
 		required = append(required, "PLUGIN_BINARY")
 	}
 	for _, key := range required {
@@ -41,18 +42,18 @@ func TestExtendedCloud(t *testing.T) {
 			missing = append(missing, key)
 		}
 	}
-	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
+	if os.Getenv("RUN_LIVE_ACCEPTANCE") != "1" || !slices.Contains([]string{"cloud-smoke", "cloud-scale", "scale", "interruption", "suspend"}, mode) || len(missing) > 0 {
 		dir := os.Getenv("ACCEPTANCE_OUTPUT")
 		if dir == "" {
 			dir = "../../.live/not-run"
 		}
-		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|scale|interruption|suspend"}); e != nil {
+		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": "NOT_RUN_MISSING_CONFIGURATION", "missing_configuration": missing, "required_switch": "RUN_LIVE_ACCEPTANCE=1 and LIVE_EXTENDED_MODE=cloud-smoke|cloud-scale|scale|interruption|suspend"}); e != nil {
 			t.Fatal(e)
 		}
 		t.Skip("NOT_RUN_MISSING_CONFIGURATION: extended live entry is explicitly disabled")
 	}
 	maxSize, budget := 1, 1
-	if mode == "scale" {
+	if mode == "scale" || mode == "cloud-scale" {
 		maxSize, budget = 2, 2
 	}
 	if mode == "interruption" {
@@ -62,7 +63,7 @@ func TestExtendedCloud(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	pluginPath, pluginHash := "", ""
-	if mode == "cloud-smoke" {
+	if pluginMode {
 		var err error
 		pluginPath, err = filepath.Abs(os.Getenv("PLUGIN_BINARY"))
 		if err != nil {
@@ -139,6 +140,7 @@ func TestExtendedCloud(t *testing.T) {
 	var killPlugin func()
 	normalReleased := false
 	sshCompleted := false
+	retainedVerified := false
 	defer func() {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer stop()
@@ -154,7 +156,7 @@ func TestExtendedCloud(t *testing.T) {
 		if e := acceptance.Cleanup(cleanupCtx, cloud, ledger, false); e != nil {
 			result = "CLEANUP_FAILED"
 			t.Error(e)
-		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (mode == "cloud-smoke" && len(ledger.Instances) != 1) {
+		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (pluginMode && len(ledger.Instances) != maxSize) || (mode == "cloud-scale" && !retainedVerified) {
 			result = "FAIL_PRODUCT"
 		}
 		for _, resource := range ledger.Instances {
@@ -171,14 +173,14 @@ func TestExtendedCloud(t *testing.T) {
 			}
 			t.Error(e)
 		}
-		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": result, "mode": mode, "creation_budget": budget, "resources": ledger, "transitions": transitions, "plugin_commit": os.Getenv("PLUGIN_COMMIT"), "plugin_sha256": pluginHash, "real_plugin_process": mode == "cloud-smoke", "ssh_completed": sshCompleted, "normal_release": normalReleased}); e != nil {
+		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": result, "mode": mode, "creation_budget": budget, "resources": ledger, "transitions": transitions, "plugin_commit": os.Getenv("PLUGIN_COMMIT"), "plugin_sha256": pluginHash, "real_plugin_process": pluginMode, "ssh_completed": sshCompleted, "normal_release": normalReleased, "specified_release": retainedVerified}); e != nil {
 			t.Error(e)
 		}
 	}()
 	if err = acceptance.EnsureIngress(ctx, cloud, ledger, os.Getenv("MANAGER_CIDR")); err != nil {
 		t.Fatal(err)
 	}
-	if mode == "cloud-smoke" {
+	if pluginMode {
 		// A per-run copy and PID file let independent cleanup identify an orphaned
 		// plugin without trusting an arbitrary process ID from a receipt.
 		ledger.PluginDirectory = "plugin"
@@ -252,7 +254,11 @@ func TestExtendedCloud(t *testing.T) {
 			}
 		}
 	}
-	if n, e := worker.Increase(ctx, 1); e != nil || n != 1 {
+	increase := 1
+	if pluginMode {
+		increase = maxSize
+	}
+	if n, e := worker.Increase(ctx, increase); e != nil || n != increase {
 		t.Fatal(n, e)
 	}
 	if mode == "scale" {
@@ -281,49 +287,53 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		return true, nil
 	})
-	if mode == "cloud-smoke" {
+	if pluginMode {
 		current, e := cloud.Group(ctx)
-		if e != nil || current.DesiredCapacity != 1 || current.TotalCapacity != 1 {
-			t.Fatal("plugin scale-out did not reach one actual instance", e)
+		if e != nil || current.DesiredCapacity != maxSize || current.TotalCapacity != maxSize {
+			t.Fatal("plugin scale-out did not reach the exact requested capacity", e)
 		}
 		transitions = append(transitions,
 			map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity},
-			map[string]any{"action": "plugin_increase", "desired_capacity": current.DesiredCapacity, "total_capacity": current.TotalCapacity, "instance_id": ids[0], "observed_at": time.Now().UTC()})
-		var disks struct {
-			TotalCount *int
-			Disks      struct {
-				Disk []struct {
-					DiskId, InstanceId, Type, Category, PerformanceLevel string
-					Size                                                 int
-					DeleteWithInstance                                   bool
+			map[string]any{"action": "plugin_increase", "desired_capacity": current.DesiredCapacity, "total_capacity": current.TotalCapacity, "instance_ids": slices.Clone(ids), "observed_at": time.Now().UTC()})
+		for _, id := range ids {
+			var disks struct {
+				TotalCount *int
+				Disks      struct {
+					Disk []struct {
+						DiskId, InstanceId, Type, Category, PerformanceLevel string
+						Size                                                 int
+						DeleteWithInstance                                   bool
+					}
 				}
 			}
-		}
-		if e = cloud.API.Call(ctx, "ecs", "DescribeDisks", map[string]string{"RegionId": cloud.Region, "InstanceId": ids[0], "PageSize": "100"}, &disks); e != nil {
-			t.Fatal(e)
-		}
-		if disks.TotalCount == nil || *disks.TotalCount != 1 || len(disks.Disks.Disk) != 1 {
-			t.Fatal("cloud-smoke requires one complete system disk record")
-		}
-		actual := disks.Disks.Disk[0]
-		knownDisk := false
-		for _, resource := range ledger.Instances {
-			if resource.InstanceID == ids[0] && resource.InventoryComplete && len(resource.DiskIDs) == 1 && resource.DiskIDs[0] == actual.DiskId {
-				knownDisk = true
+			if e = cloud.API.Call(ctx, "ecs", "DescribeDisks", map[string]string{"RegionId": cloud.Region, "InstanceId": id, "PageSize": "100"}, &disks); e != nil {
+				t.Fatal(e)
 			}
+			if disks.TotalCount == nil || *disks.TotalCount != 1 || len(disks.Disks.Disk) != 1 {
+				t.Fatal("plugin-only mode requires one complete system disk record per worker")
+			}
+			actual := disks.Disks.Disk[0]
+			knownDisk := false
+			for _, resource := range ledger.Instances {
+				if resource.InstanceID == id && resource.InventoryComplete && len(resource.DiskIDs) == 1 && resource.DiskIDs[0] == actual.DiskId {
+					knownDisk = true
+				}
+			}
+			if !knownDisk || actual.DiskId == "" || actual.InstanceId != id || actual.Type != "system" || !actual.DeleteWithInstance || actual.Size != data.SystemDiskSize || actual.Category != data.SystemDiskCategory || actual.PerformanceLevel != data.SystemDiskPerformanceLevel {
+				t.Fatal("actual disk differs from the pinned template")
+			}
+			transitions = append(transitions, map[string]any{"action": "actual_disk", "instance_id": id, "size_gib": actual.Size, "category": actual.Category, "performance_level": actual.PerformanceLevel, "delete_with_instance": actual.DeleteWithInstance})
 		}
-		if !knownDisk || actual.DiskId == "" || actual.InstanceId != ids[0] || actual.Type != "system" || !actual.DeleteWithInstance || actual.Size != data.SystemDiskSize || actual.Category != data.SystemDiskCategory || actual.PerformanceLevel != data.SystemDiskPerformanceLevel {
-			t.Fatal("actual disk differs from the pinned template")
-		}
-		transitions = append(transitions, map[string]any{"action": "actual_disk", "size_gib": actual.Size, "category": actual.Category, "performance_level": actual.PerformanceLevel, "delete_with_instance": actual.DeleteWithInstance})
 	}
+	sshSequence := 0
 	runSSH := func(id string) {
 		t.Helper()
-		if mode == "cloud-smoke" {
+		if pluginMode {
 			sshCtx, stop := context.WithTimeout(ctx, 3*time.Minute)
 			defer stop()
-			nonce := sha256.Sum256([]byte(ledger.Marker() + now.String()))
-			want := "cloud-smoke-" + hex.EncodeToString(nonce[:16])
+			sshSequence++
+			nonce := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d", ledger.Marker(), now.String(), id, sshSequence)))
+			want := "plugin-cloud-" + hex.EncodeToString(nonce[:16])
 			var lastErr error
 			for {
 				if e := observe(); e != nil {
@@ -340,6 +350,7 @@ func TestExtendedCloud(t *testing.T) {
 							t.Fatal("live SSH nonce did not match")
 						}
 						sshCompleted = true
+						transitions = append(transitions, map[string]any{"action": "plugin_connect_info_ssh", "instance_id": id, "nonce_verified": true, "sequence": sshSequence, "observed_at": time.Now().UTC()})
 						return
 					}
 				}
@@ -362,8 +373,18 @@ func TestExtendedCloud(t *testing.T) {
 	for _, id := range ids {
 		runSSH(id)
 	}
-	if mode == "cloud-smoke" {
-		transitions = append(transitions, map[string]any{"action": "plugin_connect_info_ssh", "instance_id": ids[0], "nonce_verified": sshCompleted, "observed_at": time.Now().UTC()})
+	if mode == "cloud-scale" {
+		removed, retained := ids[0], ids[1]
+		if accepted, e := worker.Decrease(ctx, []string{removed}); e != nil || !slices.Equal(accepted, []string{removed}) {
+			t.Fatal("plugin did not accept exactly the selected worker", e)
+		}
+		if e := acceptance.WaitForSpecifiedRelease(ctx, cloud, ledger, removed, retained, data.InstanceType, data.ImageId, data.ZoneId); e != nil {
+			t.Fatal(e)
+		}
+		runSSH(retained)
+		retainedVerified = true
+		transitions = append(transitions, map[string]any{"action": "plugin_specified_decrease", "removed_instance_id": removed, "retained_instance_id": retained, "desired_capacity": 1, "total_capacity": 1, "target_associated_resources_absent": true, "retained_ssh_verified": true, "observed_at": time.Now().UTC()})
+		ids = []string{retained}
 	}
 	if mode == "scale" {
 		if accepted, e := worker.Decrease(ctx, ids[:1]); e != nil || len(accepted) != 1 {
@@ -507,7 +528,7 @@ func TestExtendedCloud(t *testing.T) {
 		remaining, e := cloud.Instances(ctx, ids)
 		return g.DesiredCapacity == 0 && g.TotalCapacity == 0 && g.PendingCapacity == 0 && g.RemovingCapacity == 0 && len(members) == 0 && len(remaining) == 0, e
 	})
-	if mode == "cloud-smoke" {
+	if pluginMode {
 		if err = acceptance.WaitForNormalRelease(ctx, cloud, ledger, data.InstanceType, data.ImageId, data.ZoneId); err != nil {
 			t.Fatal(err)
 		}

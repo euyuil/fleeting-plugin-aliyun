@@ -75,6 +75,28 @@ operation: stop the driver, delete only its dedicated group/template/network/key
 resources, and independently verify their absence. A passing plugin-only cycle
 does not establish GitLab scheduling, checkout or executor-job acceptance.
 
+### Two-worker specified scale-in without GitLab
+
+`LIVE_EXTENDED_MODE=cloud-scale` uses the same real plugin process, credentials,
+public-image SSH nonce and fixture constraints. Prepare a separate empty ESS
+group with **MaxSize=2**. The concurrent and cumulative creation limits are both
+**two**; failed instances and replacements count toward the cumulative limit.
+
+```sh
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-scale make test-live-extended
+```
+
+The driver calls `Increase(2)`, verifies both actual Spot workers and each
+system disk, and completes authenticated SSH on both. It selects one exact ID
+for `Decrease`, waits for desired/total=1 and pending/removing=0, verifies the
+target's ESS/ECS/disk/ENI absence and the original other ID still running, then
+executes a new SSH nonce on that retained ID. Each SSH command has a distinct
+nonce tied to the worker and sequence. Only then does it release the last worker
+and require normal zero-capacity/associated-resource proof before fallback
+cleanup. `specified_release=true` additionally requires the retained SSH check.
+The same stopped-driver/orphan-plugin proof and separate full fixture teardown
+apply. This mode does not require a prepared readiness marker, GitLab or Runner.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its
