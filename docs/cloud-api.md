@@ -6,6 +6,12 @@ most 100 requested IDs and require complete count-checked responses. Missing
 counts, duplicate or unrequested identities, and changing pagination totals
 fail the snapshot instead of reporting absent workers.
 
+A missing member instance ID or group ID invalidates the entire snapshot. The
+client may reread it from page one for up to 30 seconds, bounded by the caller's
+deadline, without publishing partial members or filling in an absent group ID.
+A nonempty foreign group ID is rejected immediately. Diagnostics include the
+request ID, page/row and missing-field flags without instance or group values.
+
 Admission requires an Active ECS group, desired capacity, MinSize=0, finite
 MaxSize, unit weights, a pinned template version, and no conflicting rules,
 schedules, hooks, refresh or replacement configuration. Automatically created

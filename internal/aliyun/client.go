@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Client struct {
@@ -52,10 +53,36 @@ func (c *Client) Group(ctx context.Context) (Group, error) {
 	return g, nil
 }
 func (c *Client) Members(ctx context.Context) (map[string]Member, error) {
+	members, err := c.membersSnapshot(ctx)
+	if !errors.Is(err, errIncompleteMemberIdentity) {
+		return members, err
+	}
+	// Never publish a partial membership or invent a missing group binding.
+	// A retry always starts at page one and keeps the original caller deadline.
+	retryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		if c.Log != nil {
+			c.Log.Warn("incomplete membership snapshot; rereading", "error", err)
+		}
+		if waitErr := Wait(retryCtx, time.Second); waitErr != nil {
+			return nil, fmt.Errorf("%v: %w", err, waitErr)
+		}
+		members, err = c.membersSnapshot(retryCtx)
+		if !errors.Is(err, errIncompleteMemberIdentity) {
+			return members, err
+		}
+	}
+}
+
+var errIncompleteMemberIdentity = errors.New("incomplete member identity")
+
+func (c *Client) membersSnapshot(ctx context.Context) (map[string]Member, error) {
 	all := map[string]Member{}
 	expected := -1
 	for page := 1; page <= 10000; page++ {
 		var out struct {
+			RequestId        string
 			TotalCount       *int
 			PageNumber       int
 			ScalingInstances struct{ ScalingInstance []Member }
@@ -73,9 +100,12 @@ func (c *Client) Members(ctx context.Context) (map[string]Member, error) {
 		if out.TotalCount == nil || *out.TotalCount != expected {
 			return nil, errors.New("membership changed during pagination; retry complete snapshot")
 		}
-		for _, m := range out.ScalingInstances.ScalingInstance {
-			if m.InstanceId == "" || m.ScalingGroupId != c.GroupID {
-				return nil, errors.New("member identity mismatch")
+		for row, m := range out.ScalingInstances.ScalingInstance {
+			if m.ScalingGroupId != "" && m.ScalingGroupId != c.GroupID {
+				return nil, fmt.Errorf("foreign member group: request_id=%s page=%d row=%d", out.RequestId, page, row)
+			}
+			if m.InstanceId == "" || m.ScalingGroupId == "" {
+				return nil, fmt.Errorf("%w: request_id=%s page=%d row=%d missing_instance_id=%t missing_group_id=%t lifecycle=%q", errIncompleteMemberIdentity, out.RequestId, page, row, m.InstanceId == "", m.ScalingGroupId == "", m.LifecycleState)
 			}
 			if _, exists := all[m.InstanceId]; exists {
 				return nil, errors.New("duplicate member in paginated snapshot")

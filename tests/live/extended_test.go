@@ -84,7 +84,7 @@ func TestExtendedCloud(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sdk.Close()
-	cloud := &aliyun.Client{API: sdk, Region: os.Getenv("ALIYUN_REGION"), GroupID: os.Getenv("ALIYUN_SCALING_GROUP_ID")}
+	cloud := &aliyun.Client{API: sdk, Region: os.Getenv("ALIYUN_REGION"), GroupID: os.Getenv("ALIYUN_SCALING_GROUP_ID"), Log: hclog.New(&hclog.LoggerOptions{Output: os.Stderr, Level: hclog.Warn})}
 	group, err := cloud.Group(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -289,6 +289,33 @@ func TestExtendedCloud(t *testing.T) {
 		transitions = append(transitions,
 			map[string]any{"action": "initial", "desired_capacity": group.DesiredCapacity, "total_capacity": group.TotalCapacity},
 			map[string]any{"action": "plugin_increase", "desired_capacity": current.DesiredCapacity, "total_capacity": current.TotalCapacity, "instance_id": ids[0], "observed_at": time.Now().UTC()})
+		var disks struct {
+			TotalCount *int
+			Disks      struct {
+				Disk []struct {
+					DiskId, InstanceId, Type, Category, PerformanceLevel string
+					Size                                                 int
+					DeleteWithInstance                                   bool
+				}
+			}
+		}
+		if e = cloud.API.Call(ctx, "ecs", "DescribeDisks", map[string]string{"RegionId": cloud.Region, "InstanceId": ids[0], "PageSize": "100"}, &disks); e != nil {
+			t.Fatal(e)
+		}
+		if disks.TotalCount == nil || *disks.TotalCount != 1 || len(disks.Disks.Disk) != 1 {
+			t.Fatal("cloud-smoke requires one complete system disk record")
+		}
+		actual := disks.Disks.Disk[0]
+		knownDisk := false
+		for _, resource := range ledger.Instances {
+			if resource.InstanceID == ids[0] && resource.InventoryComplete && len(resource.DiskIDs) == 1 && resource.DiskIDs[0] == actual.DiskId {
+				knownDisk = true
+			}
+		}
+		if !knownDisk || actual.DiskId == "" || actual.InstanceId != ids[0] || actual.Type != "system" || !actual.DeleteWithInstance || actual.Size != data.SystemDiskSize || actual.Category != data.SystemDiskCategory || actual.PerformanceLevel != data.SystemDiskPerformanceLevel {
+			t.Fatal("actual disk differs from the pinned template")
+		}
+		transitions = append(transitions, map[string]any{"action": "actual_disk", "size_gib": actual.Size, "category": actual.Category, "performance_level": actual.PerformanceLevel, "delete_with_instance": actual.DeleteWithInstance})
 	}
 	runSSH := func(id string) {
 		t.Helper()
