@@ -18,8 +18,9 @@ through the runner UI if necessary, after confirming they are inactive.
 Use a dedicated user's PAT with `api` scope and access only to the fixture
 project. GitLab.com Free does not require a project access token. CE may use a
 project token where its version and policy permit. Set the project's maximum
-job timeout and API-variable restrictions to allow only the nonce, expected ID
-and dedicated tag inputs shown in the fixture. Keep artifacts for one day.
+job timeout and API-variable restrictions for the nonce, expected ID,
+dedicated tag and `FLEETING_EXECUTION_MODE` inputs shown in the fixture. Pin the
+reviewed fixture SHA after updates. Keep artifacts for one day.
 
 Set `GITLAB_URL=https://gitlab.com`, or the HTTPS URL of the existing CE server.
 Both GitHub and workers must reach checkout, job and artifact endpoints. A

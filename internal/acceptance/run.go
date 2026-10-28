@@ -38,6 +38,11 @@ type Result struct {
 	PipelineID      int64     `json:"gitlab_pipeline_id"`
 	JobID           int64     `json:"gitlab_job_id"`
 	RunnerID        int64     `json:"gitlab_runner_id"`
+	Executor        string    `json:"executor"`
+	PluginReference string    `json:"plugin_reference"`
+	PluginVersion   string    `json:"plugin_version,omitempty"`
+	JobImage        string    `json:"job_image,omitempty"`
+	NormalRelease   bool      `json:"normal_release"`
 	Missing         []string  `json:"missing_configuration,omitempty"`
 	Errors          []string  `json:"errors,omitempty"`
 	FinishedAt      time.Time `json:"finished_at"`
@@ -103,6 +108,13 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	result.Result = "FAIL_INFRASTRUCTURE"
 	fail := func(err error) { result.Errors = append(result.Errors, err.Error()) }
+	options, err := readSmokeOptions(get)
+	if err != nil {
+		fail(err)
+		return result
+	}
+	result.Executor, result.PluginReference = options.executor, options.reference
+	result.PluginVersion, result.JobImage = options.version, options.image
 	gitlabURL := get("GITLAB_URL")
 	if gitlabURL == "" {
 		gitlabURL = "https://gitlab.com"
@@ -130,8 +142,12 @@ func Run(ctx context.Context, dir string) (result Result) {
 	digest := sha256.Sum256(binary)
 	result.PluginSHA256 = hex.EncodeToString(digest[:])
 	pluginVersion, e := exec.CommandContext(ctx, pluginPath, "version").Output()
-	if e != nil || !strings.Contains(string(pluginVersion), result.PluginCommit) {
-		fail(errors.New("plugin build revision differs from requested commit"))
+	if e != nil {
+		fail(errors.New("plugin version command failed"))
+		return result
+	}
+	if err = verifyPluginVersion(pluginVersion, options.version, result.PluginCommit); err != nil {
+		fail(err)
 		return result
 	}
 	runnerPath, err := filepath.Abs(get("RUNNER_BINARY"))
@@ -298,16 +314,33 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(errors.New("cannot persist Manager system identity"))
 		return result
 	}
-	cfg := RunnerConfig(gitlabURL, get("GITLAB_RUNNER_TOKEN"), result.Region, result.GroupID, get("WORKER_USER"), keyPath)
+	cfg := RunnerConfig(gitlabURL, get("GITLAB_RUNNER_TOKEN"), result.Region, result.GroupID, get("WORKER_USER"), keyPath, options)
 	configPath := filepath.Join(privateDir, "config.toml")
 	if err = os.WriteFile(configPath, []byte(cfg), 0600); err != nil {
 		fail(err)
 		return result
 	}
+	if options.reference != "fleeting-plugin-aliyun" {
+		install := exec.CommandContext(ctx, runnerPath, "fleeting", "--config", configPath, "install")
+		if err = install.Run(); err != nil {
+			fail(errors.New("Runner OCI installation failed"))
+			return result
+		}
+		if err = verifyInstalledPlugin(options.reference, binary); err != nil {
+			fail(err)
+			return result
+		}
+	}
+	managerLog, err := os.OpenFile(filepath.Join(dir, "manager.log"), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		fail(errors.New("cannot create private Manager log"))
+		return result
+	}
+	defer func() { stopManager(); _ = managerLog.Close() }()
 	manager = exec.Command(runnerPath, "run", "--config", configPath, "--working-directory", privateDir)
 	manager.Env = append(os.Environ(), "PATH="+privateDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	manager.Stdout = nil
-	manager.Stderr = nil
+	manager.Stdout = managerLog
+	manager.Stderr = managerLog
 	managerDone = make(chan error, 1)
 	if err = manager.Start(); err != nil {
 		fail(errors.New("Runner Manager failed to start"))
@@ -322,7 +355,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	var pipe pipeline
-	variables := []map[string]string{{"key": "FLEETING_NONCE", "value": result.Nonce}, {"key": "FLEETING_RUNNER_TAG", "value": get("GITLAB_RUNNER_TAG")}, {"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(runnerID, 10)}}
+	variables := []map[string]string{{"key": "FLEETING_NONCE", "value": result.Nonce}, {"key": "FLEETING_RUNNER_TAG", "value": get("GITLAB_RUNNER_TAG")}, {"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(runnerID, 10)}, {"key": "FLEETING_EXECUTION_MODE", "value": options.executor}}
 	if err = gl.request(ctx, "POST", "/pipeline", map[string]any{"ref": get("GITLAB_FIXTURE_REF"), "variables": variables}, &pipe); err != nil {
 		fail(err)
 		return result
@@ -396,6 +429,11 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(err)
 		return result
 	}
+	if err = verifyArtifactMode(artifact, options.executor); err != nil {
+		result.Result = "FAIL_PRODUCT"
+		fail(err)
+		return result
+	}
 	if len(result.Instances) != 1 {
 		result.Result = "FAIL_PRODUCT"
 		fail(errors.New("smoke must observe exactly one newly created worker"))
@@ -407,19 +445,20 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	result.Result = "PASS"
+	result.NormalRelease = true
 	return result
 }
-func RunnerConfig(url, token, region, group, user, key string) string {
+func RunnerConfig(url, token, region, group, user, key string, options smokeOptions) string {
 	q := strconv.Quote
-	return fmt.Sprintf(`concurrent = 1
+	config := fmt.Sprintf(`concurrent = 1
 [[runners]]
  name = "aliyun-fleeting-smoke"
  url = %s
  token = %s
- executor = "instance"
+ executor = %s
  shell = "sh"
  [runners.autoscaler]
- plugin = "fleeting-plugin-aliyun"
+ plugin = %s
  capacity_per_instance = 1
  max_use_count = 1
  max_instances = 1
@@ -439,7 +478,12 @@ func RunnerConfig(url, token, region, group, user, key string) string {
  idle_count = 0
  idle_time = "1m"
  preemptive_mode = false
-`, q(url), q(token), q(region), q(group), q(user), q(key))
+`, q(url), q(token), q(options.executor), q(options.reference), q(region), q(group), q(user), q(key))
+	if options.executor == "docker-autoscaler" {
+		config = strings.Replace(config, "gitlab-runner --version'", "gitlab-runner --version && docker info'", 1)
+		config += "\n [runners.docker]\n image = " + q(options.image) + "\n privileged = false\n"
+	}
+	return config
 }
 
 func liveFailure(err error) string {
