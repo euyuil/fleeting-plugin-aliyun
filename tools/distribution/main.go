@@ -44,6 +44,10 @@ func main() {
 	validate := flag.String("validate-version", "", "validate an exact semantic version without publishing")
 	ref := flag.String("ref", "", "registry/repository:version")
 	dir := flag.String("dir", "dist/packages", "package directory")
+	verifyRef := flag.String("verify-ref", "", "verify an installed public OCI release without publishing")
+	expectedVersion := flag.String("expected-version", "", "expected installed release version")
+	expectedRevision := flag.String("expected-revision", "", "expected installed source commit")
+	expectedBinary := flag.String("expected-binary", "", "binary from the checksum-verified release archive")
 	flag.Parse()
 	if *validate != "" {
 		if !validVersion(*validate) {
@@ -54,6 +58,17 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	if *verifyRef != "" {
+		if *ref != "" {
+			fmt.Fprintln(os.Stderr, "publication and verification cannot be combined")
+			os.Exit(1)
+		}
+		if err := verifyInstall(ctx, *verifyRef, *expectedVersion, *expectedRevision, *expectedBinary); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := publish(ctx, *ref, *dir); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

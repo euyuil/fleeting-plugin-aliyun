@@ -53,13 +53,33 @@ verify without registry credentials:
 ```
 
 Use a temporary empty DOCKER_CONFIG, FLEETING_PLUGIN_PATH and a temporary Runner
-config, then run `gitlab-runner fleeting install --config <config>`, list the
+config, then run `gitlab-runner fleeting --config <config> install`, list the
 installed plugin and load it through Runner. This external publication and
 anonymous installation have not been performed. The offline loopback test uses
 the identical releaser/installer module version and compares installed bytes.
 It also rejects a second publication of the same version. Local registry routing
 uses a test transport because the pinned upstream path escaper does not support
 registry ports in plugin install paths.
+
+The pinned upstream publisher also updates floating OCI aliases, including for
+prereleases. Pin an exact version when installing a release candidate; GitHub's
+prerelease flag does not control OCI aliases.
+
+## Public installation check
+
+After publication and public visibility are confirmed, use a fresh Linux host
+for each supported architecture. Configure a new Docker directory with an
+explicit `{"auths":{}}` config file, a new plugin directory, and no registry or
+cloud credentials. Use the real pinned Runner to install and list the OCI plugin.
+The distribution tool's verification mode compares it with the checksum-verified
+Release archive, executes its version command, and loads its real Fleeting
+protocol. An empty configuration must fail before credential construction or
+cloud API calls.
+
+The tool emits a small JSON receipt with the source revision, platform, manifest
+digest, binary checksum, and verification results. It does not run a GitLab job
+or create a worker. See [contributor commands](../CONTRIBUTING.md) for the
+verification command.
 
 ## Release gate
 
