@@ -5,6 +5,12 @@ library are Apache-2.0. Dependencies are pinned in `go.mod` and `go.sum`; no
 dependency sources have been modified. Preserve the upstream license and any
 applicable notices when redistributing linked binaries.
 
+Cloud acceptance downloads the unmodified official Alibaba CLI 3.5.2 Linux amd64
+archive, pinned by SHA256 in `upstream.lock.json`. It is Apache-2.0 licensed;
+retain its license/notices if redistributing it. It is an ephemeral validation
+tool and is not bundled in the plugin's native or OCI packages. Its source and
+license are available at the [official tag](https://github.com/aliyun/aliyun-cli/tree/v3.5.2).
+
 The ESS endpoint table is adapted from alibaba-cloud-sdk-go v1.63.107. Its source
 URL and version are included in `internal/aliyun/endpoints.go`, and its
 Apache-2.0 text is retained in `LICENSES/Alibaba-SDK-Apache-2.0.txt`.

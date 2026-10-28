@@ -1,0 +1,478 @@
+"""Own short-lived, explicitly labelled pre-release fixtures in a separate account."""
+import argparse
+import base64
+from datetime import datetime, timedelta, timezone
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+
+from release_candidate import MODES, digest, revision, verify, write_json
+
+REGION = "us-east-1"
+ZONE = "us-east-1b"
+INSTANCE_TYPE = "ecs.e-c4m1.large"
+IMAGE = "ubuntu_26_04_x64_20G_alibase_20260916.vhd"
+PURPOSE = "pre-release-acceptance"
+SPECS = {
+    "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
+    "vswitch": ("vpc", "DescribeVSwitches", "VSwitches", "VSwitch", "VSwitchId", "VSwitchName"),
+    "sg": ("ecs", "DescribeSecurityGroups", "SecurityGroups", "SecurityGroup", "SecurityGroupId", "SecurityGroupName"),
+    "key": ("ecs", "DescribeKeyPairs", "KeyPairs", "KeyPair", "KeyPairName", "KeyPairName"),
+    "template": ("ecs", "DescribeLaunchTemplates", "LaunchTemplateSets", "LaunchTemplateSet", "LaunchTemplateId", "LaunchTemplateName"),
+    "group": ("ess", "DescribeScalingGroups", "ScalingGroups", "ScalingGroup", "ScalingGroupId", "ScalingGroupName"),
+    "instance": ("ecs", "DescribeInstances", "Instances", "Instance", "InstanceId", "InstanceName"),
+    "disk": ("ecs", "DescribeDisks", "Disks", "Disk", "DiskId", "DiskName"),
+    "eni": ("ecs", "DescribeNetworkInterfaces", "NetworkInterfaceSets", "NetworkInterfaceSet", "NetworkInterfaceId", "NetworkInterfaceName"),
+}
+
+
+def preflight(env=os.environ):
+    required = ("RELEASE_ALIYUN_ACCOUNT_ID", "RELEASE_ALIYUN_ROLE_ARN", "RELEASE_ALIYUN_OIDC_PROVIDER_ARN", "RELEASE_ALIYUN_CLEANUP_ROLE_ARN")
+    if env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true" or any(not env.get(k) for k in required):
+        raise ValueError("configure the dedicated pre-release account and explicitly enable cloud acceptance")
+    account = env["RELEASE_ALIYUN_ACCOUNT_ID"]
+    if not re.fullmatch(r"[0-9]{16}", account):
+        raise ValueError("expected Alibaba account ID must have 16 digits")
+    for key, resource in ((required[1], "role"), (required[2], "oidc-provider"), (required[3], "role")):
+        if not re.fullmatch(r"acs:ram::" + account + ":" + resource + r"/[A-Za-z0-9._-]+", env[key]):
+            raise ValueError("role and OIDC provider must belong to the dedicated expected account")
+    if env.get("GITHUB_REF") != "refs/heads/main":
+        raise ValueError("cloud operations require the protected main workflow")
+    return account
+
+
+def labels(project, sha, run, attempt, mode, expires):
+    revision(sha)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", project):
+        raise ValueError("an exact owner/repository is required")
+    if mode not in MODES or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
+        raise ValueError("invalid scenario or run identity")
+    return {"fleeting-purpose": PURPOSE, "fleeting-project": project, "fleeting-candidate": sha,
+            "fleeting-ci-run": run, "fleeting-ci-attempt": attempt, "fleeting-scenario": mode,
+            "fleeting-fixture-expires": expires}
+
+
+def name_for(tags):
+    aliases = dict(zip(MODES, ("smoke", "scale", "restart", "creating", "removing", "lost-reply")))
+    identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
+    token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
+    return f"fleeting-pre-release-{aliases[tags['fleeting-scenario']]}-{tags['fleeting-ci-run'][-12:]}-{token}"
+
+
+def tag_args(tags, prefix="Tag"):
+    return {f"{prefix}.{n}.{field}": value for n, pair in enumerate(sorted(tags.items()), 1)
+            for field, value in zip(("Key", "Value"), pair)}
+
+
+def row_tags(row):
+    values = row.get("Tags", {})
+    if isinstance(values, dict):
+        values = values.get("Tag", [])
+    result = {}
+    for tag in values:
+        key, value = tag.get("TagKey", tag.get("Key")), tag.get("TagValue", tag.get("Value"))
+        if not isinstance(key, str) or not isinstance(value, str) or key in result:
+            raise ValueError("invalid or duplicated cloud resource tags")
+        result[key] = value
+    return result
+
+
+def verified_members(response, group, owned):
+    total = response.get("TotalCount")
+    container = response.get("ScalingInstances")
+    rows = container.get("ScalingInstance") if isinstance(container, dict) else None
+    if type(total) is not int or total < 0 or not isinstance(rows, list) or len(rows) != total:
+        raise ValueError("incomplete group member inventory; refusing forced deletion")
+    ids = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("invalid group member row; refusing forced deletion")
+        identity = row.get("InstanceId")
+        if not isinstance(identity, str) or not identity or identity in ids or row.get("ScalingGroupId") != group:
+            raise ValueError("invalid group member identity; refusing forced deletion")
+        ids.add(identity)
+    if not ids <= owned:
+        raise ValueError("group contains unverified members; refusing forced deletion")
+    return ids
+
+
+class Cloud:
+    def __init__(self):
+        self.account = preflight()
+        if any(not os.environ.get(k) for k in ("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", "ALIBABA_CLOUD_SECURITY_TOKEN")):
+            raise ValueError("fresh OIDC STS credentials are required; profiles and long-lived keys are not used")
+        if self.call("sts", "GetCallerIdentity").get("AccountId") != self.account:
+            raise ValueError("authenticated account differs from the dedicated expected account")
+
+    def call(self, service, action, **params):
+        command = ["aliyun", service, action, "--mode", "StsToken", "--region", REGION,
+                   "--retry-count", "0", "--connect-timeout", "10", "--read-timeout", "30"]
+        if service != "sts":
+            params = {"RegionId": REGION, **params}
+        for key, value in params.items():
+            command.extend(["--" + key, str(value)])
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+        except (subprocess.SubprocessError, OSError):
+            # UserData contains a per-run host private key. Subprocess exceptions
+            # include argv, so neither their text nor exception chain may escape.
+            raise RuntimeError("cloud operation unavailable: " + service + "/" + action) from None
+        if result.returncode:
+            raise RuntimeError("cloud operation failed: " + service + "/" + action)
+        return json.loads(result.stdout)
+
+    def inventory(self, kind):
+        service, action, outer, inner, identity, _ = SPECS[kind]
+        rows, seen, total = [], set(), None
+        for page in range(1, 101):
+            response = self.call(service, action, PageSize=50, PageNumber=page)
+            count = response.get("TotalCount")
+            items = response.get(outer, {}).get(inner)
+            if type(count) is not int or count < 0 or (total is not None and count != total) or not isinstance(items, list):
+                raise ValueError("incomplete cloud inventory: " + kind)
+            total = count
+            for row in items:
+                value = row.get(identity)
+                if not isinstance(value, str) or not value or value in seen:
+                    raise ValueError("duplicate or missing resource identity: " + kind)
+                seen.add(value)
+            rows.extend(items)
+            if len(rows) == total:
+                return rows
+            if not items or len(rows) > total:
+                break
+        raise ValueError("cloud pagination did not complete: " + kind)
+
+
+class Fixture:
+    def __init__(self, cloud, directory, tags):
+        self.cloud, self.directory, self.tags = cloud, Path(directory), tags
+        self.name = name_for(tags)
+        self.path = self.directory / "fixture.json"
+        self.state = {"tags": tags, "name": self.name, "operations": {}, "ids": {}}
+        if self.path.exists():
+            self.state = json.loads(self.path.read_text())
+            if self.state["tags"] != tags or self.state["name"] != self.name:
+                raise ValueError("fixture receipt identity mismatch")
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    def save(self):
+        write_json(self.path, self.state)
+        self.path.chmod(0o600)
+
+    def owned(self, kind):
+        expected = self.tags
+        rows = []
+        for row in self.cloud.inventory(kind):
+            actual = row_tags(row)
+            exact = all(actual.get(k) == v for k, v in expected.items())
+            if not exact:
+                known = self.state["ids"].get(kind, [])
+                known = known if isinstance(known, list) else [known]
+                if row.get(SPECS[kind][4]) in known:
+                    raise ValueError("recorded resource ownership changed: " + kind)
+                continue
+            if kind != "eni" and row.get(SPECS[kind][5]) != self.name:
+                raise ValueError("labelled resource name mismatch: " + kind)
+            vpc = row.get("VpcAttributes", {}).get("VpcId") if kind == "instance" else row.get("VpcId")
+            if kind in ("vswitch", "sg", "group", "instance", "eni") and vpc != self.state["ids"].get("vpc"):
+                raise ValueError("labelled resource parent mismatch: " + kind)
+            if kind == "group" and row.get("LaunchTemplateId") != self.state["ids"].get("template"):
+                raise ValueError("labelled group template mismatch")
+            rows.append(row)
+        if kind not in ("instance", "disk", "eni"):
+            if len(rows) > 1:
+                raise ValueError("multiple fixture resources of one kind")
+            if rows:
+                value = rows[0][SPECS[kind][4]]
+                previous = self.state["ids"].get(kind)
+                if previous is not None and previous != value:
+                    raise ValueError("fixture resource identity changed")
+                self.state["ids"][kind] = value
+                if kind in self.state["operations"]:
+                    self.state["operations"][kind] = "accepted"
+                self.save()
+        else:
+            known = self.state["ids"].setdefault(kind, [])
+            for row in rows:
+                if row[SPECS[kind][4]] not in known:
+                    known.append(row[SPECS[kind][4]])
+            self.save()
+        return rows
+
+    def create(self, kind, action, params, tag_prefix="Tag"):
+        if kind in self.state["operations"]:
+            raise ValueError("fixture creation is never blindly repeated")
+        self.state["operations"][kind] = "unknown"
+        self.save()
+        params = {**params, **tag_args(self.tags, tag_prefix)}
+        if kind == "group":
+            params.update({f"Tag.{n}.Propagate": "true" for n in range(1, len(self.tags) + 1)})
+        if kind in ("vpc", "vswitch", "sg", "group"):
+            params["ClientToken"] = hashlib.sha256((self.name + kind).encode()).hexdigest()
+        body = self.cloud.call(SPECS[kind][0], action, **params)
+        value = body.get(SPECS[kind][4])
+        if not isinstance(value, str) or not value:
+            raise ValueError("accepted fixture creation omitted its resource identity")
+        self.state["ids"][kind] = value
+        self.state["operations"][kind] = "accepted"
+        self.save()
+        return value
+
+    def wait(self, kind, absent=False, seconds=120):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            rows = self.owned(kind)
+            if (absent and not rows) or (not absent and len(rows) == 1 and rows[0].get("Status") == "Available"):
+                return
+            time.sleep(3)
+        raise RuntimeError("fixture observation deadline: " + kind)
+
+    def prepare(self, cidr):
+        if self.state["operations"]:
+            raise ValueError("existing fixture state is preserved; clean up before retrying")
+        for name, kind, extra in (("worker-key", "rsa", ["-b", "3072"]), ("host-key", "ed25519", [])):
+            subprocess.run(["ssh-keygen", "-q", "-t", kind, *extra, "-N", "", "-C", PURPOSE,
+                            "-f", str(self.directory / name)], check=True, capture_output=True)
+        ids = self.state["ids"]
+        self.create("vpc", "CreateVpc", {"VpcName": self.name, "Description": PURPOSE, "CidrBlock": "10.43.0.0/16"})
+        self.wait("vpc")
+        self.create("vswitch", "CreateVSwitch", {"VSwitchName": self.name, "VpcId": ids["vpc"], "ZoneId": ZONE, "CidrBlock": "10.43.1.0/24"})
+        self.wait("vswitch")
+        self.create("sg", "CreateSecurityGroup", {"SecurityGroupName": self.name, "VpcId": ids["vpc"], "Description": PURPOSE})
+        self.cloud.call("ecs", "AuthorizeSecurityGroup", SecurityGroupId=ids["sg"], IpProtocol="tcp", PortRange="22/22", SourceCidrIp=cidr, Description=PURPOSE)
+        self.create("key", "ImportKeyPair", {"KeyPairName": self.name, "PublicKeyBody": (self.directory / "worker-key.pub").read_text().strip()})
+        private = (self.directory / "host-key").read_text()
+        public = (self.directory / "host-key.pub").read_text().strip()
+        user_data = "#cloud-config\ndisable_root: false\nssh_pwauth: false\nssh_genkeytypes: [ed25519]\nssh_keys:\n  ed25519_private: |\n"
+        user_data += "".join("    " + line + "\n" for line in private.splitlines())
+        user_data += "  ed25519_public: " + public + "\nswap:\n  filename: /swapfile\n  size: 536870912\n"
+        self.create("template", "CreateLaunchTemplate", {
+            "LaunchTemplateName": self.name, "VersionDescription": PURPOSE, "ImageId": IMAGE,
+            "InstanceType": INSTANCE_TYPE, "ZoneId": ZONE, "VSwitchId": ids["vswitch"], "SecurityGroupId": ids["sg"],
+            "KeyPairName": self.name, "InstanceName": self.name, "InstanceChargeType": "PostPaid",
+            "SpotStrategy": "SpotAsPriceGo", "SpotDuration": 1, "InternetChargeType": "PayByTraffic", "InternetMaxBandwidthOut": 1,
+            "SystemDisk.Category": "cloud_essd", "SystemDisk.Size": 20, "SystemDisk.PerformanceLevel": "PL0",
+            "SystemDisk.DeleteWithInstance": "true", "SystemDisk.DiskName": self.name, "SystemDisk.Description": PURPOSE,
+            "AutoReleaseTime": self.tags["fleeting-fixture-expires"], "HttpTokens": "required", "HttpEndpoint": "enabled",
+            "UserData": base64.b64encode(user_data.encode()).decode(), **tag_args(self.tags)}, "TemplateTag")
+        self.create("group", "CreateScalingGroup", {
+            "ScalingGroupName": self.name, "GroupType": "ECS", "MinSize": 0,
+            "MaxSize": 2 if self.tags["fleeting-scenario"] == "cloud-scale" else 1, "DesiredCapacity": 0,
+            "LaunchTemplateId": ids["template"], "LaunchTemplateVersion": "1", "VSwitchId": ids["vswitch"],
+            "ScalingPolicy": "release", "MultiAZPolicy": "COST_OPTIMIZED", "SpotInstancePools": 1,
+            "OnDemandBaseCapacity": 0, "OnDemandPercentageAboveBaseCapacity": 0, "CompensateWithOnDemand": "false",
+            "SpotInstanceRemedy": "false", "AzBalance": "false", "AutoRebalance": "false", "DefaultCooldown": 0})
+        self.cloud.call("ess", "EnableScalingGroup", ScalingGroupId=ids["group"])
+
+    def cleanup(self):
+        if self.state.get("driver_group"):
+            raise ValueError("owned writer termination is not confirmed; independent recovery is required")
+        # Recover parents first, including accepted writes whose replies were lost.
+        for kind in ("vpc", "vswitch", "sg", "key", "template", "group"):
+            self.owned(kind)
+        for kind in ("group", "instance", "disk", "eni", "template", "key", "sg", "vswitch", "vpc"):
+            rows = self.owned(kind)
+            if kind == "group" and rows:
+                members = self.cloud.call("ess", "DescribeScalingInstances", ScalingGroupId=rows[0]["ScalingGroupId"], PageSize=100)
+                verified_members(members, rows[0]["ScalingGroupId"], {r["InstanceId"] for r in self.owned("instance")})
+            for row in rows:
+                identity = row[SPECS[kind][4]]
+                action, params = {
+                    "group": ("DeleteScalingGroup", {"ScalingGroupId": identity, "ForceDelete": "true"}),
+                    "instance": ("DeleteInstance", {"InstanceId": identity, "Force": "true"}),
+                    "disk": ("DeleteDisk", {"DiskId": identity}),
+                    "eni": ("DeleteNetworkInterface", {"NetworkInterfaceId": identity}),
+                    "template": ("DeleteLaunchTemplate", {"LaunchTemplateId": identity}),
+                    "key": ("DeleteKeyPairs", {"KeyPairNames": json.dumps([identity])}),
+                    "sg": ("DeleteSecurityGroup", {"SecurityGroupId": identity}),
+                    "vswitch": ("DeleteVSwitch", {"VSwitchId": identity}),
+                    "vpc": ("DeleteVpc", {"VpcId": identity}),
+                }[kind]
+                self.cloud.call(SPECS[kind][0], action, **params)
+            self.wait(kind, absent=True, seconds=180 if kind == "group" else 90)
+        if "unknown" in self.state["operations"].values():
+            raise ValueError("ambiguous fixture creation remains unresolved")
+        for _ in range(2):
+            if any(self.owned(kind) for kind in SPECS):
+                raise ValueError("fixture resources remain after teardown")
+            time.sleep(3)
+        for path in self.directory.rglob("*"):
+            if path.is_file() and (path.name.startswith(("worker-key", "host-key")) or path.name == "gate-ca.pem"):
+                path.unlink()
+
+
+def driver(fixture, root, manifest, cidr):
+    mode = fixture.tags["fleeting-scenario"]
+    binary = root / manifest["fault_binary" if mode == MODES[-1] else "normal_binary"]
+    expected_hash = manifest["files"][str(binary.relative_to(root))]
+    if mode != MODES[-1]:
+        archive = root / f"dist/fleeting-plugin-aliyun_{manifest['version']}_linux_amd64.tar.gz"
+        binary = fixture.directory / "native-plugin"
+        with tarfile.open(archive, "r:gz") as package:
+            binary.write_bytes(package.extractfile("fleeting-plugin-aliyun").read())
+    if digest(binary) != expected_hash:
+        raise ValueError("test binary differs from the immutable candidate")
+    binary.chmod(0o700)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GITLAB_") and k not in
+           ("ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_CREDENTIALS_FILE", "ALIBABA_CLOUD_ROLE_ARN",
+            "ALIBABA_CLOUD_OIDC_TOKEN_FILE", "ALIBABA_CLOUD_OIDC_PROVIDER_ARN", "ALIYUN_COMPONENT_ENDPOINT",
+            "ALIYUN_RESPONSE_GATE_ADDR", "ALIYUN_RESPONSE_GATE_CA")}
+    env.update(RUN_LIVE_ACCEPTANCE="1", LIVE_EXTENDED_MODE=mode, ALIYUN_REGION=REGION,
+               ALIYUN_SCALING_GROUP_ID=fixture.state["ids"]["group"], ACCEPTANCE_PROJECT=fixture.tags["fleeting-project"],
+               ALLOWED_INSTANCE_TYPE=INSTANCE_TYPE, ALLOWED_IMAGE_ID=IMAGE, ALLOWED_ZONE_ID=ZONE,
+               WORKER_USER="root", WORKER_SSH_KEY=str((fixture.directory / "worker-key").resolve()),
+               MANAGER_CIDR=cidr, PLUGIN_BINARY=str(binary.resolve()), PLUGIN_COMMIT=manifest["candidate_sha"],
+               ACCEPTANCE_OUTPUT=str((fixture.directory / "evidence").resolve()))
+    with (fixture.directory / "driver.log").open("w") as output:
+        fixture.state["driver_group"] = "starting"
+        fixture.save()
+        process = None
+        try:
+            process = subprocess.Popen(["go", "test", "-tags", "live", "-count=1", "-timeout=24m", "-run", "^TestExtendedCloud$", "./tests/live"],
+                                       env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+            fixture.state["driver_group"] = process.pid
+            fixture.save()
+            code = process.wait(timeout=25 * 60)
+        finally:
+            if process is not None:
+                stop_process_group(process)
+                fixture.state["driver_group"] = None
+                fixture.save()
+    path = fixture.directory / "evidence" / ("run-" + env["GITHUB_RUN_ID"] + "-" + env["GITHUB_RUN_ATTEMPT"]) / "extended-result.json"
+    receipt = json.loads(path.read_text())
+    if code or receipt.get("result") != "PASS" or receipt.get("mode") != mode or receipt.get("plugin_sha256") != expected_hash or receipt.get("plugin_commit") != manifest["candidate_sha"] or not receipt.get("normal_release") or receipt.get("resources", {}).get("cleanup_result") != "PASS":
+        raise ValueError("cloud scenario did not produce a passing candidate receipt")
+    return expected_hash
+
+
+def stop_process_group(process):
+    require_linux()
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait(timeout=10)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        alive = False
+        for path in Path('/proc').glob('[0-9]*/stat'):
+            try:
+                fields = path.read_text().rsplit(')', 1)[1].split()
+            except FileNotFoundError:
+                continue
+            if int(fields[2]) == process.pid and fields[0] != 'Z':
+                alive = True
+        if not alive:
+            return
+        time.sleep(0.1)
+    raise RuntimeError("owned process group did not terminate")
+
+
+def require_linux():
+    if sys.platform != "linux" or not Path('/proc/self/stat').is_file():
+        raise RuntimeError("the live driver requires Linux procfs to prove writer termination")
+
+
+def stopped_run(tags):
+    endpoint = f"repos/{tags['fleeting-project']}/actions/runs/{tags['fleeting-ci-run']}/attempts/{tags['fleeting-ci-attempt']}"
+    result = subprocess.run(["gh", "api", endpoint], capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        raise ValueError("cannot independently verify the owning GitHub run")
+    run = json.loads(result.stdout)
+    if str(run.get("id")) != tags["fleeting-ci-run"] or str(run.get("run_attempt")) != tags["fleeting-ci-attempt"] or run.get("repository", {}).get("full_name") != tags["fleeting-project"]:
+        raise ValueError("owning GitHub run identity differs")
+    return run.get("status") == "completed"
+
+
+def run(args):
+    require_linux()
+    manifest = verify(args.root, args.digest, args.sha, args.version)
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    tags = labels(os.environ["GITHUB_REPOSITORY"], args.sha, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], args.mode, expires)
+    fixture = Fixture(Cloud(), args.directory, tags)
+    address = subprocess.check_output(["curl", "-4", "--fail", "--silent", "--show-error", "--max-time", "15", "https://api.ipify.org"], text=True).strip()
+    cidr = str(ipaddress.IPv4Address(address)) + "/32"
+    status = cleanup_status = "FAIL"
+    plugin_hash = ""
+    try:
+        fixture.prepare(cidr)
+        plugin_hash = driver(fixture, args.root, manifest, cidr)
+        status = "PASS"
+    finally:
+        try:
+            fixture.cleanup()
+            cleanup_status = "PASS"
+        finally:
+            write_json(args.receipt, {"schema_version": 1, "result": status, "cleanup_result": cleanup_status,
+                "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
+                "mode": args.mode, "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
+                "plugin_sha256": plugin_hash, "response_gate_instrumented": args.mode == MODES[-1],
+                "leftover_resources": 0 if cleanup_status == "PASS" else -1})
+
+
+def janitor(directory, completed_run=None, completed_attempt=None):
+    if completed_run or completed_attempt:
+        if any(not isinstance(v, str) or not re.fullmatch(r"[1-9][0-9]*", v) for v in (completed_run, completed_attempt)):
+            raise ValueError("both completed run and attempt must be positive identifiers")
+    cloud = Cloud()
+    project = os.environ["GITHUB_REPOSITORY"]
+    fixtures = {}
+    # Every atomic create is labelled; scanning all kinds also recovers a setup
+    # interrupted before its VPC/group response was saved locally.
+    for kind in SPECS:
+        for row in cloud.inventory(kind):
+            tags = row_tags(row)
+            if tags.get("fleeting-purpose") != PURPOSE or tags.get("fleeting-project") != project:
+                continue
+            expected = labels(project, tags.get("fleeting-candidate", ""), tags.get("fleeting-ci-run", ""),
+                              tags.get("fleeting-ci-attempt", ""), tags.get("fleeting-scenario", ""), tags.get("fleeting-fixture-expires", ""))
+            expired = datetime.strptime(expected["fleeting-fixture-expires"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
+            completed = (completed_run, completed_attempt) == (expected["fleeting-ci-run"], expected["fleeting-ci-attempt"])
+            if not expired and not completed:
+                continue
+            if not stopped_run(expected):
+                continue
+            fixtures[name_for(expected)] = expected
+    for name, tags in fixtures.items():
+        Fixture(cloud, directory / name, tags).cleanup()
+    print(json.dumps({"result": "PASS", "cleaned_fixtures": len(fixtures)}))
+
+
+def main():
+    os.umask(0o077)
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("operation", choices=("preflight", "run", "janitor"))
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--digest")
+    parser.add_argument("--sha")
+    parser.add_argument("--version")
+    parser.add_argument("--mode", choices=MODES)
+    parser.add_argument("--directory", type=Path, default=Path(".live/cloud"))
+    parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--completed-run")
+    parser.add_argument("--completed-attempt")
+    args = parser.parse_args()
+    if args.operation == "preflight":
+        preflight()
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            for key, value in os.environ.items():
+                if key.startswith("RELEASE_ALIYUN_") and value:
+                    print("::add-mask::" + value)
+    elif args.operation == "janitor":
+        janitor(args.directory, args.completed_run, args.completed_attempt)
+    else:
+        run(args)
+
+
+if __name__ == "__main__":
+    main()
