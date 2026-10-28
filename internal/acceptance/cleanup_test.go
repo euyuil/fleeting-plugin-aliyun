@@ -83,6 +83,60 @@ func TestCleanupReleaseAndRepeat(t *testing.T) {
 		t.Fatal("cleanup is not idempotent", err)
 	}
 }
+
+func TestCleanupTokensSeparateScenarioGroupsAndReplayRetries(t *testing.T) {
+	tokens := map[string]string{}
+	calls := 0
+	interrupted := errors.New("simulated observation interruption after accepted cleanup")
+	for _, mode := range []string{"cloud-smoke", "cloud-scale"} {
+		c, a, l := fixture()
+		c.GroupID = "asg-" + mode
+		a.fake.Group.ScalingGroupId = c.GroupID
+		l.GroupID, l.Mode = c.GroupID, mode
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := Claim(ctx, c, l); err != nil {
+			t.Fatal(err)
+		}
+		first, failRead := true, false
+		a.fake.Before = func(action string, q map[string]string) error {
+			if action == "DescribeScalingGroups" && failRead {
+				failRead = false
+				return interrupted
+			}
+			if action != "ScaleWithAdjustment" {
+				return nil
+			}
+			token := q["ClientToken"]
+			if token == "" || len(token) > 64 {
+				t.Fatal("cleanup token must fit the API contract")
+			}
+			request, err := json.Marshal(q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if previous, exists := tokens[token]; exists && previous != string(request) {
+				return &aliyun.Error{Code: "IdempotentParameterMismatch"}
+			}
+			tokens[token] = string(request)
+			calls++
+			if first {
+				first, failRead = false, true
+			}
+			return nil
+		}
+		if err := Cleanup(ctx, c, l, false); !errors.Is(err, interrupted) {
+			t.Fatalf("%s: expected interruption after accepted cleanup, got %v", mode, err)
+		}
+		if err := Cleanup(ctx, c, l, false); err != nil || l.CleanupResult != "PASS" {
+			t.Fatalf("%s: cleanup retry failed: %v", mode, err)
+		}
+	}
+	if calls != 4 || len(tokens) != 2 {
+		t.Fatalf("expected one stable token per group, got %d calls and %d tokens", calls, len(tokens))
+	}
+}
+
 func TestMissingConfigurationNeverUsesCloud(t *testing.T) {
 	t.Setenv("RUN_LIVE_ACCEPTANCE", "")
 	r := Run(context.Background(), t.TempDir())
