@@ -26,7 +26,8 @@ class CandidateTests(unittest.TestCase):
         names = ["dist/SHA256SUMS", "dist/dependencies.json", "responsegate/plugin"]
         for arch in ("amd64", "arm64"):
             names.extend([f"dist/packages/linux/{arch}/plugin",
-                          f"dist/fleeting-plugin-aliyun_{self.version}_linux_{arch}.tar.gz"])
+                          f"dist/fleeting-plugin-aliyun_{self.version}_linux_{arch}.tar.gz",
+                          f"dist/fleeting-plugin-aliyun_{candidate.debian_version(self.version)}_{arch}.deb"])
         for name in names:
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)

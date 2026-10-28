@@ -46,3 +46,8 @@ Their `licenses.tar.gz` preserves the complete `LICENSES/`, `_licenses/`, and
 `dependencies.json` tree, including the original texts and source archive URLs.
 A root `LICENSE` and readable `NOTICE` explain how to access that material.
 Native archives retain the original unpacked license tree.
+
+Manager configuration parsing uses the unmodified MIT-licensed
+[BurntSushi/toml v1.6.0](https://github.com/BurntSushi/toml/tree/v1.6.0).
+Its license is included by the linked-module inventory in native, OCI and Debian
+packages. Debian packaging uses the host's `dpkg-deb`; it is not bundled.

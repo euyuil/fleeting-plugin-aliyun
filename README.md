@@ -176,4 +176,5 @@ still need validation. Suspend/resume is disabled.
 - [Testing guide](docs/testing.md): reproducible checks and explicit live tests.
 - [Compatibility and limitations](docs/upstream-parity.md): upstream capability mapping.
 - [Contributing](CONTRIBUTING.md): development commands and checks.
+- [Debian packages](docs/debian-installation.md): native installation, local manager commands, upgrades and removal.
 - [Design specification](docs/specification.md): architecture and requirements.

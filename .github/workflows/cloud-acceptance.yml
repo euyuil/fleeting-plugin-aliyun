@@ -100,6 +100,8 @@ jobs:
           (cd dist && sha256sum -c SHA256SUMS)
           go test -race ./...
           go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
+          python3 tools/fetch-runner.py
+          sudo python3 tools/test-debian-lifecycle.py --disposable-host --runner .cache/gitlab-runner-linux-amd64 --packages dist
           mkdir -p .cache/candidate/responsegate
           cp -a dist .cache/candidate/dist
           GOFLAGS=-tags=responsegate make build VERSION="$VERSION"
