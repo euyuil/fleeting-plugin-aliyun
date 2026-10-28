@@ -140,7 +140,8 @@ func RecoverResources(ctx context.Context, c *aliyun.Client, l *Ledger) error {
 		}
 		if err = inventory(ctx, c, &l.Instances[n]); err != nil {
 			if errors.Is(err, ErrInventoryNotReady) {
-				l.Instances[n].InventoryComplete = false
+				// Detaching resources can disappear before ECS does. Keep any
+				// complete lifetime inventory already obtained for final ID checks.
 				continue
 			}
 			return err

@@ -3,6 +3,7 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 )
@@ -57,6 +58,48 @@ func TestEmptyAssociatedQueriesRemainPendingUntilVisible(t *testing.T) {
 		if !l.Instances[0].InventoryComplete || len(l.Instances[0].DiskIDs) == 0 || len(l.Instances[0].NetworkInterfaceIDs) == 0 {
 			t.Fatal("later inventory not recovered")
 		}
+	}
+}
+
+func TestCompleteInventorySurvivesEmptyQueriesDuringRelease(t *testing.T) {
+	for _, kind := range []string{"disk", "eni"} {
+		t.Run(kind, func(t *testing.T) {
+			c, base, l := fixture()
+			if err := Claim(context.Background(), c, l); err != nil {
+				t.Fatal(err)
+			}
+			base.fake.Add("i-worker")
+			if err := Observe(context.Background(), c, l, "ecs.test.small", "image-test", "cn-test-1a"); err != nil {
+				t.Fatal(err)
+			}
+			before := l.Instances[0]
+			before.DiskIDs = slices.Clone(before.DiskIDs)
+			before.NetworkInterfaceIDs = slices.Clone(before.NetworkInterfaceIDs)
+			if !before.InventoryComplete {
+				t.Fatal("initial inventory was not complete")
+			}
+			c.API = &inventoryAPI{base: base, emptyDisk: kind == "disk", emptyENI: kind == "eni"}
+			if err := RecoverResources(context.Background(), c, l); err != nil {
+				t.Fatal(err)
+			}
+			after := l.Instances[0]
+			if !after.InventoryComplete || !slices.Equal(after.DiskIDs, before.DiskIDs) || !slices.Equal(after.NetworkInterfaceIDs, before.NetworkInterfaceIDs) {
+				t.Fatal("empty query erased the previously complete lifetime inventory")
+			}
+			delete(base.fake.Members, "i-worker")
+			delete(base.fake.Instances, "i-worker")
+			base.fake.Group.DesiredCapacity = 0
+			base.fake.Group.TotalCapacity = 0
+			mutations := base.mutations
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := WaitForNormalRelease(ctx, c, l, "ecs.test.small", "image-test", "cn-test-1a"); err != nil {
+				t.Fatal(err)
+			}
+			if l.EvidenceIncomplete || !l.Instances[0].DeletionVerified || base.mutations != mutations {
+				t.Fatal("normal release lost evidence or used fallback mutations")
+			}
+		})
 	}
 }
 func TestUnsafeDiskPolicyStillReleasesComputeAndReportsDisk(t *testing.T) {
