@@ -37,4 +37,4 @@ live: build
 cleanup:
 	$(GO) run -tags live ./cmd/aliyun-acceptance cleanup
 test-live-extended:
-	WORKER_SSH_KEY="$(abspath $(WORKER_SSH_KEY))" ACCEPTANCE_OUTPUT="$(abspath $(or $(ACCEPTANCE_OUTPUT),.live))" $(GO) test -tags live -count=1 -timeout=30m -v ./tests/live
+	WORKER_SSH_KEY="$(abspath $(WORKER_SSH_KEY))" PLUGIN_BINARY="$(if $(PLUGIN_BINARY),$(abspath $(PLUGIN_BINARY)))" ACCEPTANCE_OUTPUT="$(abspath $(or $(ACCEPTANCE_OUTPUT),.live))" $(GO) test -tags live -count=1 -timeout=30m -v ./tests/live

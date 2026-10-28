@@ -71,6 +71,9 @@ func StopLocalManager(ctx context.Context, l *Ledger, outputDir string) error {
 		return errors.New("local process termination requires Linux procfs; use janitor after run completion")
 	}
 	if l.ManagerPID <= 0 {
+		if l.Mode == "cloud-smoke" {
+			return stopCloudPlugin(ctx, l, outputDir)
+		}
 		if (l.Mode == "scale" || l.Mode == "interruption" || l.Mode == "suspend") && l.DriverPID > 0 {
 			if _, err := os.Stat(fmt.Sprintf("/proc/%d", l.DriverPID)); errors.Is(err, os.ErrNotExist) {
 				return nil
@@ -138,6 +141,69 @@ func StopLocalManager(ctx context.Context, l *Ledger, outputDir string) error {
 		}
 		if e = waitLocal(ctx); e != nil {
 			return e
+		}
+	}
+}
+
+// stopCloudPlugin requires a dead driver, then signals only a process executing
+// the binary inside this run's private plugin directory. Missing proof fails closed.
+func stopCloudPlugin(ctx context.Context, l *Ledger, outputDir string) error {
+	if l.DriverPID <= 0 {
+		return errors.New("cloud-smoke driver identity is missing")
+	}
+	if _, err := os.Stat(fmt.Sprintf("/proc/%d", l.DriverPID)); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("cloud-smoke driver termination is not confirmed")
+	}
+	if l.PluginDirectory != "plugin" {
+		return errors.New("cloud-smoke plugin directory is missing")
+	}
+	dir, err := filepath.Abs(filepath.Join(outputDir, l.PluginDirectory))
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "pid"))
+	if err != nil {
+		return errors.New("cloud-smoke plugin PID proof is missing")
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return errors.New("cloud-smoke plugin PID is invalid")
+	}
+	proc := fmt.Sprintf("/proc/%d/cmdline", pid)
+	for attempt := 0; ; attempt++ {
+		args, err := os.ReadFile(proc)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return errors.New("cloud-smoke plugin identity cannot be read")
+		}
+		if len(args) == 0 {
+			state, e := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+			if errors.Is(e, os.ErrNotExist) || (e == nil && bytes.Contains(state, []byte(") Z "))) {
+				return nil
+			}
+		}
+		if string(bytes.Split(args, []byte{0})[0]) != filepath.Join(dir, "fleeting-plugin-aliyun") {
+			return errors.New("PID is not this run's plugin; refusing to signal it")
+		}
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			return err
+		}
+		if attempt == 0 {
+			if err = process.Signal(syscall.SIGTERM); err != nil {
+				return err
+			}
+		} else if attempt == 20 {
+			if err = process.Kill(); err != nil {
+				return err
+			}
+		} else if attempt > 40 {
+			return errors.New("cloud-smoke plugin termination is not confirmed")
+		}
+		if err = waitLocal(ctx); err != nil {
+			return err
 		}
 	}
 }

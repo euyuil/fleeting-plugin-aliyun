@@ -53,6 +53,7 @@ type Ledger struct {
 	SecurityGroupID      string     `json:"security_group_id,omitempty"`
 	IngressCIDR          string     `json:"ingress_cidr,omitempty"`
 	DriverPID            int        `json:"driver_pid,omitempty"`
+	PluginDirectory      string     `json:"plugin_directory,omitempty"`
 	ManagerPID           int        `json:"manager_pid,omitempty"`
 	ManagerDirectory     string     `json:"manager_directory,omitempty"`
 	Path                 string     `json:"-"`
