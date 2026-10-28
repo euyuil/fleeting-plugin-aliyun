@@ -3,7 +3,19 @@
   "implementation_status": "implemented_with_partial_live_validation_and_documented_gates",
   "offline_validation_status": "pass",
   "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
-  "publication_status": "not_run",
+  "publication_status": "prerelease_published_runner_installation_failed",
+  "published_release": {
+    "version": "0.1.0-rc.1",
+    "source_revision": "a5a7bd65ddf2eb344e7597ae509f5c8ecaffc197",
+    "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.1",
+    "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.1",
+    "manifest_digest": "sha256:6a638b1da483e14b24678bd0c01276d8f9816787540b30d995a99cf295d682d2",
+    "anonymous_manifest_download": "pass",
+    "linux_amd64_runner_installation": "failed_nested_license_paths",
+    "linux_arm64_runner_installation": "failed_nested_license_paths",
+    "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865",
+    "limitation": "Published version and assets are unchanged. The corrected OCI layout requires a new release before public installation can pass."
+  },
   "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
   "runner_version": "19.5.1",
   "fleeting_version": "v0.0.0-20260915191451-6ed75a33d303",
@@ -141,8 +153,8 @@
       "capability": "native_oci_distribution",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Linux amd64/arm64 archives and official installer loopback round-trip validated. External publication and anonymous GHCR installation have not run."
+      "live_validation": "partial_pass",
+      "gap": "0.1.0-rc.1 publication and anonymous manifest access passed, but real Runner installation failed on both Linux architectures because of nested license paths. A corrected publication is required."
     }
   ],
   "infrastructure_fixture": {
@@ -163,7 +175,7 @@
     "M1": "offline_complete",
     "M2": "tooling_complete_plugin_smoke_scale_restart_pass_gitlab_job_not_run",
     "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
-    "M4": "local_distribution_complete_external_publication_not_run"
+    "M4": "prerelease_published_anonymous_manifest_pass_runner_install_failed"
   },
   "cleanup": {
     "cloud_resources_created": true,

@@ -39,7 +39,8 @@ Native Linux amd64/arm64 archives include version information, checksums, linked
 module licenses/notices, Go notices, and source locations. The OCI writer and
 installation test use the upstream Fleeting artifact implementation. The manual
 release workflow checks immutable versions/tags, serializes publication, and
-verifies the source tag before publishing. No release was published here.
+verifies the source tag before publishing. The first prerelease was published;
+its real OCI installation failed as described below.
 
 ## Selected baseline
 
@@ -264,15 +265,35 @@ The following gates remain specific and visible:
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows and Docker | Connection logic, examples and offline checks | Prepared images, network route, and actual Windows/Docker executor jobs. |
 | Formal suspend/resume | Standard unsupported production methods; isolated controller and offline tests | Same-ID ESS/ECS terminal states, unchanged capacity, fresh SSH after resume, interruption recovery and verified cleanup before capability activation. |
-| External publication | Reproducible native/OCI code and manual release workflow | Explicit version/publication authorization, suitable GitHub package/release access, actual GHCR visibility and anonymous Runner installation. |
+| External publication | 0.1.0-rc.1 is published; anonymous manifest download passed | Both real Linux Runner installs failed on nested license paths. Publish a corrected new version and repeat both native installation checks. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
 its plugin-only cloud smoke, two-worker scale-in and ready-worker restart passed,
 while the GitLab job cycle is unrun. M3
 retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
-maintenance tooling are delivered; external publication is unrun. These limits
+maintenance tooling are delivered; first publication passed but public Runner
+installation failed. These limits
 follow the specification's no-configuration path.
+
+## First prerelease publication
+
+The [release workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632137153)
+published `v0.1.0-rc.1` from `a5a7bd65ddf2eb344e7597ae509f5c8ecaffc197`.
+GitHub confirms `prerelease=true`, both native archives, checksums and the source
+inventory. The exact GHCR manifest is public; an independent anonymous request
+returned HTTP 200 with digest
+`sha256:6a638b1da483e14b24678bd0c01276d8f9816787540b30d995a99cf295d682d2`.
+
+The [real Runner installation workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865)
+failed on both Linux amd64 and arm64. The pinned installer skips directory
+headers and cannot create parent directories for the nested license files in
+this package. It did not reach installed-plugin protocol loading. The published
+version and assets remain unchanged, and its Release notes identify this issue.
+The corrected producer layout and full-payload regressions require a new version
+and a fresh successful public installation check before OCI installation is
+advertised as working. No cloud resources or GitLab jobs were created by these
+publication and installation checks.
 
 ## One-time configuration and cost responsibilities
 

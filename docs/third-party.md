@@ -34,3 +34,9 @@ package discovery. Unused module declarations and test/release-tool dependencies
 are not described as linked plugin code. Release tooling imports the MIT-licensed
 fleeting-artifact and Apache-2.0 go-containerregistry; it is not copied into the
 plugin executable. Worker images and job containers need separate license review.
+
+OCI platform payloads keep only root-level files for the pinned Runner installer.
+Their `licenses.tar.gz` preserves the complete `LICENSES/`, `_licenses/`, and
+`dependencies.json` tree, including the original texts and source archive URLs.
+A root `LICENSE` and readable `NOTICE` explain how to access that material.
+Native archives retain the original unpacked license tree.

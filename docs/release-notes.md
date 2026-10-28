@@ -4,6 +4,12 @@ This is the first prerelease of the Alibaba Cloud ESS Fleeting plugin. Use it fo
 evaluation with GitLab Runner 19.5.1. It includes Linux amd64 and arm64 binaries,
 checksums, dependency license notices, and a Fleeting OCI package.
 
+**Known OCI installation issue:** Runner 19.5.1 installation failed on both Linux
+architectures because the published package contains nested license paths that
+its installer cannot unpack. Anonymous GHCR download passed. The existing
+version and assets remain unchanged; a corrected package needs a new version.
+See the [installation checks](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865).
+
 ## What is included
 
 - ECS worker scaling through a dedicated ESS group, including release of
@@ -34,7 +40,7 @@ server host keys, and its WinRM connector does not verify server certificates.
 Use an isolated, trusted network as described in the
 [connection guide](https://github.com/euyuil/fleeting-plugin-aliyun/blob/v0.1.0-rc.1/docs/adr/0003-state-and-connections.md).
 
-Public GHCR access and Runner installation are checked after publication. See the
+Public GHCR access passed; Runner installation failed as noted above. See the
 [distribution guide](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/docs/distribution.md) for installation and verification
 evidence. This prerelease does not claim production acceptance or full upstream
 capability parity.
