@@ -115,6 +115,25 @@ verification command.
 
 ## Release gate
 
+### Candidate integrity
+
+`tools/release_candidate.py` binds an unpublished `dist/` directory and a separate
+`responsegate/plugin` test binary to one full source SHA and version. Its manifest
+records every file checksum. Keep the manifest digest outside the downloaded
+candidate payload. The `verify` operation rejects modified, missing, extra or
+linked files and mismatched source/version metadata. Go build information must
+identify the exact clean source SHA, Linux target architecture and expected test
+tags before any cloud identity is obtained.
+
+The `gate` operation additionally requires one passing receipt for each of the
+six plugin-only cloud scenarios, with the same candidate digest, binary checksum,
+GitHub run and attempt. It rejects skipped scenarios, cleanup failures, leftovers
+and receipts from another candidate. The response-loss scenario must identify its
+instrumented binary; the other five must identify the ordinary Linux amd64
+distribution binary. Run the offline regression tests with `make test`.
+
+### Publication
+
 Use the trusted main branch, review final changes and CI, select a new semantic
 version, and invoke Release explicitly. Preflight refuses existing Releases and
 source tags. After validation, the workflow creates the exact source tag before
