@@ -12,6 +12,12 @@ deadline, without publishing partial members or filling in an absent group ID.
 A nonempty foreign group ID is rejected immediately. Diagnostics include the
 request ID, page/row and missing-field flags without instance or group values.
 
+Connection metadata maps the catalog's `CpuArchitecture` values `X86` and `ARM`
+to Fleeting's `amd64` and `arm64`. Existing `x86_64`, `x64`, `arm64` and `aarch64`
+aliases remain accepted. Empty, unknown or mismatched-type metadata fails unless
+the connector architecture is explicitly configured. See the official
+[DescribeInstanceTypes contract](https://help.aliyun.com/en/ecs/developer-reference/api-ecs-2014-05-26-describeinstancetypes).
+
 Admission requires an Active ECS group, desired capacity, MinSize=0, finite
 MaxSize, unit weights, a pinned template version, and no conflicting rules,
 schedules, hooks, refresh or replacement configuration. Automatically created

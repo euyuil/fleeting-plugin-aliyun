@@ -324,6 +324,7 @@ func TestExtendedCloud(t *testing.T) {
 			defer stop()
 			nonce := sha256.Sum256([]byte(ledger.Marker() + now.String()))
 			want := "cloud-smoke-" + hex.EncodeToString(nonce[:16])
+			var lastErr error
 			for {
 				if e := observe(); e != nil {
 					t.Fatal(e)
@@ -342,8 +343,9 @@ func TestExtendedCloud(t *testing.T) {
 						return
 					}
 				}
+				lastErr = e
 				if e = aliyun.Wait(sshCtx, 2*time.Second); e != nil {
-					t.Fatal("live plugin SSH did not become ready")
+					t.Fatalf("live plugin SSH did not become ready: %v; last attempt: %v", e, lastErr)
 				}
 			}
 		}
