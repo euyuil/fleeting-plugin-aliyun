@@ -19,15 +19,17 @@ while the provider has pending intent. See [API boundaries](cloud-api.md) and
 
 ## Static SSH and Instance executor
 
-Build with `make build`. Place the binary in an executable directory available
-to Runner Manager as `fleeting-plugin-aliyun`; set `plugin = "fleeting-plugin-aliyun"` in the
-Runner autoscaler. This uses Fleeting's native-binary lookup. OCI installation
-will be documented with the distribution tooling.
+Follow the [OCI quick start](../README.md#quick-start-run-a-job-on-a-linux-vm)
+to install the public plugin with Runner. The Manager can run on a separate host
+from GitLab CE. Use the same plugin directory for installation and Runner.
+See [distribution](distribution.md) for the native binary alternative.
 
 Start from [`examples/instance/config.toml`](../examples/instance/config.toml).
 Set the GitLab URL and fixed runner authentication token, group and region,
-worker username and private-key file. Do not commit credentials. The default
-example has max_instances=1, capacity_per_instance=1, and max_use_count=1. Jobs
+worker username and private-key file. Do not commit credentials. The
+example uses the native binary name; replace `plugin` with the exact OCI
+reference from the quick start when using OCI installation. Its default limits
+are max_instances=1, capacity_per_instance=1, and max_use_count=1. Jobs
 run on the VM without worker Docker or per-worker Runner registration.
 
 The worker image must already contain the compatible Runner binary on PATH,

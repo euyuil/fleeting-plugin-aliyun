@@ -22,6 +22,18 @@ from execution and live executor acceptance.
 
 ## OCI
 
+### Verified prerelease
+
+Use `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2` for evaluation. Anonymous
+download, real Runner 19.5.1 installation and listing, exact Release binary
+comparison, version/source checks, and plugin protocol loading passed on native
+Linux amd64 and arm64 in the
+[public installation workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094).
+The [quick start](../README.md#quick-start-run-a-job-on-a-linux-vm) has the
+installation steps. The [acceptance report](acceptance-report.md#corrected-prerelease-installation)
+records the exact source, manifest and installed binary checksums. These checks
+did not run a GitLab job or create cloud workers.
+
 ### Known issue in 0.1.0-rc.1
 
 The first prerelease is public, and anonymous GHCR manifest download passed.
@@ -31,7 +43,10 @@ entries and cannot create their parents. See the
 [installation run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40632320865).
 The published version and assets are retained unchanged. Do not use its OCI
 reference as a working installation path. Native archives keep their existing
-layout; full GitLab job acceptance remains separate.
+layout. Version `0.1.0-rc.2` fixes this issue; full GitLab job acceptance remains
+separate.
+
+### Packaging and publication
 
 The pinned Runner uses fleeting-artifact `1b7c6957ad1d`. Packages are built using
 its actual releaser library with `dist/packages/<os>/<arch>/plugin` inputs. It
@@ -65,8 +80,8 @@ verify without registry credentials:
 
 Use a temporary empty DOCKER_CONFIG, FLEETING_PLUGIN_PATH and a temporary Runner
 config, then run `gitlab-runner fleeting --config <config> install`, list the
-installed plugin and load it through Runner. Publication and anonymous manifest
-download passed for 0.1.0-rc.1, but installation failed as described above. The offline loopback test uses
+installed plugin and load its protocol through the pinned Fleeting library.
+These checks passed for `0.1.0-rc.2` as recorded above. The offline loopback test uses
 the identical releaser/installer module version and compares installed bytes.
 It also rejects a second publication of the same version. Local registry routing
 uses a test transport because the pinned upstream path escaper does not support
@@ -111,8 +126,9 @@ Publication is distinct from code
 implementation. Check all release steps and the actual assets/package after the
 workflow completes; an accepted dispatch is not proof of publication. Confirm
 anonymous retrieval and Runner install before advertising public installation.
-Update `docs/release-notes.md` with the exact live scope; the initial text states
-that live tests have not run and no earlier live-verified release exists.
+Before publication, update `docs/release-notes.md` with the exact version and
+validated scope. After public installation checks, record their outcome, source
+revision and receipts in the acceptance report and `acceptance/status.json`.
 
 For baseline upgrades, read the new Runner go.mod and provider signatures,
 update `upstream.lock.json`, compile against that exact Fleeting version, rerun
