@@ -232,6 +232,34 @@ not automatically enable live operations. The explicit command/build tag and
 `NOT_RUN_MISSING_CONFIGURATION` and exit nonzero before constructing a cloud
 client. Configuration values are never expanded from TOML placeholders.
 
+### Released plugin and Docker job acceptance
+
+Set `PLUGIN_VERSION` to the exact published version and `PLUGIN_COMMIT` to its
+full source revision. Download and checksum-verify the matching native Release
+archive; pass its executable as `PLUGIN_BINARY`. Set `PLUGIN_REFERENCE` to the
+full OCI reference with that same version. The driver uses the real pinned
+Runner to install it, compares the installed bytes with `PLUGIN_BINARY`, then
+runs the Manager using the OCI reference. A different installed binary, version
+or source revision cannot pass. Leaving `PLUGIN_REFERENCE` unset retains native
+binary installation for source-based checks.
+
+`ACCEPTANCE_EXECUTOR=instance` is the default. For container execution, use
+`ACCEPTANCE_EXECUTOR=docker-autoscaler` and set `ACCEPTANCE_JOB_IMAGE` to a full
+image reference pinned by `@sha256:...`. Prepare the separate worker with Docker
+Engine and a job user allowed to access it. Its readiness check also requires
+`docker info`. The job image must provide `sh`, Git, curl and coreutils; choose
+its network/metadata configuration so the fixture can read the ECS instance ID.
+Each mode runs separately with MaxSize/concurrent/cumulative budgets of one.
+Do not run both Managers against the same pool at once.
+
+Update the fixed GitLab fixture to the current two reviewed files and pin its
+new commit before running. The driver supplies `FLEETING_EXECUTION_MODE`; the
+job checks Docker's container marker and includes that result in its artifact.
+The controller rejects a missing or different execution environment. The result
+records executor, OCI reference/version, job image and normal-release outcome.
+`manager.log` is private diagnostic output under the run evidence directory;
+review and redact it before sharing. It is not uploaded by the live workflow.
+
 ## Smoke evidence and budgets
 
 Default smoke permits one concurrent worker and one newly observed instance ID,

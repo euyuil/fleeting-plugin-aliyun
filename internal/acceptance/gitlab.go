@@ -64,12 +64,14 @@ type job struct {
 	Commit struct{ ID string }
 }
 type Artifact struct {
-	Nonce      string `json:"nonce"`
-	FixtureSHA string `json:"fixture_sha"`
-	InstanceID string `json:"instance_id"`
-	RunnerID   int64  `json:"runner_id"`
-	CheckoutOK bool   `json:"checkout_ok"`
-	CommandOK  bool   `json:"command_ok"`
+	Nonce             string `json:"nonce"`
+	FixtureSHA        string `json:"fixture_sha"`
+	InstanceID        string `json:"instance_id"`
+	RunnerID          int64  `json:"runner_id"`
+	CheckoutOK        bool   `json:"checkout_ok"`
+	CommandOK         bool   `json:"command_ok"`
+	Executor          string `json:"executor"`
+	ContainerDetected *bool  `json:"container_detected"`
 }
 
 func VerifyArtifact(a Artifact, l *Ledger, nonce, sha string, runner int64) error {

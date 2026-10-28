@@ -1,6 +1,6 @@
 workflow:
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "api" && $FLEETING_NONCE =~ /^[0-9a-f]{48}$/ && $FLEETING_EXPECTED_RUNNER_ID =~ /^[0-9]+$/'
+    - if: '$CI_PIPELINE_SOURCE == "api" && $FLEETING_NONCE =~ /^[0-9a-f]{48}$/ && $FLEETING_EXPECTED_RUNNER_ID =~ /^[0-9]+$/ && $FLEETING_EXECUTION_MODE =~ /^(instance|docker-autoscaler)$/'
     - when: never
 
 spot-smoke:
