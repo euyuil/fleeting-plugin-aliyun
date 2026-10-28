@@ -27,7 +27,7 @@
       "offline_validation": "pass",
       "live_validation": "partial_pass",
       "gap": "Not all nine methods or a GitLab job were live exercised.",
-      "verified_scope": "Real gRPC plugin single-worker/two-worker scaling and ready-worker crash/restart with same-instance rediscovery, specified release and SSH."
+      "verified_scope": "Real gRPC plugin single/two-worker scaling, ready-worker restart and accepted-creation restart with one eventual worker, SSH and specified release."
     },
     {
       "capability": "scale_out",
@@ -50,8 +50,8 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Live multi-page snapshots and restart during lost API replies, provisioning or removal remain unverified.",
-      "verified_scope": "Abrupt plugin termination after one ready worker, new PID rediscovery of the same worker with an increase journal present, unchanged scaling activity IDs and fresh SSH, then normal release."
+      "gap": "Live multi-page snapshots, lost API responses and removal-in-progress restart remain unverified.",
+      "verified_scope": "Ready-worker and accepted-creation plugin restart: nonready snapshots around termination, one eventual original-activity worker with fresh SSH, and normal release."
     },
     {
       "capability": "eventual_consistency",
@@ -90,7 +90,7 @@
       "offline_validation": "pass",
       "live_validation": "partial_pass",
       "gap": "Upstream connector does not verify server host keys. GitLab job, other images and architectures remain unverified.",
-      "verified_scope": "Ubuntu 26.04 on actual Spot workers; fresh SSH nonces passed after specified two-worker scale-in and after plugin restart on the original single worker."
+      "verified_scope": "Fresh SSH nonces passed after specified scale-in, ready-worker plugin restart and accepted-creation plugin restart on actual Ubuntu 26.04 Spot workers."
     },
     {
       "capability": "connector_overrides",
@@ -168,7 +168,7 @@
     "offline_validation": "pass",
     "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE_SCALE_AND_RESTART",
     "entry_point": "docs/testing.md",
-    "gap": "Local cloud-smoke, cloud-scale and cloud-restart drivers passed with real plugins and CLI OAuth. GitLab job smoke, in-flight recovery, interruption/suspend, GitHub OIDC and the scheduled janitor remain unrun."
+    "gap": "Local cloud-smoke, cloud-scale, cloud-restart and cloud-create-restart passed with real plugins and CLI OAuth. GitLab jobs, lost-response/removal recovery, interruption/suspend, GitHub OIDC and the scheduled janitor remain unrun."
   },
   "milestones": {
     "M0": "complete",
@@ -181,7 +181,7 @@
     "cloud_resources_created": true,
     "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_CYCLES",
     "known_cloud_leftovers": [],
-    "limitation": "All resources owned by the connectivity preflight, three single-worker smoke attempts, one two-worker cycle and one ready-worker restart cycle were confirmed absent twice per isolated attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
+    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart and two accepted-creation attempts were confirmed absent twice per isolated attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -581,6 +581,185 @@
     "cleanup": "pass",
     "owned_resources_remaining": 0,
     "consecutive_absence_confirmations": 2,
+    "verified_resource_kinds": [
+      "instance",
+      "disk",
+      "eni",
+      "snapshot",
+      "scaling_group",
+      "launch_template",
+      "key_pair",
+      "security_group",
+      "vswitch",
+      "vpc"
+    ],
+    "temporary_keys_retained": false,
+    "cloud_credentials_on_worker": false,
+    "github_cloud_secrets_created": false,
+    "gitlab_job_executed": false,
+    "report": "docs/acceptance-report.md"
+  },
+  "plugin_cloud_create_restart": {
+    "status": "pass",
+    "date": "2026-10-28",
+    "mode": "cloud-create-restart",
+    "scope": "Accepted-response provisioning restart with nonready timing evidence before/after old process exit, one eventual worker and SSH, then normal release; no GitLab or Runner Manager",
+    "plugin_commit": "211678527cf7f1e4e04e6ac03badf8224a9d2f2d",
+    "integrated_commit": "4e17e8d6664d8f4a3b7bd8925ea3a0bed34b45d9",
+    "plugin_sha256": "b56c17fae55381671371fc0ecf82debb88c3263c0d176922667d50d0efd97936",
+    "real_plugin_process": true,
+    "region": "us-east-1",
+    "zone": "us-east-1b",
+    "instance_type": "ecs.e-c4m1.large",
+    "image_id": "ubuntu_26_04_x64_20G_alibase_20260916.vhd",
+    "vcpu": 2,
+    "memory_mib": 512,
+    "system_disk": {
+      "category": "cloud_essd",
+      "performance_level": "PL0",
+      "size_gib": 20,
+      "delete_with_instance": true
+    },
+    "configured_swap_mib": 512,
+    "swap_runtime_verified": false,
+    "actual_configuration_verified": true,
+    "spot_only": true,
+    "on_demand_fallback": false,
+    "credential_mode": "local_cli_oauth",
+    "attempt_count": 2,
+    "instances_created_total": 2,
+    "instance_limit_per_attempt": 1,
+    "cumulative_creation_budget_per_attempt": 1,
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "fail",
+        "instances_created": 1,
+        "plugin_restarted": false,
+        "reason": "The timing probe rejected the completed desired-capacity API record accompanying provisioning; no restart was performed.",
+        "cleanup": "pass"
+      },
+      {
+        "attempt": 2,
+        "status": "pass",
+        "instances_created": 1,
+        "plugin_restarted": true,
+        "restart_recovered": true,
+        "normal_release": true,
+        "cleanup": "pass"
+      }
+    ],
+    "successful_attempt_instances_created": 1,
+    "creating_before_and_after_old_exit": true,
+    "old_process_exit_confirmed": true,
+    "distinct_plugin_pids": true,
+    "restart_recovered": true,
+    "accepted_activity_created_exactly_one": true,
+    "scaling_activity_ids_unchanged": true,
+    "authenticated_ssh_after_restart": true,
+    "ssh_server_host_key_verified": false,
+    "normal_release_before_fallback_cleanup": true,
+    "labels": "Synthetic worker, activity and process labels; cloud IDs and local PIDs remain private.",
+    "transitions": [
+      {
+        "action": "initial",
+        "desired_capacity": 0,
+        "total_capacity": 0
+      },
+      {
+        "accepted_at": "2026-10-28T04:35:01.511043Z",
+        "action": "plugin_restart_during_creation",
+        "after_old_exit": {
+          "observed_at": "2026-10-28T04:35:03.112724Z",
+          "activity": "activity_a",
+          "activity_status": "InProgress",
+          "activity_trigger_type": "Ess",
+          "completed_zero_capacity_api_records": 1,
+          "activity_count": 2,
+          "journal_kind": "increase",
+          "journal_target": 1,
+          "desired_capacity": 1,
+          "total_capacity": 1,
+          "pending_capacity": 0,
+          "member_count": 1,
+          "member_lifecycle": "Init",
+          "ecs_state": "NotAssigned",
+          "instance_id_reported": false
+        },
+        "before": {
+          "observed_at": "2026-10-28T04:35:02.292083Z",
+          "activity": "activity_a",
+          "activity_status": "InProgress",
+          "activity_trigger_type": "Ess",
+          "completed_zero_capacity_api_records": 1,
+          "activity_count": 2,
+          "journal_kind": "increase",
+          "journal_target": 1,
+          "desired_capacity": 1,
+          "total_capacity": 1,
+          "pending_capacity": 0,
+          "member_count": 1,
+          "member_lifecycle": "Init",
+          "ecs_state": "NotAssigned",
+          "instance_id_reported": false
+        },
+        "crash_without_provider_shutdown": true,
+        "creating_before_and_after_old_exit": true,
+        "observed_at": "2026-10-28T04:35:08.037541Z",
+        "old_process_exit_confirmed": true,
+        "old_plugin": "process_a",
+        "new_plugin": "process_b",
+        "distinct_plugin_pids": true
+      },
+      {
+        "action": "plugin_increase",
+        "desired_capacity": 1,
+        "workers": [
+          "worker_a"
+        ],
+        "observed_at": "2026-10-28T04:35:13.272573Z",
+        "total_capacity": 1
+      },
+      {
+        "action": "actual_disk",
+        "category": "cloud_essd",
+        "delete_with_instance": true,
+        "instance_id_reported": true,
+        "worker": "worker_a",
+        "performance_level": "PL0",
+        "size_gib": 20
+      },
+      {
+        "action": "plugin_connect_info_ssh",
+        "instance_id_reported": true,
+        "worker": "worker_a",
+        "nonce_verified": true,
+        "observed_at": "2026-10-28T04:35:43.449121Z",
+        "sequence": 1
+      },
+      {
+        "accepted_activity_created_exactly_one": true,
+        "accepted_activity": "activity_a",
+        "action": "creation_restart_recovered",
+        "desired_capacity": 1,
+        "instance_id_reported": true,
+        "worker": "worker_a",
+        "observed_at": "2026-10-28T04:35:46.954954Z",
+        "scaling_activity_ids_unchanged": true,
+        "ssh_after_restart": true,
+        "total_capacity": 1
+      },
+      {
+        "action": "plugin_decrease",
+        "associated_resources_absent": true,
+        "desired_capacity": 0,
+        "observed_at": "2026-10-28T04:36:35.713862Z",
+        "total_capacity": 0
+      }
+    ],
+    "cleanup": "pass",
+    "owned_resources_remaining": 0,
+    "consecutive_absence_confirmations_per_attempt": 2,
     "verified_resource_kinds": [
       "instance",
       "disk",
