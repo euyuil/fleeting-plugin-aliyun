@@ -85,9 +85,10 @@ Plugin-only cloud smoke, two-worker scale-in, ready-worker restart and
 accepted-creation and accepted-removal restart recovery: **PASS** on 2026-10-28. Real plugin processes completed
 **0→1→authenticated SSH→0**, **0→2→1→0**, and same-instance rediscovery/SSH after
 plugin termination. An instrumented expansion-response-loss restart also passed.
-Full GitLab job acceptance is
-still **NOT_RUN_MISSING_CONFIGURATION**. No GitLab project/job, custom worker
-image, persistent Manager or cloud OIDC configuration was created. All temporary
+Full GitLab job acceptance is still **NOT_PASSED**: a private
+fixture is configured, but the first released-plugin VM job failed during worker
+preparation, as recorded below. No custom worker image, persistent Manager or
+cloud OIDC configuration was created. All temporary
 cloud resources from these cycles and the earlier connectivity preflight were
 deleted and their absence was verified.
 
@@ -398,7 +399,7 @@ The following gates remain specific and visible:
 | Accepted-creation plugin restart | Nonready snapshots before/after old exit, one eventual worker from the original activity, SSH, normal release and full cleanup passed | Lost removal responses and multi-page snapshots remain separate. |
 | Accepted-removal plugin restart | SSH before removal, same still-existing target/activity around old exit, new-process recovery, journal clearance and normal zero passed; full cleanup confirmed twice | Lost removal responses and multi-page snapshots remain separate. |
 | Lost expansion response | Real ESS success withheld before SDK delivery; pending old call, peer exit after kill, fresh-process retry with one cloud expansion, original worker/SSH and normal zero passed; full cleanup confirmed twice | Instrumented test build only; lost removal responses, other fault timings and multi-page snapshots remain separate. |
-| Basic 0→1→job→0 | Plugin-only cloud smoke passed; real job driver and fixed GitLab fixture implemented | Authorized configured run with the pinned Manager, exact GitLab job/nonce, actual Spot identity, normal release, and zero verified leftovers. |
+| Basic 0→1→job→0 | Private fixture configured; first released-plugin VM job timed out during preparation; independent teardown completed | Suitable worker memory and a prepared image, followed by a successful correlated job, normal release, and zero verified leftovers. |
 | Extended scale/replacement | Real-plugin two-worker scale-in passed; fixed budgets and tagged recovery suites implemented | Larger scales and replacement need a separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows and Docker | Connection logic, examples and offline checks | Prepared images, network route, and actual Windows/Docker executor jobs. |
@@ -407,7 +408,7 @@ The following gates remain specific and visible:
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented;
 its plugin-only smoke, scale-in, ready-worker, accepted-creation and accepted-removal restarts passed,
-and the instrumented lost-expansion-response restart passed, while the GitLab job cycle is unrun. M3
+and the instrumented lost-expansion-response restart passed, while the first GitLab job cycle failed during preparation. M3
 retains formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
 maintenance tooling are delivered; corrected public Runner installation passed
@@ -466,6 +467,47 @@ The flat OCI payload retains complete licenses/notices in `licenses.tar.gz`.
 This is public installation and pre-cloud protocol acceptance. It does not
 establish a successful GitLab job, Docker/Windows execution or production
 acceptance, and it created no cloud workers.
+
+## Released-plugin job preparation attempts
+
+On 2026-10-28, a dedicated private GitLab fixture and one locked project runner
+were configured. The fixture contains only the reviewed smoke files; other
+runners are disabled for that project. Credentials and private project/job
+identities remain outside this repository.
+
+The first Instance-executor attempt used the published `0.1.0-rc.2` OCI package,
+Runner 19.5.1, and a checksum-verified native Release binary. Installed bytes
+matched SHA-256
+`1317b5063669c750d87d23916db4cd2730c5085d9863d858572d187225b864bd`, with release
+source `795f07f5c2771bf7f84154c6892d90ba77f26b8b`. The dedicated ESS group started
+at zero and created exactly one verified Spot worker. The job reached
+`prepare_executor` but timed out after five minutes, before checkout or the
+fixture script. No successful job artifact or normal-release PASS was obtained.
+
+Fallback cleanup rejected the real API's uppercase `TCP` protocol spelling.
+The driver result remains `CLEANUP_FAILED`; the independent outer teardown does
+not turn this failed attempt into a pass. Protocol comparison and exact expected
+CIDR validation were fixed in [#39](https://github.com/euyuil/fleeting-plugin-aliyun/pull/39).
+After ECS queries reported no instance, its primary ENI remained visible; an
+additional exact-owned-ID instance deletion confirmation was issued before the
+ENI disappeared. Full fixture absence was then confirmed in two complete
+inventories.
+
+A separate one-instance image-preparation attempt used the same fixed
+`ecs.e-c4m1.large` type (2 vCPU, 0.5 GiB), Ubuntu 26.04 public image and 20 GiB ESSD
+PL0 disk. Its console recorded the kernel killing `cloud-init` for lack of memory
+at about 13 seconds of uptime. A staged Runner transfer timed out, image bootstrap
+did not start, and no custom image was created. Its full cloud fixture was also
+deleted and confirmed absent twice. Requested swap in cloud-init is not evidence
+that swap was configured before the process was killed.
+
+These attempts created **two Spot instances in total**, one in each isolated
+fixture. Their disks, ENIs, keys and networks are gone; the failed job's ESS group
+and launch template are also gone. Temporary private SSH keys and encoded
+server-key user data were removed after teardown. The private GitLab project and
+dedicated runner are retained for reuse. No Docker job has run. Select a suitable
+worker specification explicitly and prepare its image before retrying; the
+0.5-GiB SSH-only baseline does not establish a usable full-job worker.
 
 ## One-time configuration and cost responsibilities
 

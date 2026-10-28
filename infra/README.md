@@ -14,7 +14,10 @@ The cost-optimized ESS policy requires an explicit Spot pool count. This fixture
 uses one pool because its launch template pins one instance type.
 
 Before running, select an allowed region/zone and available small Spot instance
-type. Select the exact immutable image ID. Prepare that image with
+type with enough memory for the OS, Runner and selected executor. The 0.5-GiB
+configuration used for SSH-only checks failed a later full-job preparation
+attempt; see the [acceptance report](../docs/acceptance-report.md#released-plugin-job-preparation-attempts).
+Select the exact immutable image ID. Prepare that image with
 `bootstrap-linux.sh` as root: supply Runner version/checksum from
 `upstream.lock.json`, the SSH public key/user, and exact distribution package
 versions (`GIT_PACKAGE_VERSION`, `CURL_PACKAGE_VERSION`, `CA_PACKAGE_VERSION`,
