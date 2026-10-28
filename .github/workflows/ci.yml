@@ -29,6 +29,10 @@ jobs:
         with:
           go-version: '1.27.2'
           cache: true
+      - name: Install pinned CLI for credential-free API metadata checks
+        run: |
+          python3 tools/fetch-aliyun.py
+          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
       - run: make deps build test lint
       - run: go test -race ./...
       - run: go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
@@ -40,6 +44,15 @@ jobs:
       - run: python3 tools/fetch-runner.py
       - run: python3 tools/check-configs.py --runner .cache/gitlab-runner-linux-amd64
       - run: make dist
+      - name: Verify unpublished cloud candidate without credentials
+        run: |
+          mkdir -p .cache/candidate/responsegate
+          cp -a dist .cache/candidate/dist
+          GOFLAGS=-tags=responsegate make build
+          cp bin/fleeting-plugin-aliyun .cache/candidate/responsegate/plugin
+          candidate_sha=$(git rev-parse HEAD)
+          digest=$(python3 tools/release_candidate.py create --root .cache/candidate --sha "$candidate_sha" --version 0.1.0-dev)
+          python3 tools/release_candidate.py verify --root .cache/candidate --sha "$candidate_sha" --version 0.1.0-dev --digest "$digest"
       - name: Verify native assets
         run: |
           (cd dist && sha256sum -c SHA256SUMS)

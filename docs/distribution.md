@@ -136,8 +136,11 @@ distribution binary. Run the offline regression tests with `make test`.
 
 Use the trusted main branch, review final changes and CI, select a new semantic
 version, and invoke Release explicitly. Preflight refuses existing Releases and
-source tags. After validation, the workflow creates the exact source tag before
-OCI publication and requires that tag when creating the Release. Prerelease
+source tags. The [pre-release cloud gate](pre-release-cloud.md) must then pass all
+six plugin-only scenarios and complete fixture cleanup in the separately
+configured test account. Missing configuration blocks publication. The workflow
+reuses the exact accepted artifacts without rebuilding, creates the candidate's
+source tag before OCI publication and requires that tag when creating the Release. Prerelease
 versions are marked as prereleases and cannot become GitHub's latest release.
 If publication fails after creating a tag or package, inspect and recover that
 partial release deliberately; do not overwrite or blindly rerun the same version.

@@ -40,6 +40,21 @@ The `main` ruleset requires the `offline` check from GitHub Actions before mergi
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 
+After separately authorizing the paid operation and configuring the dedicated
+new account, run one plugin-only scenario without publishing:
+
+```sh
+gh workflow run cloud-acceptance.yml --ref main \
+  -f version=0.1.0-dev -f candidate_sha=FULL_MAIN_COMMIT_SHA -f mode=cloud-smoke
+gh workflow run cloud-janitor.yml --ref main
+```
+
+Select another documented mode or `all` for the full suite. Release invokes all
+six modes as a mandatory pre-publication dependency. Configuration, ownership,
+budgets and recovery are documented in [pre-release cloud acceptance](docs/pre-release-cloud.md).
+For immediate recovery of a completed run, add `-f run_id=RUN_ID -f run_attempt=ATTEMPT`
+to the janitor command; otherwise it scans only expired fixtures.
+
 See [distribution](docs/distribution.md) for native and OCI packaging, installation,
 and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.
 
