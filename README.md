@@ -5,7 +5,8 @@ Run GitLab CI/CD jobs on Alibaba Cloud ECS machines that scale with your workloa
 (ESS). Runner requests workers when jobs need them and releases them after use.
 
 This is a community project under active development. Real cloud scaling and SSH
-tests have passed. Full GitLab job acceptance is still pending.
+tests have passed. Full Linux amd64 VM and Docker job cycles have also passed
+with Runner 19.5.1; see the [acceptance report](docs/acceptance-report.md#released-plugin-vm-and-docker-jobs).
 [`0.1.0-rc.2`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.2)
 is available for evaluation. Anonymous OCI installation with Runner 19.5.1 has
 passed on Linux amd64 and arm64; see the [installation checks](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094).
@@ -21,8 +22,8 @@ Both modes create ECS machines. The plugin manages those machines; GitLab Runner
 runs the jobs. You do not need Kubernetes or ACK.
 
 A [Windows VM example](examples/windows/config.toml) is also available. It uses
-PowerShell and WinRM HTTPS. Windows and Docker jobs have not yet been tested on
-real cloud workers. See [supported configurations](docs/operations.md).
+PowerShell and WinRM HTTPS. Windows jobs have not yet been tested on real cloud
+workers. See [supported configurations](docs/operations.md).
 
 ## Quick start: run a job on a Linux VM
 
@@ -212,9 +213,10 @@ Leave enough memory for the host and any helper or service containers. See the
 ## Current status and more help
 
 Real cloud tests passed `0 → 1 → SSH → 0` and `0 → 2 → 1 → 0`, including SSH on
-the remaining worker after the other was released. These tests did not run
-GitLab jobs. Full GitLab job acceptance, real Docker and Windows jobs, and
-production acceptance are still pending. Suspend/resume is disabled.
+the remaining worker after the other was released. Linux amd64 VM and Docker
+jobs also passed checkout, scripts, artifacts, and normal release to zero.
+Other images, larger pools, Windows, full arm64 jobs, and production acceptance
+still need validation. Suspend/resume is disabled.
 
 - [Operating guide](docs/operations.md): credentials, connections, and recovery.
 - [Infrastructure guide](infra/README.md): images, networking, and teardown.

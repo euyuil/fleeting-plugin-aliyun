@@ -85,12 +85,12 @@ Plugin-only cloud smoke, two-worker scale-in, ready-worker restart and
 accepted-creation and accepted-removal restart recovery: **PASS** on 2026-10-28. Real plugin processes completed
 **0→1→authenticated SSH→0**, **0→2→1→0**, and same-instance rediscovery/SSH after
 plugin termination. An instrumented expansion-response-loss restart also passed.
-Full GitLab job acceptance is still **NOT_PASSED**: a private
-fixture is configured, but the first released-plugin VM job failed during worker
-preparation, as recorded below. No custom worker image, persistent Manager or
-cloud OIDC configuration was created. All temporary
-cloud resources from these cycles and the earlier connectivity preflight were
-deleted and their absence was verified.
+Released-plugin Linux amd64 **VM and Docker GitLab job cycles passed** with
+Runner 19.5.1, as recorded [below](#released-plugin-vm-and-docker-jobs). Earlier
+preparation failures remain recorded separately. One temporary prepared image
+and its snapshot were created for these jobs and deleted afterward. No persistent
+Manager or cloud OIDC configuration was created. All task cloud fixtures were
+deleted and their absence was verified twice per fixture.
 
 Raw evidence, resource identities, account information and local runtime paths
 remain outside version control. The summary below records the selected facts
@@ -399,17 +399,18 @@ The following gates remain specific and visible:
 | Accepted-creation plugin restart | Nonready snapshots before/after old exit, one eventual worker from the original activity, SSH, normal release and full cleanup passed | Lost removal responses and multi-page snapshots remain separate. |
 | Accepted-removal plugin restart | SSH before removal, same still-existing target/activity around old exit, new-process recovery, journal clearance and normal zero passed; full cleanup confirmed twice | Lost removal responses and multi-page snapshots remain separate. |
 | Lost expansion response | Real ESS success withheld before SDK delivery; pending old call, peer exit after kill, fresh-process retry with one cloud expansion, original worker/SSH and normal zero passed; full cleanup confirmed twice | Instrumented test build only; lost removal responses, other fault timings and multi-page snapshots remain separate. |
-| Basic 0→1→job→0 | Private fixture configured; first released-plugin VM job timed out during preparation; independent teardown completed | Suitable worker memory and a prepared image, followed by a successful correlated job, normal release, and zero verified leftovers. |
+| Basic 0→1→job→0 | Released 0.1.0-rc.2 VM and Docker jobs passed on separate Linux amd64 Spot workers; artifact identity, normal zero and full cleanup verified | Other images, full arm64 jobs, larger pools and broader job features remain separate. |
 | Extended scale/replacement | Real-plugin two-worker scale-in passed; fixed budgets and tagged recovery suites implemented | Larger scales and replacement need a separate prepared fixture and explicit mode. DeleteInstance injection does not demonstrate a genuine Spot notice. |
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
-| Windows and Docker | Connection logic, examples and offline checks | Prepared images, network route, and actual Windows/Docker executor jobs. |
+| Windows | Connection logic, example and offline checks | Licensed image, network route and an actual Windows executor job. |
 | Formal suspend/resume | Standard unsupported production methods; isolated controller and offline tests | Same-ID ESS/ECS terminal states, unchanged capacity, fresh SSH after resume, interruption recovery and verified cleanup before capability activation. |
 | External publication | Corrected 0.1.0-rc.2 published; anonymous Runner install/list, exact native bytes, version/source and protocol checks passed on Linux amd64 and arm64 | Installation acceptance does not establish full GitLab job or production acceptance. The rc.1 failure remains recorded below. |
 
-M0 and the offline M1 implementation are complete. M2 tooling is implemented;
-its plugin-only smoke, scale-in, ready-worker, accepted-creation and accepted-removal restarts passed,
-and the instrumented lost-expansion-response restart passed, while the first GitLab job cycle failed during preparation. M3
-retains formal suspend and broader live acceptance gates;
+M0 and the offline M1 implementation are complete. M2 tooling is implemented.
+Its plugin-only smoke, scale-in, ready-worker, accepted-creation, accepted-removal
+and instrumented lost-expansion-response restarts passed. Both released VM/Docker
+job cycles passed after the tooling and configuration fixes below. M3 retains
+formal suspend and broader live acceptance gates;
 full official capability parity is not complete. M4 local distribution and
 maintenance tooling are delivered; corrected public Runner installation passed
 on both supported Linux architectures. These limits
@@ -501,13 +502,82 @@ did not start, and no custom image was created. Its full cloud fixture was also
 deleted and confirmed absent twice. Requested swap in cloud-init is not evidence
 that swap was configured before the process was killed.
 
-These attempts created **two Spot instances in total**, one in each isolated
+These initial attempts created **two Spot instances in total**, one in each isolated
 fixture. Their disks, ENIs, keys and networks are gone; the failed job's ESS group
 and launch template are also gone. Temporary private SSH keys and encoded
 server-key user data were removed after teardown. The private GitLab project and
-dedicated runner are retained for reuse. No Docker job has run. Select a suitable
-worker specification explicitly and prepare its image before retrying; the
-0.5-GiB SSH-only baseline does not establish a usable full-job worker.
+dedicated runner are retained for reuse. These failures did not establish a
+usable full-job worker. The explicitly approved 2-GiB prepared-image retry below
+subsequently passed both execution modes.
+
+## Released plugin VM and Docker jobs
+
+On 2026-10-28, both selected Linux amd64 execution modes completed a real
+**0→1→job→0** cycle with the unchanged published `0.1.0-rc.2` plugin and Runner
+19.5.1. Each used a fresh, exclusively owned ESS group starting at desired/total
+capacity zero, MaxSize=1 and a cumulative creation budget of one worker. Both
+workers were verified Spot instances; no on-demand fallback was enabled.
+
+The explicitly approved worker type was `ecs.e-c1m1.large` (2 vCPU, 2 GiB) in
+`us-east-1b`, with a 20 GiB ESSD PL0 system disk and configured 1 GiB swap. A separate Spot
+preparation VM installed the checksum-verified Runner, tools from the signed
+Ubuntu `20261027T000000Z` snapshot and Docker Engine. It cached the job image and
+version-tagged helper, ran an actual container probe, then cleared preparation
+SSH keys, cloud-init/machine/network state and the readiness marker before a
+stopped-instance image capture. Fresh workers installed their own keys and
+checked tools before becoming ready. Preparation compute was deleted before
+starting either job.
+
+The Manager was a temporary local Linux amd64 container under Docker Desktop
+amd64 emulation; the actual job workers were native Linux amd64 ECS instances.
+Runner installed the OCI plugin with an empty registry-auth configuration and
+compared its bytes with the Release binary. Both jobs used plugin SHA-256
+`1317b5063669c750d87d23916db4cd2730c5085d9863d858572d187225b864bd` and release
+source `795f07f5c2771bf7f84154c6892d90ba77f26b8b`. The acceptance driver source was
+`1f55016bf8416a87f80c53d8119ff047227362a2`.
+
+| Evidence | Instance executor | Docker Autoscaler |
+|---|---|---|
+| GitLab job | Success, 121.725 seconds | Success, 146.765 seconds |
+| Checkout and fixture command | Passed | Passed |
+| Artifact container marker | `false` | `true` |
+| Nonce, fixture SHA, runner ID and metadata instance ID | Matched the selected job and actual Spot worker | Matched the selected job and actual Spot worker |
+| Complete disk/ENI inventory and normal release | Passed before fallback cleanup | Passed before fallback cleanup |
+| Full fixture cleanup | Passed, two absence inventories | Passed, two absence inventories |
+
+Durations are GitLab's job durations, including preparation. Docker used
+`docker.io/library/buildpack-deps@sha256:57c2de9a151180bf9ba8eea8bbebf8c546ccaa629f4fec8ea9b18330226af31b`.
+The cached helper used Runner's `x86_64-v19.5.1` tag; its observed repository digest
+was `sha256:ca7cc8f66a6c6931281aa2ae974b62f80111a4f578cabc442b1d39388a0dee91`.
+The job image was digest-pinned; the helper used the pinned Runner version tag.
+
+One earlier 2-GiB VM job connected over SSH but failed during shell preparation
+in 96.710 seconds, before checkout. Runner's default Bash-style escaping was
+incompatible with the configured `sh`. Explicit POSIX escaping fixed the
+examples, Quick Start and acceptance Manager in
+[#46](https://github.com/euyuil/fleeting-plugin-aliyun/pull/46). Preparation also
+exposed a working-directory issue fixed in
+[#43](https://github.com/euyuil/fleeting-plugin-aliyun/pull/43). The observer could
+erase a previously complete inventory when resources detached before ECS
+disappeared; [#45](https://github.com/euyuil/fleeting-plugin-aliyun/pull/45)
+preserves historical proof while retaining exact final resource-ID checks.
+That failed run remains `CLEANUP_FAILED`; its separate full teardown passed.
+These tooling and configuration fixes leave the published plugin unchanged.
+
+Across all released-job preparation and job attempts, **six Spot instances**
+were created: two initial 0.5-GiB attempts, one 2-GiB image-preparation VM, one
+failed 2-GiB job worker, and the two successful job workers. All were deleted.
+The temporary image, its one snapshot, all task ESS groups/templates, disks,
+ENIs, key pairs and networks were deleted; every fixture was confirmed absent
+twice. Temporary private SSH keys, encoded host-key request data and Manager
+containers were removed. The private GitLab project and locked runner remain
+for reuse, with no pending/running jobs. Private project/job identities and raw
+receipts remain outside this repository.
+
+This establishes the selected single-worker Linux amd64 job cycles. Windows,
+full arm64 jobs, other images, larger pools, interruption and production
+Manager deployment are not covered. The GitHub OIDC live workflow and scheduled
+janitor remain unconfigured and unrun; local acceptance does not configure them.
 
 ## One-time configuration and cost responsibilities
 
