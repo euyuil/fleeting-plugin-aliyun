@@ -10,6 +10,9 @@ group, imports a public key, creates a version-1 launch template, and enables an
 empty, strict-Spot ESS group with MaxSize=1. It creates no NAT, load balancer,
 ACK, VPN, registry, Manager VM or GitLab deployment.
 
+The cost-optimized ESS policy requires an explicit Spot pool count. This fixture
+uses one pool because its launch template pins one instance type.
+
 Before running, select an allowed region/zone and available small Spot instance
 type. Select the exact immutable image ID. Prepare that image with
 `bootstrap-linux.sh` as root: supply Runner version/checksum from
