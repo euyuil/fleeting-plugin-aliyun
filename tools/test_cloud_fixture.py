@@ -141,6 +141,37 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(self.cloud.rows["vpc"], [row])
         self.assertFalse(any(action.startswith("Delete") for _, action, _ in self.cloud.calls))
 
+    def test_readiness_waits_for_atomic_create_tags_without_recreating(self):
+        self.owner.create("vpc", "CreateVpc", {"VpcName": self.owner.name})
+        ready = copy.deepcopy(self.cloud.rows["vpc"][0])
+        pending = copy.deepcopy(ready)
+        pending["Tags"]["Tag"] = pending["Tags"]["Tag"][:2]
+        pending["Status"] = "Pending"
+        with mock.patch.object(self.cloud, "inventory", side_effect=[[pending], [ready]]) as inventory:
+            with mock.patch("time.sleep") as sleep:
+                self.owner.wait("vpc")
+        self.assertEqual(inventory.call_count, 2)
+        sleep.assert_called_once_with(3)
+        self.assertEqual([action for _, action, _ in self.cloud.calls], ["CreateVpc"])
+
+    def test_missing_create_tags_time_out_and_cannot_authorize_cleanup(self):
+        self.owner.create("vpc", "CreateVpc", {"VpcName": self.owner.name})
+        self.cloud.rows["vpc"][0]["Tags"] = {"Tag": []}
+        with mock.patch("time.monotonic", side_effect=[0, 0, 121]), mock.patch("time.sleep"):
+            with self.assertRaisesRegex(RuntimeError, "observation deadline"):
+                self.owner.wait("vpc")
+        with self.assertRaisesRegex(ValueError, "ownership changed"):
+            self.owner.cleanup()
+        self.assertFalse(any(action.startswith("Delete") for _, action, _ in self.cloud.calls))
+
+    def test_readiness_rejects_conflicting_tags_even_while_other_tags_are_missing(self):
+        self.owner.create("vpc", "CreateVpc", {"VpcName": self.owner.name})
+        self.cloud.rows["vpc"][0]["Tags"] = {"Tag": [{"Key": "fleeting-project", "Value": "other/project"}]}
+        with mock.patch("time.sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "ownership changed"):
+                self.owner.wait("vpc")
+        sleep.assert_not_called()
+
     def test_changed_ownership_or_parent_blocks_destructive_cleanup(self):
         self.owner.state["ids"]["vpc"] = "test-vpc"
         self.cloud.rows["vpc"] = [{"VpcId": "test-vpc", "VpcName": self.owner.name, "Tags": {"Tag": []}}]
