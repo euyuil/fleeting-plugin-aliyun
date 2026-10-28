@@ -71,7 +71,7 @@ func StopLocalManager(ctx context.Context, l *Ledger, outputDir string) error {
 		return errors.New("local process termination requires Linux procfs; use janitor after run completion")
 	}
 	if l.ManagerPID <= 0 {
-		if l.Mode == "cloud-smoke" || l.Mode == "cloud-scale" {
+		if l.Mode == "cloud-smoke" || l.Mode == "cloud-scale" || l.Mode == "cloud-restart" {
 			return stopCloudPlugin(ctx, l, outputDir)
 		}
 		if (l.Mode == "scale" || l.Mode == "interruption" || l.Mode == "suspend") && l.DriverPID > 0 {
@@ -215,5 +215,29 @@ func waitLocal(ctx context.Context) error {
 		return ctx.Err()
 	case <-timer.C:
 		return nil
+	}
+}
+
+// WaitForProcessExit only probes the given PID. Permission errors do not prove
+// exit, and invalid PIDs must not address a process group.
+func WaitForProcessExit(ctx context.Context, pid int) error {
+	if pid <= 0 {
+		return errors.New("invalid plugin PID")
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	for {
+		err = process.Signal(syscall.Signal(0))
+		if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("plugin exit cannot be proven: %w", err)
+		}
+		if err = waitLocal(ctx); err != nil {
+			return err
+		}
 	}
 }
