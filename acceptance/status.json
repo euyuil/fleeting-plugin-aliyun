@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "implementation_status": "implemented_offline_with_documented_gates",
+  "implementation_status": "implemented_with_partial_live_validation_and_documented_gates",
   "offline_validation_status": "pass",
-  "live_validation_status": "NOT_RUN_MISSING_CONFIGURATION",
+  "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE",
   "publication_status": "not_run",
   "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
   "runner_version": "19.5.1",
@@ -13,78 +13,85 @@
       "capability": "provider_protocol",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Not all nine methods or a GitLab job were live exercised.",
+      "verified_scope": "Real gRPC plugin Init/Update/Increase/ConnectInfo/Decrease/Shutdown path."
     },
     {
       "capability": "scale_out",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Multi-instance and GitLab job behavior remain unverified.",
+      "verified_scope": "One actual fixed-type Spot instance created by the plugin from an empty ESS group."
     },
     {
       "capability": "specified_scale_in",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Retention of other workers, batched release and GitLab job cleanup remain unverified.",
+      "verified_scope": "Plugin released the exact single instance; normal ESS/ECS/disk/ENI absence verified before fallback cleanup."
     },
     {
       "capability": "restart_pagination",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
     },
     {
       "capability": "eventual_consistency",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Other partial-response, restart and concurrency scenarios remain offline-only.",
+      "verified_scope": "Observed Init member with empty InstanceId was handled by bounded whole-snapshot rereading."
     },
     {
       "capability": "spot_disappearance",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
     },
     {
       "capability": "configured_purchase_policy",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Other purchase configurations and genuine Spot interruption remain unverified.",
+      "verified_scope": "Actual SpotAsPriceGo/PostPaid worker from one pinned type/image/zone with no on-demand fallback."
     },
     {
       "capability": "public_private_addresses",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Private-route connection and other address configurations remain unverified.",
+      "verified_scope": "Public IPv4 returned through real plugin ConnectInfo and used for authenticated SSH."
     },
     {
       "capability": "linux_static_ssh",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Upstream connector does not verify server host keys. GitLab job, other images and architectures remain unverified.",
+      "verified_scope": "Ubuntu 26.04 on one actual Alibaba Cloud Spot worker; exact SSH nonce returned using the pinned upstream connector."
     },
     {
       "capability": "connector_overrides",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
     },
     {
       "capability": "instance_executor",
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Real Fleeting plugin process and SSH tested; no live GitLab job has run."
+      "gap": "Real plugin process and Alibaba Cloud SSH passed; no live GitLab executor job has run."
     },
     {
       "capability": "docker_autoscaler",
@@ -112,7 +119,7 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "gap": "This capability has not been live validated; the plugin-only cloud smoke covers a limited single-worker path."
     },
     {
       "capability": "suspend_resume",
@@ -125,8 +132,9 @@
       "capability": "credentials_sts",
       "implementation": "implemented",
       "offline_validation": "pass",
-      "live_validation": "not_run",
-      "gap": "Live Alibaba Cloud and GitLab validation has not run."
+      "live_validation": "partial_pass",
+      "gap": "Restricted RAM roles, GitHub OIDC, STS issuance/renewal and denied-permission behavior remain unverified.",
+      "verified_scope": "Official CLI OAuth profile used directly by the production SDK/plugin."
     },
     {
       "capability": "native_oci_distribution",
@@ -139,28 +147,28 @@
   "infrastructure_fixture": {
     "implementation": "implemented",
     "offline_validation": "pass",
-    "live_validation": "not_run",
-    "gap": "Shell syntax, local public-key validation, interrupted/duplicate setup, and conservative fake CLI requests tested. No worker image or real cloud fixture was built."
+    "live_validation": "partial_pass",
+    "gap": "An isolated ESS/launch-template/VPC fixture was created through the official CLI and fully deleted. The reusable prepare.sh entry point and a prepared worker image were not themselves live exercised."
   },
   "live_tooling": {
     "implementation": "implemented",
     "offline_validation": "pass",
-    "live_validation": "NOT_RUN_MISSING_CONFIGURATION",
+    "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_SMOKE",
     "entry_point": "docs/testing.md",
-    "gap": "No configured cloud fixture, worker key/image, trusted OIDC roles or fixed GitLab runner/project inputs were supplied. Smoke and extended tests have not run against cloud services."
+    "gap": "The local cloud-smoke driver passed with the real plugin and local CLI OAuth. GitLab job smoke, extended scale/interruption/suspend, GitHub OIDC and the scheduled janitor remain unrun."
   },
   "milestones": {
     "M0": "complete",
     "M1": "offline_complete",
-    "M2": "tooling_complete_live_not_run",
+    "M2": "tooling_complete_plugin_cloud_smoke_pass_gitlab_job_not_run",
     "M3": "implemented_paths_with_formal_suspend_and_live_acceptance_gates",
     "M4": "local_distribution_complete_external_publication_not_run"
   },
   "cleanup": {
     "cloud_resources_created": true,
-    "cloud_cleanup": "PASS_CONNECTIVITY_PREFLIGHT",
+    "cloud_cleanup": "PASS_CONNECTIVITY_AND_PLUGIN_CLOUD_SMOKE",
     "known_cloud_leftovers": [],
-    "limitation": "Only the isolated connectivity preflight ran. Provider-managed release, ESS lifecycle and GitLab job cleanup remain unverified."
+    "limitation": "All resources owned by the direct preflight and three isolated plugin attempts were confirmed absent twice per attempt. GitLab job cleanup, scheduled janitor and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -185,7 +193,7 @@
   "connectivity_preflight": {
     "status": "pass",
     "date": "2026-10-27",
-    "scope": "Direct ECS boot, SSH and GitHub connectivity; provider/GitLab acceptance remains unrun",
+    "scope": "Direct ECS boot, SSH and GitHub connectivity; distinct from plugin_cloud_smoke and GitLab job acceptance",
     "region": "us-east-1",
     "zone": "us-east-1b",
     "instance_type": "ecs.e-c4m1.large",
@@ -208,5 +216,112 @@
     "consecutive_absence_confirmations": 2,
     "temporary_github_secrets_retained": false,
     "local_private_keys_retained": false
+  },
+  "gitlab_validation_status": "NOT_RUN_MISSING_CONFIGURATION",
+  "missing_live_configuration_scope": "Reusable GitLab/GitHub OIDC acceptance environment; ephemeral local smoke inputs and resources were removed.",
+  "plugin_cloud_smoke": {
+    "status": "pass",
+    "date": "2026-10-28",
+    "mode": "cloud-smoke",
+    "scope": "Real plugin-only 0\u21921\u2192authenticated SSH\u21920; no GitLab or Runner Manager",
+    "plugin_commit": "100df4fce0c2c3acb136672ba97e2b8fea91ab6c",
+    "integrated_commit": "7feb6f0912aa3a86f1ee0bc378df2cbfbf9382d7",
+    "plugin_sha256": "940b958bbfeb0803594899778c8b9871a16198f89ae0e711b52f1eec0e8afc7f",
+    "credential_mode": "local_cli_oauth",
+    "real_plugin_process": true,
+    "region": "us-east-1",
+    "zone": "us-east-1b",
+    "instance_type": "ecs.e-c4m1.large",
+    "image_id": "ubuntu_26_04_x64_20G_alibase_20260916.vhd",
+    "vcpu": 2,
+    "memory_mib": 512,
+    "system_disk": {
+      "category": "cloud_essd",
+      "performance_level": "PL0",
+      "size_gib": 20,
+      "delete_with_instance": true
+    },
+    "actual_configuration_verified": true,
+    "spot_only": true,
+    "on_demand_fallback": false,
+    "attempt_count": 3,
+    "instances_created_total": 3,
+    "instance_limit_per_attempt": 1,
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "fail",
+        "instances_created": 1,
+        "reason": "Incomplete ESS member identity; exact raw failure response was not retained.",
+        "cleanup": "pass"
+      },
+      {
+        "attempt": 2,
+        "status": "fail",
+        "instances_created": 1,
+        "reason": "SSH readiness timeout; subsequent catalog query confirmed X86 rejected by the old default ConnectInfo path. Last connection error was not retained.",
+        "cleanup": "pass"
+      },
+      {
+        "attempt": 3,
+        "status": "pass",
+        "instances_created": 1,
+        "normal_release": true,
+        "authenticated_ssh": true,
+        "cleanup": "pass"
+      }
+    ],
+    "normal_release": true,
+    "authenticated_ssh": true,
+    "ssh_nonce_verified": true,
+    "ssh_server_host_key_verified": false,
+    "transitions": [
+      {
+        "action": "initial",
+        "desired_capacity": 0,
+        "total_capacity": 0
+      },
+      {
+        "action": "plugin_increase",
+        "desired_capacity": 1,
+        "total_capacity": 1,
+        "observed_at": "2026-10-28T03:03:40.999038Z"
+      },
+      {
+        "action": "plugin_connect_info_ssh",
+        "nonce_verified": true,
+        "observed_at": "2026-10-28T03:04:19.623531Z"
+      },
+      {
+        "action": "plugin_decrease",
+        "desired_capacity": 0,
+        "total_capacity": 0,
+        "associated_resources_absent": true,
+        "observed_at": "2026-10-28T03:05:13.393067Z"
+      }
+    ],
+    "cleanup": "pass",
+    "cleanup_inventory_retry": "One read-only DescribeSnapshots connection reset; cleanup retried after driver stop, without another instance creation.",
+    "owned_resources_remaining": 0,
+    "consecutive_absence_confirmations_per_attempt": 2,
+    "verified_resource_kinds": [
+      "instance",
+      "disk",
+      "eni",
+      "snapshot",
+      "scaling_group",
+      "launch_template",
+      "key_pair",
+      "security_group",
+      "vswitch",
+      "vpc"
+    ],
+    "temporary_keys_retained": false,
+    "cloud_credentials_on_worker": false,
+    "github_cloud_secrets_created": false,
+    "gitlab_job_executed": false,
+    "report": "docs/acceptance-report.md",
+    "configured_swap_mib": 512,
+    "swap_runtime_verified": false
   }
 }
