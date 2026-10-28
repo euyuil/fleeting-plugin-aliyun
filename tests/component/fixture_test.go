@@ -99,7 +99,7 @@ print(json.dumps(responses[action]))
 					}
 					if call.Action == "CreateScalingGroup" {
 						seenGroup = true
-						for key, value := range map[string]string{"--MinSize": "0", "--MaxSize": "1", "--DesiredCapacity": "0", "--CompensateWithOnDemand": "false"} {
+						for key, value := range map[string]string{"--MinSize": "0", "--MaxSize": "1", "--DesiredCapacity": "0", "--CompensateWithOnDemand": "false", "--MultiAZPolicy": "COST_OPTIMIZED", "--SpotInstancePools": "1"} {
 							if call.Query[key] != value {
 								t.Fatal("unsafe group", call.Query)
 							}
