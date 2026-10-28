@@ -161,6 +161,39 @@ specified scale-in to zero and full fixture cleanup remain mandatory. This mode
 covers an accepted response during creation, not a lost API response or deletion
 in progress, and requires neither GitLab nor Runner.
 
+### Plugin restart during accepted removal
+
+`LIVE_EXTENDED_MODE=cloud-remove-restart` uses a separate empty **MaxSize=1**
+strict-Spot fixture, with concurrent and cumulative creation limits both **one**.
+
+```sh
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-remove-restart make test-live-extended
+```
+
+The real plugin creates one worker, verifies the actual disk configuration and
+completes authenticated SSH with a fresh nonce. Once provisioning activities
+have completed, it issues one target-specific `Decrease`. A read-only timing
+probe requires the accepted 1-to-0 journal, exact target and activity ID, an
+`Api/InProgress` removal activity, the sole `Removing` member, and the target
+still present in ECS as `Running`, `Stopping` or `Stopped`. Pre-removal activity
+IDs must remain present; only completed zero-creation API bookkeeping records
+may accompany the accepted removal activity.
+
+The driver persists `removal-cutpoint.json` before killing the owned plugin and
+again after proving its exit. The same target must still exist and the same
+removal activity and complete activity-ID set must remain in both captures.
+Missing the window fails the run and triggers cleanup. No lifecycle hooks,
+artificial deletion delays or direct ECS deletion are used to obtain the window.
+
+A distinct new PID uses the same verified binary and performs a fresh Init.
+The accepted removal journal must remain intact. Only empty `Decrease` calls
+drive reconciliation; no second target-specific removal or Increase is issued.
+The original removal activity must succeed, its activity-ID set must remain
+unchanged, and the journal must clear. ESS/ECS zero and disk/ENI absence must be
+verified before fallback cleanup. Separate full fixture teardown remains
+mandatory. This covers an acknowledged response during removal, without GitLab
+or Runner; lost API responses remain a separate case.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its
