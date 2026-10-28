@@ -184,6 +184,46 @@ class FixtureTests(unittest.TestCase):
             self.owner.cleanup()
         self.assertFalse(any(action.startswith("Delete") for _, action, _ in self.cloud.calls))
 
+    def test_cleanup_waits_for_deleted_resource_id_after_tags_disappear(self):
+        self.owner.create("vpc", "CreateVpc", {"VpcName": self.owner.name})
+        call, inventory = self.cloud.call, self.cloud.inventory
+        deleting = False
+
+        def delete(service, action, **params):
+            nonlocal deleting
+            if action == "DeleteVpc":
+                deleting = True
+                self.cloud.calls.append((service, action, params))
+                self.cloud.rows["vpc"][0]["Tags"] = {"Tag": []}
+                return {}
+            return call(service, action, **params)
+
+        def observe(kind):
+            rows = inventory(kind)
+            if deleting and kind == "vpc":
+                self.cloud.rows["vpc"] = []
+            return rows
+
+        with mock.patch.object(self.cloud, "call", side_effect=delete), mock.patch.object(self.cloud, "inventory", side_effect=observe):
+            with mock.patch("time.sleep"):
+                self.owner.cleanup()
+        self.assertEqual([action for _, action, _ in self.cloud.calls], ["CreateVpc", "DeleteVpc"])
+        self.assertFalse(self.cloud.rows["vpc"])
+
+    def test_absence_requires_recorded_id_to_disappear_even_without_tags(self):
+        self.owner.create("vpc", "CreateVpc", {"VpcName": self.owner.name})
+        self.cloud.rows["vpc"][0]["Tags"] = {"Tag": []}
+        with mock.patch("time.monotonic", side_effect=[0, 0, 91]), mock.patch("time.sleep"):
+            with self.assertRaisesRegex(RuntimeError, "observation deadline"):
+                self.owner.wait("vpc", absent=True, seconds=90)
+        self.assertFalse(any(action.startswith("Delete") for _, action, _ in self.cloud.calls))
+
+    def test_absence_still_rejects_a_different_resource_with_the_same_tags(self):
+        self.owner.create("vpc", "CreateVpc", {"VpcName": self.owner.name})
+        self.cloud.rows["vpc"][0]["VpcId"] = "other-vpc"
+        with self.assertRaisesRegex(ValueError, "resource identity changed"):
+            self.owner.wait("vpc", absent=True)
+
     def test_cleanup_failure_is_nonzero_and_never_a_passing_receipt(self):
         root = self.directory / "candidate"
         manifest = {"candidate_sha": "a" * 40, "version": "1.0.0"}
