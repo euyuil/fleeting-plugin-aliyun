@@ -40,6 +40,41 @@ probe does not establish authenticated SSH client access, worker egress or
 plugin/GitLab acceptance; verify those separately. The result artifact contains
 statuses and timings without the target address.
 
+## Plugin-only cloud smoke without GitLab
+
+`LIVE_EXTENDED_MODE=cloud-smoke` runs one real release-plugin process through
+the pinned Fleeting gRPC host. It requires a separately authorized, dedicated
+idle ESS group with MinSize/desired/total=0, MaxSize=1, a pinned strict-Spot launch
+template, and a working SSH user/key. Set the region/group, project, numeric
+`GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` ownership identifiers, exact allowed
+type/image/zone, `WORKER_USER`, `WORKER_SSH_KEY`, `MANAGER_CIDR`, `PLUGIN_BINARY`
+and its full `PLUGIN_COMMIT`. For a local run, use fresh numeric ownership
+identifiers; they do not claim that a GitHub Actions run exists.
+
+Build the current release plugin with `make build`, then run:
+
+```sh
+RUN_LIVE_ACCEPTANCE=1 LIVE_EXTENDED_MODE=cloud-smoke make test-live-extended
+```
+
+This mode does not require GitLab or a Runner binary, and the image does not
+need the GitLab readiness marker. It checks the plugin build revision and hash,
+claims the empty group, calls Increase(1), waits for exactly one observed Spot,
+uses ConnectInfo to execute a fresh SSH nonce, and calls Decrease on that exact
+ID. Normal release must confirm ESS/ECS zero capacity and associated disk/ENI
+absence before emergency cleanup runs. Emergency deletion cannot make a failed
+normal release pass. The cumulative creation budget is one, including failed
+workers or replacements. Results record process identity, transitions, SSH and
+normal-release outcomes in private `extended-result.json` evidence.
+
+Existing credential-chain profiles can be selected with
+`ALIBABA_CLOUD_PROFILE`; do not print credentials or copy them to the worker.
+The upstream connector's host-key limitation still applies as documented in
+[operations](operations.md). Fixture teardown remains a separate explicit
+operation: stop the driver, delete only its dedicated group/template/network/key
+resources, and independently verify their absence. A passing plugin-only cycle
+does not establish GitLab scheduling, checkout or executor-job acceptance.
+
 ## One-time live setup
 
 1. Prepare a fixed GitLab fixture following its
