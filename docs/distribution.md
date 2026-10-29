@@ -124,6 +124,14 @@ prerelease flag does not control OCI aliases.
 
 ## Public installation check
 
+The Release workflow calls this check after publication and waits for both
+architectures. It passes the exact accepted source revision, so a different
+published tag fails before installation. A verification failure makes the
+workflow fail but does not remove or overwrite already published assets. The
+manual verifier remains available for diagnosis and recovery after publication.
+The direct reusable-workflow call does not depend on events from `GITHUB_TOKEN`
+creating another workflow run.
+
 After publication and public visibility are confirmed, use a fresh Linux host
 for each supported architecture. Configure a new Docker directory with an
 explicit `{"auths":{}}` config file, a new plugin directory, and no registry or

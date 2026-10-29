@@ -125,9 +125,13 @@ checkpoint/cleanup-bypass check on Linux; macOS skips that procfs-specific test.
 See [distribution](docs/distribution.md) for native and OCI packaging, installation,
 and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.
 
-After an authorized release is published and its package is public, check
-anonymous installation on both supported Linux architectures. The manual
-workflow uses fresh GitHub-hosted Linux amd64 and arm64 hosts:
+Release automatically calls the public installation workflow after publication,
+binding the published tag to the source commit accepted by the cloud gate. Both
+native Linux architecture jobs must pass before the Release workflow succeeds.
+The verifier receives read-only repository access and no inherited cloud secrets.
+After a failed verification, inspect the existing immutable release; do not
+repeat publication. The same workflow can verify an already published version
+on fresh GitHub-hosted Linux amd64 and arm64 hosts:
 
 ```sh
 gh workflow run verify-release.yml --ref main -f version=0.1.0-rc.3
