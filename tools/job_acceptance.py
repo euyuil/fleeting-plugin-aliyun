@@ -13,7 +13,8 @@ import sys
 import urllib.request
 
 from cloud_config import config_digest, decode, fixture_config
-from cloud_fixture import Cloud, Fixture, labels, preflight, require_linux, stop_process_group
+from cloud_fixture import JOB_SCENARIOS, Cloud, Fixture, labels, preflight, require_linux, stop_process_group
+from cloud_diagnostics import driver_diagnostic
 from debian_package import debian_version
 from release_candidate import digest, revision, verify, write_json
 
@@ -91,22 +92,45 @@ def install_package(root, manifest, phase, directory):
         raise ValueError("installed Debian binary differs from the sealed candidate")
 
 
-def check_result(result, manifest, gitlab, executor, lock, run_id, attempt):
+def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scenario="smoke"):
+    cases = ["smoke"] if scenario == "smoke" else [scenario, "smoke"]
     expected = {"result": "PASS", "cleanup_result": "PASS", "normal_release": True,
-                "mode": "smoke", "executor": executor, "manager_mode": "systemd",
+                "mode": "smoke", "executor": executor, "manager_mode": "systemd", "job_scenario": scenario,
                 "plugin_commit": manifest["candidate_sha"], "plugin_version": manifest["version"],
                 "plugin_sha256": manifest["files"][manifest["normal_binary"]],
                 "runner_sha256": lock["runner"]["sha256"]["linux-amd64"], "runner_version": lock["runner"]["version"],
                 "gitlab_fixture_sha": gitlab["fixture_sha"], "gitlab_project_id": gitlab["project_id"], "gitlab_runner_id": int(gitlab["runner_id"]),
-                "github_run_id": run_id, "github_run_attempt": attempt, "instance_limit": 1, "creation_budget": 1, "evidence_incomplete": False}
+                "github_run_id": run_id, "github_run_attempt": attempt, "instance_limit": 1, "creation_budget": len(cases), "evidence_incomplete": False}
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
         raise ValueError("job evidence lacks concrete pipeline and job identities")
     instances = result.get("instances")
-    if (not isinstance(instances, list) or len(instances) != 1 or "leftover_resources" not in result or result["leftover_resources"] or result.get("errors")
-            or instances[0].get("spot_verified") is not True or instances[0].get("inventory_complete") is not True or instances[0].get("deletion_verified") is not True):
-        raise ValueError("job evidence lacks the exact one-worker Spot and deletion proof")
+    if (not isinstance(instances, list) or len(instances) != len(cases) or "leftover_resources" not in result or result["leftover_resources"] or result.get("errors")
+            or any(not isinstance(row, dict) or any(row.get(k) is not True for k in ("spot_verified", "inventory_complete", "deletion_verified")) for row in instances)):
+        raise ValueError("job evidence lacks the exact Spot worker and deletion proof")
+    steps = result.get("jobs")
+    if not isinstance(steps, list) or len(steps) != len(cases) or type(result.get("manager_pid")) is not int or result["manager_pid"] <= 0:
+        raise ValueError("job sequence or persistent Manager identity is missing")
+    seen = {k: set() for k in ("pipeline_id", "job_id", "nonce", "instance_id")}
+    for step, case in zip(steps, cases):
+        status, reason = {"smoke": ("success", ""), "failure": ("failed", "script_failure"),
+                          "cancel": ("canceled", None), "timeout": ("failed", "job_execution_timeout")}[case]
+        if (not isinstance(step, dict) or step.get("scenario") != case or step.get("status") != status or
+                (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not True or
+                type(step.get("manager_pid")) is not int or step["manager_pid"] != result["manager_pid"] or
+                step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True)):
+            raise ValueError("unexpected job outcome, restart or incomplete normal release")
+        for key in seen:
+            value = step.get(key)
+            valid = (type(value) is int and value > 0) if key.endswith("_id") and key != "instance_id" else (
+                isinstance(value, str) and re.fullmatch(r"[0-9a-f]{48}" if key == "nonce" else r"i-[a-zA-Z0-9]+", value))
+            if not valid or value in seen[key]:
+                raise ValueError("missing or reused job sequence identity")
+            seen[key].add(value)
+    if (seen["instance_id"] != {row.get("instance_id") for row in instances} or
+            result["gitlab_pipeline_id"] != steps[-1]["pipeline_id"] or result["gitlab_job_id"] != steps[-1]["job_id"]):
+        raise ValueError("job sequence differs from the final job or observed workers")
 
 
 def manager_fenced():
@@ -117,13 +141,13 @@ def manager_fenced():
             raise ValueError("systemd Manager termination and startup fence are not confirmed")
 
 
-def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary):
+def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scenario="smoke"):
     env = {k: v for k, v in os.environ.items() if k not in
            ("ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_CREDENTIALS_FILE", "ALIBABA_CLOUD_ROLE_ARN",
             "ALIBABA_CLOUD_OIDC_TOKEN_FILE", "ALIBABA_CLOUD_OIDC_PROVIDER_ARN", "ALIYUN_COMPONENT_ENDPOINT",
             "ALIYUN_RESPONSE_GATE_ADDR", "ALIYUN_RESPONSE_GATE_CA", "PLUGIN_REFERENCE")}
     env.update(RUN_LIVE_ACCEPTANCE="1", ACCEPTANCE_MANAGER_MODE="systemd", ACCEPTANCE_DISPOSABLE_HOST="true",
-               ACCEPTANCE_EXECUTOR=executor, ACCEPTANCE_JOB_IMAGE=config["job_image"] if executor == "docker-autoscaler" else "",
+               ACCEPTANCE_EXECUTOR=executor, ACCEPTANCE_JOB_SCENARIO=scenario, ACCEPTANCE_JOB_IMAGE=config["job_image"] if executor == "docker-autoscaler" else "",
                ALIYUN_REGION=config["fixture"]["region"], ALIYUN_SCALING_GROUP_ID=fixture.state["ids"]["group"],
                ACCEPTANCE_PROJECT=fixture.tags["fleeting-project"], MANAGER_CIDR=cidr,
                ALLOWED_INSTANCE_TYPE=config["fixture"]["instance_type"], ALLOWED_IMAGE_ID=config["fixture"]["image"],
@@ -143,7 +167,7 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary):
             process = subprocess.Popen([str(binary.resolve()), "smoke"], env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             fixture.state["driver_group"] = process.pid
             fixture.save()
-            code = process.wait(timeout=30 * 60)
+            code = process.wait(timeout=(30 if scenario == "smoke" else 50) * 60)
         finally:
             if process is not None:
                 stop_process_group(process)
@@ -153,11 +177,14 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary):
                 fixture.state["driver_group"] = None
                 fixture.save()
     path = Path(env["ACCEPTANCE_OUTPUT"]) / f"run-{env['GITHUB_RUN_ID']}-{env['GITHUB_RUN_ATTEMPT']}" / "result.json"
-    if code:
-        raise ValueError("real GitLab job acceptance failed; private diagnostics retained")
     result = json.loads(path.read_text())
+    if code:
+        diagnostic = driver_diagnostic({"result": result.get("result"), "resources": result}, code,
+                                       json.dumps(result.get("errors", [])))
+        print(json.dumps({"job_diagnostic": diagnostic}))
+        raise ValueError("real GitLab job acceptance failed; private diagnostics retained")
     lock = json.loads(Path("upstream.lock.json").read_text())
-    check_result(result, manifest, gitlab, executor, lock, env["GITHUB_RUN_ID"], env["GITHUB_RUN_ATTEMPT"])
+    check_result(result, manifest, gitlab, executor, lock, env["GITHUB_RUN_ID"], env["GITHUB_RUN_ATTEMPT"], scenario)
 
 
 def run(args):
@@ -167,7 +194,7 @@ def run(args):
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     install_package(args.root, manifest, args.phase, args.directory)
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    mode = f"job-{args.phase}-{args.executor}"
+    mode = f"job-{args.phase}-{args.executor}" + ("" if args.scenario == "smoke" else "-" + args.scenario)
     tags = labels(os.environ["GITHUB_REPOSITORY"], args.sha, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], mode, expires)
     fixture = Fixture(Cloud(config["fixture"]["region"]), args.directory / "fixture", tags)
     address = subprocess.check_output(["curl", "-4", "--fail", "--silent", "--show-error", "--max-time", "15", "https://api.ipify.org"], text=True).strip()
@@ -175,7 +202,7 @@ def run(args):
     status = cleanup = "FAIL"
     try:
         fixture.prepare(cidr, config["fixture"], worker_script=worker_script(args.executor))
-        driver(fixture, args.root, manifest, config, gitlab, args.executor, cidr, args.driver)
+        driver(fixture, args.root, manifest, config, gitlab, args.executor, cidr, args.driver, args.scenario)
         status = "PASS"
     finally:
         try:
@@ -184,7 +211,8 @@ def run(args):
         finally:
             # Publish only checksums and verdicts, never raw project/runner/cloud
             # identities, logs, configuration, job artifacts or credentials.
-            write_json(args.receipt, {"schema_version": 1, "result": status, "cleanup_result": cleanup,
+            write_json(args.receipt, {"schema_version": 2, "result": status, "cleanup_result": cleanup,
+                       "job_scenario": args.scenario, "job_count": 1 if args.scenario == "smoke" else 2,
                        "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                        "phase": args.phase, "executor": args.executor, "manager_mode": "systemd",
                        "distribution_source": "sealed-candidate" if args.phase == "candidate" else "anonymous-release",
@@ -195,8 +223,8 @@ def run(args):
                        "leftover_resources": 0 if cleanup == "PASS" else -1})
 
 
-def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt):
-    expected = {"schema_version": 1, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke"):
+    expected = {"schema_version": 2, "job_scenario": scenario, "job_count": 1 if scenario == "smoke" else 2, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"], "manifest_sha256": manifest_digest,
                 "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": run_id, "run_attempt": attempt,
                 "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -211,13 +239,15 @@ def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, a
 def gate(args):
     manifest = verify(args.root, args.digest, args.sha, args.version)
     paths = list(args.receipts.glob("*.json"))
-    if {p.name for p in paths} != {executor + ".json" for executor in EXECUTORS}:
-        raise ValueError("both exact executor receipts are required")
+    expected = {f"{executor}-{scenario}.json" for executor in EXECUTORS for scenario in JOB_SCENARIOS}
+    if {p.name for p in paths} != expected:
+        raise ValueError("all exact executor/scenario receipts are required")
     configs = set()
     for executor in EXECUTORS:
-        receipt = json.loads((args.receipts / (executor + ".json")).read_text())
-        check_receipt(receipt, manifest, args.digest, args.phase, executor, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
-        configs.add((receipt["fixture_config_sha256"], receipt["gitlab_config_sha256"]))
+        for scenario in JOB_SCENARIOS:
+            receipt = json.loads((args.receipts / f"{executor}-{scenario}.json").read_text())
+            check_receipt(receipt, manifest, args.digest, args.phase, executor, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], scenario)
+            configs.add((receipt["fixture_config_sha256"], receipt["gitlab_config_sha256"]))
     if len(configs) != 1:
         raise ValueError("executor jobs used different fixture configurations")
 
@@ -233,6 +263,7 @@ def main():
     parser.add_argument("--version")
     parser.add_argument("--phase", choices=PHASES)
     parser.add_argument("--executor", choices=EXECUTORS)
+    parser.add_argument("--scenario", choices=JOB_SCENARIOS, default="smoke")
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--receipts", type=Path)

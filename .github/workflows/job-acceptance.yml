@@ -60,12 +60,14 @@ jobs:
       fail-fast: true
       matrix:
         executor: [instance, docker-autoscaler]
+        scenario: [smoke, failure, cancel, timeout]
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
       PHASE: ${{ inputs.phase }}
       EXECUTOR: ${{ matrix.executor }}
+      JOB_SCENARIO: ${{ matrix.scenario }}
       RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
       RELEASE_JOB_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_JOB_ACCEPTANCE_ENABLED }}
       RELEASE_CLOUD_CLEANUP_ENABLED: ${{ vars.RELEASE_CLOUD_CLEANUP_ENABLED }}
@@ -116,12 +118,12 @@ jobs:
       - name: Install the package, run a real job, and verify full teardown
         run: |
           python3 tools/job_acceptance.py run --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
-            --digest "$MANIFEST_SHA256" --phase "$PHASE" --executor "$EXECUTOR" \
-            --directory ".live/job-$PHASE-$EXECUTOR" --receipt ".cache/job-receipts/$EXECUTOR.json"
+            --digest "$MANIFEST_SHA256" --phase "$PHASE" --executor "$EXECUTOR" --scenario "$JOB_SCENARIO" \
+            --directory ".live/job-$PHASE-$EXECUTOR-$JOB_SCENARIO" --receipt ".cache/job-receipts/$EXECUTOR-$JOB_SCENARIO.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}-${{ matrix.executor }}
+          name: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}-${{ matrix.executor }}-${{ matrix.scenario }}
           path: .cache/job-receipts/*.json
           if-no-files-found: warn
           retention-days: 7
@@ -139,7 +141,7 @@ jobs:
       PHASE: ${{ inputs.phase }}
       SCENARIO_RESULT: ${{ needs.scenario.result }}
     steps:
-      - name: Require both executor jobs to have succeeded
+      - name: Require every executor and recovery scenario to have succeeded
         run: test "$SCENARIO_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -158,7 +160,7 @@ jobs:
           pattern: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}-*
           path: .cache/job-receipts
           merge-multiple: true
-      - name: Require both receipts for this phase, distribution and attempt
+      - name: Require every scenario receipt for this phase, distribution and attempt
         id: result
         run: |
           mkdir -p .cache/candidate

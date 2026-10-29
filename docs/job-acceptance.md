@@ -1,6 +1,6 @@
 # Release job acceptance
 
-`tools/job_acceptance.py` owns a fresh one-worker fixture and drives real GitLab
+`tools/job_acceptance.py` owns a fresh fixture with at most one active worker and drives real GitLab
 jobs through the installed Debian package and its systemd Manager. Both
 `instance` and `docker-autoscaler` must pass independently. The candidate phase
 installs the sealed package; the public phase downloads the package and checksum
@@ -10,12 +10,12 @@ The plugin is never rebuilt between acceptance and publication.
 The [systemd acceptance path](testing.md#packaged-systemd-manager-acceptance)
 validates the installed binary, shipped example, service lifecycle, fixed
 GitLab fixture, actual worker, executor and normal release. Emergency cleanup
-does not turn a failed job or failed normal release into PASS. Both executor
+does not turn an unexpected job outcome or failed normal release into PASS. All executor/scenario
 receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors serially on
+The `Release job acceptance` reusable workflow runs both executors and all four scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
@@ -26,8 +26,42 @@ credentials are confined to the separate job workflow's Environment.
 
 These live jobs cover the configured official Ubuntu 26.04 amd64 base image and
 its exact type, zone and network assumptions. The wider amd64/arm64 Ubuntu and
-Debian package matrix remains offline installation evidence. Neither receipt
-establishes future Spot availability or universal success on other user images.
+Debian package matrix remains offline installation evidence. These receipts do not
+establish future Spot availability or universal success on other user images.
+
+## Expected failures and continued service
+
+Every executor runs four independently bounded scenarios:
+
+| Scenario | First job | Follow-up job | Cumulative worker budget |
+| --- | --- | --- | --- |
+| `smoke` | Successful checkout, command and artifact | None | 1 |
+| `failure` | Deliberate exit 42, reported as `script_failure` | Success | 2 |
+| `cancel` | Driver cancels the pipeline after the script checkpoint | Success | 2 |
+| `timeout` | Runner's fixed three-minute `RUNNER_SCRIPT_TIMEOUT`, reported as `job_execution_timeout` | Success | 2 |
+
+The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
+Cancellation is requested only after that worker has complete independent Spot
+and associated-resource inventory. A preparation failure, missing checkpoint,
+wrong failure reason, unexpected retry or different worker cannot satisfy an
+expected-failure scenario. The timeout covers the actual script stage after
+worker acquisition and preparation; it does not simulate a timeout with `exit`.
+
+The same systemd Manager PID must survive both jobs and both normal releases.
+Before submitting the second pipeline, the driver observes zero desired/total/
+pending/removing capacity, an idle activity history, and the absence of the first
+worker and its disks/ENIs. It performs no cleanup mutation during this check.
+The second job must use a fresh nonce, pipeline, job and worker, return the normal
+success artifact, and then release normally. Emergency cleanup remains separate
+and cannot make failed recovery pass.
+
+Each recovery driver has a 40-minute execution deadline, bounded shutdown and
+cleanup, and a 60-minute hosted job deadline. Smoke retains its 20-minute driver
+deadline. The serial eight-case phase permits fourteen cumulative workers,
+with at most one active worker per fixture. Both candidate and public phases
+require all eight schema-v2 receipts; a smoke receipt cannot substitute for a
+recovery case. Raw GitLab traces and identities remain private; failure output
+uses only the existing allowlisted diagnostic projection.
 
 ## Dedicated configuration
 
@@ -90,10 +124,11 @@ in the [ECS bandwidth documentation](https://www.alibabacloud.com/help/en/ecs/us
 
 Use an instance type suitable for full jobs. The initial target is 2 vCPU and
 2 GiB, for example `ecs.e-c1m1.large`, subject to regional Spot availability.
-Each mode uses MaxSize 1, concurrency 1 and a cumulative observation budget of
-one instance, with no on-demand fallback. Pre- and post-publication modes have
+Each mode uses MaxSize 1 and concurrency 1, with no on-demand fallback. Smoke
+permits one cumulative worker; each recovery scenario permits exactly two
+successive workers. Pre- and post-publication executor/scenario modes have
 distinct fixture names and ownership tags. Existing janitor discovery covers
-all four modes even if local evidence is lost.
+all sixteen modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
 disabled until the paid run is approved and the official base image is configured.

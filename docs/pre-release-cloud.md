@@ -183,7 +183,7 @@ equality, and per-scenario receipts are checked again before publication.
 Publication downloads the accepted artifact and never rebuilds the distribution.
 The test-only responsegate binary is outside `dist/` and is never published.
 
-Mode `all` requires all six scenarios followed by both real executor jobs. Mode
+Mode `all` requires all six scenarios followed by all real executor/scenario checks. Mode
 `jobs` runs only the two executor jobs against a sealed candidate, without
 publication. A selected single plugin scenario remains available independently.
 Only a complete `all` run can return `release_ready=true`; missing job
@@ -197,7 +197,7 @@ installation verification remains separate.
 
 The caller holds the shared cloud concurrency group through the candidate job
 checks. After publication and the anonymous installation matrix, Release
-reacquires that group for both public-package job checks. Executor jobs are
+reacquires that group for all public-package job checks. Executor jobs are
 serial and use distinct temporary fixtures. The reusable job workflow does not
 acquire its caller's group a second time. Completion-triggered janitor recovery
 includes these job fixtures through the owning Release or Cloud acceptance run.

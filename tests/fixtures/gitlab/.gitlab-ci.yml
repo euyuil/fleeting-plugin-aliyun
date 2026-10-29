@@ -8,6 +8,11 @@ spot-smoke:
     - $FLEETING_RUNNER_TAG
   timeout: 20m
   retry: 0
+  rules:
+    - if: '$FLEETING_JOB_SCENARIO == "timeout"'
+      variables:
+        RUNNER_SCRIPT_TIMEOUT: 3m
+    - when: on_success
   script:
     - test "$CI_RUNNER_ID" = "$FLEETING_EXPECTED_RUNNER_ID"
     - sh smoke.sh

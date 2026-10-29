@@ -2,7 +2,6 @@ package acceptance
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -25,27 +24,29 @@ const FleetingVersion = "v0.0.0-20260915191451-6ed75a33d303"
 
 type Result struct {
 	Ledger
-	Result          string    `json:"result"`
-	Mode            string    `json:"mode"`
-	PluginCommit    string    `json:"plugin_commit"`
-	PluginSHA256    string    `json:"plugin_sha256"`
-	RunnerSHA256    string    `json:"runner_sha256"`
-	RunnerVersion   string    `json:"runner_version"`
-	FleetingVersion string    `json:"fleeting_version"`
-	Nonce           string    `json:"run_nonce"`
-	FixtureSHA      string    `json:"gitlab_fixture_sha"`
-	ProjectID       string    `json:"gitlab_project_id"`
-	PipelineID      int64     `json:"gitlab_pipeline_id"`
-	JobID           int64     `json:"gitlab_job_id"`
-	RunnerID        int64     `json:"gitlab_runner_id"`
-	Executor        string    `json:"executor"`
-	PluginReference string    `json:"plugin_reference"`
-	PluginVersion   string    `json:"plugin_version,omitempty"`
-	JobImage        string    `json:"job_image,omitempty"`
-	NormalRelease   bool      `json:"normal_release"`
-	Missing         []string  `json:"missing_configuration,omitempty"`
-	Errors          []string  `json:"errors,omitempty"`
-	FinishedAt      time.Time `json:"finished_at"`
+	Result          string        `json:"result"`
+	Mode            string        `json:"mode"`
+	PluginCommit    string        `json:"plugin_commit"`
+	PluginSHA256    string        `json:"plugin_sha256"`
+	RunnerSHA256    string        `json:"runner_sha256"`
+	RunnerVersion   string        `json:"runner_version"`
+	FleetingVersion string        `json:"fleeting_version"`
+	Nonce           string        `json:"run_nonce"`
+	FixtureSHA      string        `json:"gitlab_fixture_sha"`
+	ProjectID       string        `json:"gitlab_project_id"`
+	PipelineID      int64         `json:"gitlab_pipeline_id"`
+	JobID           int64         `json:"gitlab_job_id"`
+	RunnerID        int64         `json:"gitlab_runner_id"`
+	Executor        string        `json:"executor"`
+	PluginReference string        `json:"plugin_reference"`
+	PluginVersion   string        `json:"plugin_version,omitempty"`
+	JobImage        string        `json:"job_image,omitempty"`
+	NormalRelease   bool          `json:"normal_release"`
+	Missing         []string      `json:"missing_configuration,omitempty"`
+	Errors          []string      `json:"errors,omitempty"`
+	JobScenario     string        `json:"job_scenario"`
+	Jobs            []JobEvidence `json:"jobs"`
+	FinishedAt      time.Time     `json:"finished_at"`
 }
 
 func Missing(get func(string) string) []string {
@@ -58,7 +59,11 @@ func Missing(get func(string) string) []string {
 	return missing
 }
 func Run(ctx context.Context, dir string) (result Result) {
-	ctx, stageCancel := context.WithTimeout(ctx, 20*time.Minute)
+	duration, budget := 20*time.Minute, 1
+	if scenario := os.Getenv("ACCEPTANCE_JOB_SCENARIO"); scenario != "" && scenario != "smoke" {
+		duration, budget = 40*time.Minute, 2
+	}
+	ctx, stageCancel := context.WithTimeout(ctx, duration)
 	defer stageCancel()
 	absoluteDir, absErr := filepath.Abs(dir)
 	if absErr != nil {
@@ -72,10 +77,10 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	dir = runDir
 	now := time.Now().UTC()
-	result = Result{Ledger: Ledger{SchemaVersion: 1, Project: get("ACCEPTANCE_PROJECT"), Region: get("ALIYUN_REGION"), GroupID: get("ALIYUN_SCALING_GROUP_ID"), RunID: get("GITHUB_RUN_ID"), Attempt: get("GITHUB_RUN_ATTEMPT"), StartedAt: now, ExpiresAt: now.Add(30 * time.Minute), CleanupResult: "NOT_RUN", Instances: []Resource{}, Leftovers: []string{}}, Mode: "smoke", Result: "NOT_RUN_MISSING_CONFIGURATION", RunnerVersion: RunnerVersion, FleetingVersion: FleetingVersion, PluginCommit: get("PLUGIN_COMMIT"), ProjectID: get("GITLAB_PROJECT_ID"), FixtureSHA: get("GITLAB_FIXTURE_SHA")}
+	result = Result{Ledger: Ledger{SchemaVersion: 1, Project: get("ACCEPTANCE_PROJECT"), Region: get("ALIYUN_REGION"), GroupID: get("ALIYUN_SCALING_GROUP_ID"), RunID: get("GITHUB_RUN_ID"), Attempt: get("GITHUB_RUN_ATTEMPT"), StartedAt: now, ExpiresAt: now.Add(duration + 10*time.Minute), CleanupResult: "NOT_RUN", Instances: []Resource{}, Leftovers: []string{}}, Mode: "smoke", Result: "NOT_RUN_MISSING_CONFIGURATION", RunnerVersion: RunnerVersion, FleetingVersion: FleetingVersion, PluginCommit: get("PLUGIN_COMMIT"), ProjectID: get("GITLAB_PROJECT_ID"), FixtureSHA: get("GITLAB_FIXTURE_SHA")}
 	result.InstanceLimit = 1
-	result.CreationBudget = 1
-	result.DeadlineAt = now.Add(20 * time.Minute)
+	result.CreationBudget = budget
+	result.DeadlineAt = now.Add(duration)
 	result.Ledger.Path = filepath.Join(dir, "ledger.json")
 	writeFinal := true
 	defer func() {
@@ -115,7 +120,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	result.Executor, result.PluginReference = options.executor, options.reference
 	result.PluginVersion, result.JobImage = options.version, options.image
-	result.ManagerMode = options.manager
+	result.ManagerMode, result.JobScenario = options.manager, options.scenario
 	if options.manager == "systemd" {
 		result.DriverPID = os.Getpid()
 	}
@@ -173,12 +178,11 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(errors.New("Runner binary does not match pinned version"))
 		return result
 	}
-	random := make([]byte, 24)
-	if _, err = rand.Read(random); err != nil {
+	result.Nonce, err = jobNonce()
+	if err != nil {
 		fail(err)
 		return result
 	}
-	result.Nonce = hex.EncodeToString(random)
 	sdk, err := aliyun.NewSDK(result.Region)
 	if err != nil {
 		fail(err)
@@ -308,9 +312,11 @@ func Run(ctx context.Context, dir string) (result Result) {
 			result.Result = "CLEANUP_FAILED"
 			fail(err)
 		}
-		if result.Result == "PASS" && (len(result.Instances) != 1 || !result.Instances[0].SpotVerified || !result.Instances[0].DeletionVerified) {
-			result.Result = "FAIL_PRODUCT"
-			fail(errors.New("final resource budget or verification failed"))
+		if result.Result == "PASS" {
+			if e := verifyJobSequence(&result); e != nil {
+				result.Result = "FAIL_PRODUCT"
+				fail(e)
+			}
 		}
 		if e := WriteJSON(filepath.Join(dir, "ledger.json"), result.Ledger); e != nil {
 			result.Result = "FAIL_INFRASTRUCTURE"
@@ -412,109 +418,38 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(errors.New("cannot persist Manager identity"))
 		return result
 	}
-	var pipe pipeline
-	variables := []map[string]string{{"key": "FLEETING_NONCE", "value": result.Nonce}, {"key": "FLEETING_RUNNER_TAG", "value": get("GITLAB_RUNNER_TAG")}, {"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(runnerID, 10)}, {"key": "FLEETING_EXECUTION_MODE", "value": options.executor}}
-	if err = gl.request(ctx, "POST", "/pipeline", map[string]any{"ref": get("GITLAB_FIXTURE_REF"), "variables": variables}, &pipe); err != nil {
-		fail(err)
-		return result
-	}
-	result.PipelineID = pipe.ID
-	if pipe.ID <= 0 || pipe.SHA != result.FixtureSHA {
-		fail(errors.New("pipeline identity mismatch"))
-		return result
-	}
-	stageCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
-	defer cancel()
-	for {
+	checkManager := func(ctx context.Context) error {
 		if service != nil {
-			pid, e := service.running(stageCtx)
-			if e != nil || pid != result.ManagerPID {
-				fail(errors.New("packaged Manager exited or restarted during the job"))
-				return result
+			pid, err := service.running(ctx)
+			if err != nil || pid != result.ManagerPID {
+				return errors.New("packaged Manager exited or restarted during job acceptance")
 			}
 		}
 		select {
 		case <-managerDone:
 			manager = nil
-			fail(errors.New("Runner Manager exited unexpectedly"))
-			return result
+			return errors.New("Runner Manager exited unexpectedly")
 		default:
-		}
-		if err = Observe(stageCtx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
-			result.Result = liveFailure(err)
-			fail(err)
-			return result
-		}
-		if e := WriteJSON(filepath.Join(dir, "ledger.json"), result.Ledger); e != nil {
-			result.Result = "FAIL_INFRASTRUCTURE"
-			fail(errors.New("cannot persist resource evidence"))
-			return result
-		}
-		if err = gl.request(stageCtx, "GET", fmt.Sprintf("/pipelines/%d", pipe.ID), nil, &pipe); err != nil {
-			fail(err)
-			return result
-		}
-		if pipe.Status == "success" {
-			break
-		}
-		if pipe.Status == "failed" || pipe.Status == "canceled" || pipe.Status == "skipped" {
-			result.Result = "FAIL_PRODUCT"
-			fail(fmt.Errorf("fixture pipeline %s", pipe.Status))
-			return result
-		}
-		if err = aliyun.Wait(stageCtx, 3*time.Second); err != nil {
-			fail(err)
-			return result
+			return nil
 		}
 	}
-	var jobs []job
-	if err = gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d/jobs?per_page=100", pipe.ID), nil, &jobs); err != nil {
-		fail(err)
-		return result
+	sequence := jobSequence{
+		gl: gl, result: &result, runnerID: runnerID, ref: get("GITLAB_FIXTURE_REF"), tag: get("GITLAB_RUNNER_TAG"),
+		checkManager: checkManager, pollInterval: 3 * time.Second,
+		observe: func(ctx context.Context) error {
+			if err := ObserveBudget(ctx, cloud, &result.Ledger, budget, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
+				return err
+			}
+			return result.Ledger.Save()
+		},
+		release: func(ctx context.Context) error {
+			return WaitForNormalRelease(ctx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID"))
+		},
 	}
-	if len(jobs) != 1 || jobs[0].Status != "success" || jobs[0].Runner.ID != runnerID || jobs[0].Commit.ID != result.FixtureSHA {
-		result.Result = "FAIL_PRODUCT"
-		fail(errors.New("job/runner/fixture identity mismatch"))
-		return result
-	}
-	result.JobID = jobs[0].ID
-	result.RunnerID = jobs[0].Runner.ID
-	var raw []byte
-	if err = gl.request(ctx, "GET", fmt.Sprintf("/jobs/%d/artifacts/result.json", result.JobID), nil, &raw); err != nil {
-		fail(err)
-		return result
-	}
-	var artifact Artifact
-	if err = jsonUnmarshal(raw, &artifact); err != nil {
-		fail(err)
-		return result
-	}
-	if err = VerifyArtifact(artifact, &result.Ledger, result.Nonce, result.FixtureSHA, runnerID); err != nil {
-		result.Result = "FAIL_PRODUCT"
-		fail(err)
-		return result
-	}
-	if err = verifyArtifactMode(artifact, options.executor); err != nil {
-		result.Result = "FAIL_PRODUCT"
-		fail(err)
-		return result
-	}
-	if len(result.Instances) != 1 {
-		result.Result = "FAIL_PRODUCT"
-		fail(errors.New("smoke must observe exactly one newly created worker"))
-		return result
-	}
-	if err = WaitForNormalRelease(stageCtx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
+	if err = sequence.run(ctx); err != nil {
 		result.Result = liveFailure(err)
 		fail(err)
 		return result
-	}
-	if service != nil {
-		if pid, e := service.running(stageCtx); e != nil || pid != result.ManagerPID {
-			result.Result = "FAIL_PRODUCT"
-			fail(errors.New("packaged Manager exited or restarted during normal release"))
-			return result
-		}
 	}
 	result.Result = "PASS"
 	result.NormalRelease = true

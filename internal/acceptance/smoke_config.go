@@ -13,7 +13,7 @@ import (
 
 type smokeOptions struct {
 	executor, reference, version, image string
-	manager                             string
+	manager, scenario                   string
 }
 
 func readSmokeOptions(get func(string) string) (smokeOptions, error) {
@@ -24,6 +24,19 @@ func readSmokeOptions(get func(string) string) (smokeOptions, error) {
 	}
 	if o.manager != "process" && o.manager != "systemd" {
 		return o, errors.New("ACCEPTANCE_MANAGER_MODE must be process or systemd")
+	}
+	o.scenario = get("ACCEPTANCE_JOB_SCENARIO")
+	if o.scenario == "" {
+		o.scenario = "smoke"
+	}
+	switch o.scenario {
+	case "smoke":
+	case "failure", "cancel", "timeout":
+		if o.manager != "systemd" {
+			return o, errors.New("job recovery scenarios require the packaged systemd Manager")
+		}
+	default:
+		return o, errors.New("unknown job acceptance scenario")
 	}
 	if o.manager == "systemd" && (get("ACCEPTANCE_DISPOSABLE_HOST") != "true" || o.version == "" || o.reference != "") {
 		return o, errors.New("systemd acceptance requires a disposable host, exact PLUGIN_VERSION and the installed native package")

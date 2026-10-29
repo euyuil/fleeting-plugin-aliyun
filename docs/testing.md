@@ -337,7 +337,9 @@ The package creates the service identity, permissions, environment and systemd
 unit; no fake Runner or local daemon wrapper is used. The installed plugin must
 match `PLUGIN_BINARY` byte for byte and the installed Runner must match its
 pinned checksum. GitLab validates the package-created Runner system ID before
-the service starts. A stopped or restarted Manager fails the job check.
+the service starts. A stopped or restarted Manager fails the job check. The release gate also runs
+[expected failure, cancellation and timeout recovery](job-acceptance.md#expected-failures-and-continued-service)
+through that same Manager before a successful follow-up job.
 
 Cleanup binds service operations to a root-owned marker containing this run's
 identity and configuration checksum. It stops the complete owned systemd unit

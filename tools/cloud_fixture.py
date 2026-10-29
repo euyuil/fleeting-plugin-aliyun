@@ -24,7 +24,9 @@ from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
 DRILL_MODE = "cleanup-drill"
-JOB_MODES = tuple(f"job-{phase}-{executor}" for phase in ("candidate", "public") for executor in ("instance", "docker-autoscaler"))
+JOB_SCENARIOS = ("smoke", "failure", "cancel", "timeout")
+JOB_MODES = tuple(f"job-{phase}-{executor}" + ("" if scenario == "smoke" else "-" + scenario)
+                  for phase in ("candidate", "public") for executor in ("instance", "docker-autoscaler") for scenario in JOB_SCENARIOS)
 SPECS = {
     "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
     "vswitch": ("vpc", "DescribeVSwitches", "VSwitches", "VSwitch", "VSwitchId", "VSwitchName"),
@@ -77,7 +79,12 @@ def labels(project, sha, run, attempt, mode, expires):
 def name_for(tags):
     aliases = dict(zip(MODES, ("smoke", "scale", "restart", "creating", "removing", "lost-reply")))
     aliases[DRILL_MODE] = "cleanup"
-    aliases.update(zip(JOB_MODES, ("job-pre-vm", "job-pre-docker", "job-post-vm", "job-post-docker")))
+    for phase, short_phase in (("candidate", "pre"), ("public", "post")):
+        for executor, short_executor in (("instance", "vm"), ("docker-autoscaler", "docker")):
+            for scenario in JOB_SCENARIOS:
+                suffix = "" if scenario == "smoke" else "-" + scenario
+                short_suffix = "" if scenario == "smoke" else "-" + scenario[0]
+                aliases[f"job-{phase}-{executor}{suffix}"] = f"job-{short_phase}-{short_executor}{short_suffix}"
     identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
     return f"fleeting-pre-release-{aliases[tags['fleeting-scenario']]}-{tags['fleeting-ci-run'][-12:]}-{token}"
