@@ -49,6 +49,17 @@ The OCI plugin is `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3`.
 
 ## Validation and limits
 
+The [release run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40812572012)
+passed all six cloud scenarios and published from
+`ef0b980c7cd69a58794bda4876fb34858b13983b`.
+The [public installation check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815916873)
+passed anonymous OCI installation and the Debian package lifecycle on native
+Linux amd64 and arm64. The
+[independent cleanup check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815149142)
+confirmed zero leftovers for the release run. New cloud creation is disabled;
+cleanup remains enabled. See the
+[release acceptance record](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/docs/acceptance-report.md#debian-prerelease-publication-and-installation).
+
 Publication requires offline checks and all six cloud scenarios to pass for
 the exact candidate, including complete fixture cleanup. The publisher reuses
 those accepted binaries. The scenarios cover scale-out, specified scale-in,

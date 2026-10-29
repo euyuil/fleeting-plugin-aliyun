@@ -42,9 +42,11 @@ Use `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3` for evaluation. Follow th
 [manual OCI service guide](installation.md#linux-service-setup) for installation.
 For `.deb` installation and local `manager` commands, use the
 [Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm).
-The [public release workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/workflows/verify-release.yml)
-checks anonymous OCI and Debian downloads, compares their binaries with the native
-Release archive, and exercises the Debian lifecycle on both supported architectures.
+The [rc.3 public release check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815916873)
+passed anonymous OCI and Debian downloads, exact binary comparison with the native
+Release archive, and the Debian lifecycle on native Ubuntu amd64 and arm64 hosts.
+The [acceptance report](acceptance-report.md#debian-prerelease-publication-and-installation)
+records the six-scenario cloud gate, installation receipts, and independent cleanup.
 
 ### Earlier 0.1.0-rc.2 verification
 
