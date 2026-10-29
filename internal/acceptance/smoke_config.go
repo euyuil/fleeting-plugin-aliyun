@@ -13,10 +13,24 @@ import (
 
 type smokeOptions struct {
 	executor, reference, version, image string
+	manager                             string
 }
 
 func readSmokeOptions(get func(string) string) (smokeOptions, error) {
 	o := smokeOptions{executor: get("ACCEPTANCE_EXECUTOR"), reference: get("PLUGIN_REFERENCE"), version: get("PLUGIN_VERSION"), image: get("ACCEPTANCE_JOB_IMAGE")}
+	o.manager = get("ACCEPTANCE_MANAGER_MODE")
+	if o.manager == "" {
+		o.manager = "process"
+	}
+	if o.manager != "process" && o.manager != "systemd" {
+		return o, errors.New("ACCEPTANCE_MANAGER_MODE must be process or systemd")
+	}
+	if o.manager == "systemd" && (get("ACCEPTANCE_DISPOSABLE_HOST") != "true" || o.version == "" || o.reference != "") {
+		return o, errors.New("systemd acceptance requires a disposable host, exact PLUGIN_VERSION and the installed native package")
+	}
+	if o.manager == "systemd" && (get("GITHUB_ACTIONS") != "true" || get("RUNNER_ENVIRONMENT") != "github-hosted" || get("GITHUB_REF") != "refs/heads/main") {
+		return o, errors.New("systemd acceptance requires a disposable GitHub-hosted main workflow; self-hosted Managers are not supported")
+	}
 	if o.executor == "" {
 		o.executor = "instance"
 	}

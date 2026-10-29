@@ -56,6 +56,7 @@ type Ledger struct {
 	PluginDirectory      string     `json:"plugin_directory,omitempty"`
 	ManagerPID           int        `json:"manager_pid,omitempty"`
 	ManagerDirectory     string     `json:"manager_directory,omitempty"`
+	ManagerMode          string     `json:"manager_mode,omitempty"`
 	Path                 string     `json:"-"`
 	Project              string     `json:"project"`
 	Region               string     `json:"region"`

@@ -15,6 +15,11 @@ func TestSmokeModeAndReleaseInputs(t *testing.T) {
 		valid bool
 	}{
 		{"native-default", map[string]string{}, true},
+		{"systemd", map[string]string{"ACCEPTANCE_MANAGER_MODE": "systemd", "ACCEPTANCE_DISPOSABLE_HOST": "true", "PLUGIN_VERSION": "0.1.0-dev", "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "GITHUB_REF": "refs/heads/main"}, true},
+		{"systemd-self-hosted", map[string]string{"ACCEPTANCE_MANAGER_MODE": "systemd", "ACCEPTANCE_DISPOSABLE_HOST": "true", "PLUGIN_VERSION": "0.1.0-dev", "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "self-hosted", "GITHUB_REF": "refs/heads/main"}, false},
+		{"shared-host", map[string]string{"ACCEPTANCE_MANAGER_MODE": "systemd", "PLUGIN_VERSION": "0.1.0-dev"}, false},
+		{"unversioned-package", map[string]string{"ACCEPTANCE_MANAGER_MODE": "systemd", "ACCEPTANCE_DISPOSABLE_HOST": "true"}, false},
+		{"unknown-manager", map[string]string{"ACCEPTANCE_MANAGER_MODE": "unknown"}, false},
 		{"oci-instance", map[string]string{"PLUGIN_REFERENCE": "ghcr.io/example/plugin:0.1.0-rc.2", "PLUGIN_VERSION": "0.1.0-rc.2"}, true},
 		{"docker", map[string]string{"ACCEPTANCE_EXECUTOR": "docker-autoscaler", "ACCEPTANCE_JOB_IMAGE": digest}, true},
 		{"unknown-executor", map[string]string{"ACCEPTANCE_EXECUTOR": "shell"}, false},
