@@ -91,3 +91,11 @@ jobs:
             flags+=(--prerelease --latest=false)
           fi
           gh release create "v$VERSION" dist/*.tar.gz dist/*.deb dist/SHA256SUMS dist/dependencies.json "${flags[@]}"
+  verify:
+    needs: [acceptance, publish]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/verify-release.yml
+    with:
+      version: ${{ inputs.version }}
+      expected_revision: ${{ needs.acceptance.outputs.candidate_sha }}
