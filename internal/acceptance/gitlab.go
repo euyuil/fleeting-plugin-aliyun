@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/euyuil/fleeting-plugin-aliyun/internal/aliyun"
 )
 
 type gitlab struct {
@@ -33,28 +36,55 @@ func (g gitlab) requestAPI(ctx context.Context, method, path string, body, out a
 			return err
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(g.base, "/")+"/api/v4"+path, bytes.NewReader(b))
+	for attempt := 0; ; attempt++ {
+		retry, err := g.requestOnce(ctx, method, path, b, out)
+		// A lost write response may already have created a pipeline. Only reads
+		// can be repeated, and all attempts share the caller's deadline.
+		if err == nil || !retry || method != http.MethodGet || attempt == 2 {
+			return err
+		}
+		if err := aliyun.Wait(ctx, time.Second<<attempt); err != nil {
+			return err
+		}
+	}
+}
+
+func (g gitlab) requestOnce(ctx context.Context, method, path string, body []byte, out any) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(g.base, "/")+"/api/v4"+path, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return false, err
 	}
 	req.Header.Set("PRIVATE-TOKEN", g.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := g.http.Do(req)
 	if err != nil {
-		return errors.New("GitLab API transport failure")
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return true, errors.New("GitLab API transport failure")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &gitlabHTTPError{statusCode: resp.StatusCode}
+		return false, &gitlabHTTPError{statusCode: resp.StatusCode}
 	}
 	if out == nil {
-		return nil
+		return false, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return true, errors.New("GitLab API response transport failure")
 	}
 	if p, ok := out.(*[]byte); ok {
-		*p, err = io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-		return err
+		*p = data
+		return false, nil
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(out)
+	return false, json.NewDecoder(bytes.NewReader(data)).Decode(out)
 }
 
 type pipeline struct {
