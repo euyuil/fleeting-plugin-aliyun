@@ -5,6 +5,13 @@ library are Apache-2.0. Dependencies are pinned in `go.mod` and `go.sum`; no
 dependency sources have been modified. Preserve the upstream license and any
 applicable notices when redistributing linked binaries.
 
+CI uses the unmodified MIT-licensed
+[upload-artifact v7.0.2](https://github.com/actions/upload-artifact/tree/v7.0.2) and
+[download-artifact v8.0.2](https://github.com/actions/download-artifact/tree/v8.0.2)
+Actions, pinned to full commits in `upstream.lock.json` and the workflows. Both
+run on Node.js 24 on GitHub-hosted runners. They are CI tools and are not bundled
+in the plugin packages.
+
 Cloud acceptance downloads the unmodified official Alibaba CLI 3.5.2 Linux amd64
 archive, pinned by SHA256 in `upstream.lock.json`. It is Apache-2.0 licensed;
 retain its license/notices if redistributing it. It is an ephemeral validation
