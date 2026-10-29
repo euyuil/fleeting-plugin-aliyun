@@ -19,32 +19,8 @@ The recorded full Linux VM and Docker job checks used `0.1.0-rc.2`; see the
 
 ## Worker and cloud prerequisites
 
-Prepare these resources before starting Runner:
-
-- A worker image with SSH, Git, a writable job directory, the matching Runner
-  binary, and the tools needed by your jobs. The examples wait for
-  `/var/lib/fleeting-worker/ready`; create that marker after preparing the image,
-  or replace `instance_ready_command` with a check suitable for your image.
-- For Docker jobs, a working Docker Engine on the worker, access to it for the
-  SSH user, and a pinned job image. See the [Docker example](../examples/docker-autoscaler/config.toml).
-- A launch template with the image, instance type, disk, network, and desired
-  Spot policy. Pin its version. CPU and memory come from the instance type.
-- A dedicated, active ESS group with desired capacity enabled, minimum `0`, a
-  finite maximum, and unit instance weights. For the first job, use desired `0`
-  and maximum `1`. Follow the [group compatibility rules](operations.md#dedicated-ess-group).
-- A cloud identity with the [required permissions](operations.md#authentication-and-permissions).
-  Give it to the Manager, not to job workers.
-- A route from the Manager to workers over SSH, and HTTPS access from both to
-  GitLab. Workers also need access to job dependencies and image registries.
-
-Use existing resources if they meet these requirements. The
-[infrastructure guide](../infra/README.md) describes image preparation and a
-separate test-fixture creation procedure. Its test markers and GitHub workflow
-variables are for this project's acceptance tests, not for running your jobs.
-
-The pinned upstream connector does not verify SSH server host keys. Use a
-trusted, isolated network route and restrict SSH ingress to the Manager. See
-[connection limits](adr/0003-state-and-connections.md).
+Prepare the [worker image, ESS group, permissions, and network](operations.md#worker-and-cloud-prerequisites)
+before starting either a packaged or manual Manager.
 
 ## Linux service setup
 
@@ -208,7 +184,7 @@ sudo journalctl -u gitlab-runner-aliyun.service -n 100 --no-pager
 Check that the Runner appears online in GitLab and that the logs contain no
 plugin, credential, or group initialization errors. An active service alone
 does not prove that a job can run. Return to the
-[first job and cleanup check](../README.md#5-run-a-job-and-check-cleanup).
+[first job and cleanup check](../README.md#4-run-a-job-and-check-cleanup).
 
 ## Stop or update this service
 
