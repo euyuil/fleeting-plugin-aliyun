@@ -37,9 +37,9 @@ def manifest():
                       "dist/SHA256SUMS": "f" * 64}}
 
 
-def receipt(executor="instance", phase="candidate"):
+def receipt(executor="instance", phase="candidate", scenario="smoke"):
     m = manifest()
-    return {"schema_version": 1, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+    return {"schema_version": 2, "job_scenario": scenario, "job_count": 1 if scenario == "smoke" else 2, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
             "candidate_sha": m["candidate_sha"], "version": m["version"], "manifest_sha256": "a" * 64,
             "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": "10", "run_attempt": "1",
             "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -100,7 +100,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_job_modes_have_distinct_recoverable_fixture_names(self):
         tags = [labels("example/project", "a" * 40, "123456789012345678", "1", mode, "2030-01-01T00:00:00Z") for mode in JOB_MODES]
         names = {name_for(value) for value in tags}
-        self.assertEqual(len(names), 4)
+        self.assertEqual(len(names), 16)
         self.assertTrue(all(len(name) <= 64 for name in names))
         self.assertEqual(names, {name_for(json.loads(json.dumps(value))) for value in tags})
 
@@ -122,29 +122,57 @@ class JobAcceptanceTests(unittest.TestCase):
                   "manager_mode": "systemd", "plugin_commit": "c" * 40, "plugin_version": "0.1.0-dev", "plugin_sha256": "d" * 64,
                   "runner_sha256": "f" * 64, "runner_version": "1.2.3", "gitlab_fixture_sha": "b" * 40, "gitlab_project_id": "1", "gitlab_runner_id": 2,
                   "github_run_id": "10", "github_run_attempt": "1", "instance_limit": 1, "creation_budget": 1, "evidence_incomplete": False,
-                  "gitlab_pipeline_id": 3, "gitlab_job_id": 4, "leftover_resources": None,
-                  "instances": [{"spot_verified": True, "deletion_verified": True, "inventory_complete": True}]}
+                  "gitlab_pipeline_id": 3, "gitlab_job_id": 4, "leftover_resources": None, "manager_pid": 123, "job_scenario": "smoke",
+                  "jobs": [{"scenario": "smoke", "status": "success", "failure_reason": "", "manager_pid": 123, "normal_release": True,
+                            "pipeline_id": 3, "job_id": 4, "nonce": "1" * 48, "instance_id": "i-worker1", "cancel_requested": False}],
+                  "instances": [{"instance_id": "i-worker1", "spot_verified": True, "deletion_verified": True, "inventory_complete": True}]}
         job.check_result(result, manifest(), gitlab, "instance", lock, "10", "1")
         for key, value in {"normal_release": False, "gitlab_fixture_sha": "a" * 40, "gitlab_runner_id": 3, "gitlab_pipeline_id": 0, "gitlab_job_id": True,
                            "instances": [], "leftover_resources": ["synthetic-instance"], "errors": ["failure"], "runner_sha256": "a" * 64,
-                           "github_run_id": "11", "github_run_attempt": "2"}.items():
+                           "github_run_id": "11", "github_run_attempt": "2", "jobs": [], "manager_pid": 0}.items():
             with self.subTest(key=key), self.assertRaises(ValueError):
                 job.check_result({**result, key: value}, manifest(), gitlab, "instance", lock, "10", "1")
 
-    def test_gate_requires_both_executors_and_same_fixture(self):
+        for scenario, status, reason in (("failure", "failed", "script_failure"), ("cancel", "canceled", "job_canceled"),
+                                         ("timeout", "failed", "job_execution_timeout")):
+            recovery = copy.deepcopy(result)
+            recovery.update(job_scenario=scenario, creation_budget=2)
+            first = {**recovery["jobs"][0], "scenario": scenario, "status": status, "failure_reason": reason,
+                     "pipeline_id": 1, "job_id": 2, "instance_id": "i-worker0", "nonce": "0" * 48,
+                     "cancel_requested": scenario == "cancel", "checkpoint": True}
+            recovery["jobs"].insert(0, first)
+            recovery["instances"].insert(0, {**recovery["instances"][0], "instance_id": "i-worker0"})
+            job.check_result(recovery, manifest(), gitlab, "instance", lock, "10", "1", scenario)
+            for key, value in (("manager_pid", 124), ("normal_release", False), ("checkpoint", False),
+                               ("job_id", 4), ("pipeline_id", 3), ("instance_id", "i-worker1"), ("nonce", "1" * 48), ("status", "success")):
+                broken = copy.deepcopy(recovery)
+                broken["jobs"][0][key] = value
+                with self.subTest(scenario=scenario, key=key), self.assertRaises(ValueError):
+                    job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", scenario)
+
+    def test_gate_requires_every_scenario_and_same_fixture(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"GITHUB_RUN_ID": "10", "GITHUB_RUN_ATTEMPT": "1"}), patch.object(job, "verify", return_value=manifest()):
             root = Path(temp)
             args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate", receipts=root)
-            (root / "instance.json").write_text(json.dumps(receipt()))
-            with self.assertRaises(ValueError):
-                job.gate(args)
-            (root / "docker-autoscaler.json").write_text(json.dumps(receipt("docker-autoscaler")))
+            for executor in job.EXECUTORS:
+                for scenario in job.JOB_SCENARIOS:
+                    with self.assertRaises(ValueError):
+                        job.gate(args)
+                    (root / f"{executor}-{scenario}.json").write_text(json.dumps(receipt(executor, scenario=scenario)))
             job.gate(args)
-            different = receipt("docker-autoscaler")
+            different = receipt("docker-autoscaler", scenario="timeout")
             different["gitlab_config_sha256"] = "3" * 64
-            (root / "docker-autoscaler.json").write_text(json.dumps(different))
+            (root / "docker-autoscaler-timeout.json").write_text(json.dumps(different))
             with self.assertRaises(ValueError):
                 job.gate(args)
+
+    def test_recovery_receipt_cannot_reuse_smoke_or_wrong_case(self):
+        for scenario in ("failure", "cancel", "timeout"):
+            good = receipt(scenario=scenario)
+            job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
+            for key, value in (("schema_version", 1), ("job_count", 1), ("job_count", True), ("job_scenario", "smoke")):
+                with self.subTest(scenario=scenario, key=key), self.assertRaises(ValueError):
+                    job.check_receipt({**good, key: value}, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
 
     def test_driver_failure_still_tears_down_and_emits_only_sanitized_receipt(self):
         config, gitlab, env = inputs()
@@ -152,11 +180,12 @@ class JobAcceptanceTests(unittest.TestCase):
         fixture.state = {"ids": {}}
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, env), \
                 patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
+                patch.object(job, "prepare_gitlab_fixture", return_value=gitlab), \
                 patch.object(job, "install_package"), patch.object(job, "Cloud"), patch.object(job, "Fixture", return_value=fixture), \
                 patch.object(job.subprocess, "check_output", return_value="192.0.2.1"), \
                 patch.object(job, "driver", side_effect=ValueError("private diagnostic")):
             root = Path(temp)
-            args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate", executor="instance",
+            args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate", executor="instance", scenario="smoke",
                                    directory=root / "private", receipt=root / "receipt.json", driver=root / "driver")
             with self.assertRaises(ValueError):
                 job.run(args)
@@ -168,6 +197,17 @@ class JobAcceptanceTests(unittest.TestCase):
             self.assertEqual(value["gitlab_config_sha256"], job.config_digest(gitlab))
             self.assertNotIn("private diagnostic", args.receipt.read_text())
             self.assertFalse({"project_id", "runner_id", "fixture_sha", "instances", "errors"} & value.keys())
+
+    def test_unverified_fixture_fails_before_package_or_cloud_mutation(self):
+        _, _, env = inputs()
+        with patch.dict(os.environ, env), patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
+                patch.object(job, "prepare_gitlab_fixture", side_effect=ValueError("unverified fixture")), \
+                patch.object(job, "install_package") as install, patch.object(job, "Fixture") as cloud:
+            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev")
+            with self.assertRaises(ValueError):
+                job.run(args)
+            install.assert_not_called()
+            cloud.assert_not_called()
 
     def test_unconfirmed_writer_exit_does_not_clear_fixture_barrier(self):
         config, gitlab, env = inputs()

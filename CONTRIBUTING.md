@@ -159,7 +159,7 @@ gh workflow run cloud-janitor.yml --ref main
 ```
 
 Select another documented mode or `all` for the full suite. Release requires all
-six plugin scenarios and both real GitLab executor jobs before publication.
+six plugin scenarios and all real GitLab executor/scenario checks before publication.
 Configuration, ownership, budgets and recovery are documented in
 [pre-release cloud acceptance](docs/pre-release-cloud.md).
 For immediate recovery of a completed run, add `-f run_id=RUN_ID -f run_attempt=ATTEMPT`
@@ -167,7 +167,7 @@ to the janitor command; otherwise it scans only expired fixtures.
 
 After configuring the official base image, dedicated GitLab fixture,
 and explicit paid-job enablement from [release job acceptance](docs/job-acceptance.md),
-validate just the two real jobs without publishing:
+validate the real-job suite without publishing:
 
 ```sh
 gh workflow run cloud-acceptance.yml --ref main \
@@ -177,7 +177,7 @@ gh workflow run cloud-acceptance.yml --ref main \
 This builds and verifies a sealed candidate, then runs `instance` and
 `docker-autoscaler` serially through its installed `.deb` and real systemd
 Manager. It cannot authorize publication without the six plugin scenarios.
-Inspect both sanitized job receipts and the final gate. Do not upload private
+Inspect all eight sanitized scenario receipts and the final gate. Do not upload private
 driver logs, GitLab job artifacts or fixture configuration.
 
 To exercise independent cleanup after a deliberate process loss, separately
@@ -199,7 +199,7 @@ and explicit release gates. See [third-party obligations](docs/third-party.md) b
 
 Release automatically calls the public installation workflow after publication,
 binding the published tag to the source commit accepted by the cloud gate. All
-four Ubuntu platform jobs and both subsequent public-package job checks must
+four Ubuntu platform jobs and all subsequent public-package job checks must
 pass before the Release workflow succeeds.
 The installation verifier receives read-only repository access and no inherited
 cloud secrets; the subsequent job workflow uses the dedicated Environment.

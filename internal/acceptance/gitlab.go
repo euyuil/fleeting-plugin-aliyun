@@ -17,6 +17,10 @@ type gitlab struct {
 	http                 *http.Client
 }
 
+type gitlabHTTPError struct{ statusCode int }
+
+func (e *gitlabHTTPError) Error() string { return fmt.Sprintf("GitLab API HTTP %d", e.statusCode) }
+
 func (g gitlab) request(ctx context.Context, method, path string, body, out any) error {
 	return g.requestAPI(ctx, method, "/projects/"+url.PathEscape(g.project)+path, body, out)
 }
@@ -41,7 +45,7 @@ func (g gitlab) requestAPI(ctx context.Context, method, path string, body, out a
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("GitLab API HTTP %d", resp.StatusCode)
+		return &gitlabHTTPError{statusCode: resp.StatusCode}
 	}
 	if out == nil {
 		return nil
@@ -58,10 +62,12 @@ type pipeline struct {
 	SHA, Status string
 }
 type job struct {
-	ID     int64
-	Status string
-	Runner struct{ ID int64 }
-	Commit struct{ ID string }
+	ID            int64
+	Status        string
+	FailureReason string `json:"failure_reason"`
+	Runner        struct{ ID int64 }
+	Commit        struct{ ID string }
+	Pipeline      struct{ ID int64 }
 }
 type Artifact struct {
 	Nonce             string `json:"nonce"`
