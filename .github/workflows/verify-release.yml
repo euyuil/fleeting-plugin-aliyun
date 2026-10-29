@@ -77,9 +77,12 @@ jobs:
         run: |
           unset GH_TOKEN GITHUB_TOKEN
           release_dir="$RUNNER_TEMP/release"
-          package="fleeting-plugin-aliyun_${VERSION/-/~}_${ARCH}.deb"
+          # Avoid Bash-version-dependent tilde expansion in parameter replacement.
+          package_version="$(printf '%s' "$VERSION" | sed 's/-/~/')"
+          package="fleeting-plugin-aliyun_${package_version}_${ARCH}.deb"
           # GitHub normalizes '~' in uploaded asset names; keep the checksum filename locally.
           asset="${package//\~/.}"
+          printf 'Debian asset: %s (checksum filename: %s)\n' "$asset" "$package"
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
           curl --fail --location --silent --show-error --retry 3 "$base/$asset" -o "$release_dir/$package"
           awk -v package="$package" '$2 == package { print; count++ } END { if (count != 1) exit 1 }' \
