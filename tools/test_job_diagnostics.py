@@ -130,6 +130,14 @@ class JobDiagnosticTests(unittest.TestCase):
         for code in ("999", "-2", "123456789"):
             self.assertIsNone(diagnostic.error_outline(line.replace("code: 137", "code: " + code))["connector_exit_code"])
 
+    def test_keepalive_wrapped_missing_exit_is_visible_without_raw_trace(self):
+        line = SSH.replace("ERROR: Job failed: ", "ERROR: Job failed: ssh connection closed by keepalive (keepalive probe timed out after 30s): ")
+        result = diagnostic.trace_diagnostic(("00E \x1b[31;1m" + line + "\x1b[0;m\r\n").encode())
+        self.assertTrue(result["ssh_message_with_sgr_only"])
+        self.assertEqual(result["ssh_exit_codes"], [0])
+        self.assertEqual(result["terminal_errors"][0]["connector_exit_code"], 0)
+        self.assertNotIn("30s", json.dumps(result))
+
     def test_cli_failure_never_prints_exception_or_private_api_fields(self):
         args = ["job_diagnostics.py", "--sha", SHA, "--executor", "instance", "--scenario", "worker-loss",
                 "--started-at", START, "--completed-at", END]
