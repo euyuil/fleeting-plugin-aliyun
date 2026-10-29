@@ -12,7 +12,7 @@ require (
 	gitlab.com/gitlab-org/fleeting/fleeting v0.0.0-20260915191451-6ed75a33d303
 	gitlab.com/gitlab-org/fleeting/fleeting-artifact v0.0.0-20260911011821-1b7c6957ad1d
 	golang.org/x/crypto v0.58.0
-	golang.org/x/mod v0.41.0
+	golang.org/x/mod v0.42.0
 )
 
 require (
