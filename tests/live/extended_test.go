@@ -57,6 +57,14 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		t.Skip("NOT_RUN_MISSING_CONFIGURATION: extended live entry is explicitly disabled")
 	}
+	diagnostics := &acceptanceDiagnostics{output: os.Stderr, started: time.Now()}
+	diagnostics.Phase("scenario", "preflight")
+	scenarioReported := false
+	defer func() {
+		if !scenarioReported {
+			diagnostics.Result(false)
+		}
+	}()
 	maxSize, budget := 1, 1
 	if mode == "scale" || mode == "cloud-scale" {
 		maxSize, budget = 2, 2
@@ -105,7 +113,7 @@ func TestExtendedCloud(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sdk.Close()
-	cloud := &aliyun.Client{API: sdk, Region: os.Getenv("ALIYUN_REGION"), GroupID: os.Getenv("ALIYUN_SCALING_GROUP_ID"), Log: hclog.New(&hclog.LoggerOptions{Output: os.Stderr, Level: hclog.Warn})}
+	cloud := &aliyun.Client{API: diagnosticAPI{API: sdk, diagnostics: diagnostics}, Region: os.Getenv("ALIYUN_REGION"), GroupID: os.Getenv("ALIYUN_SCALING_GROUP_ID"), Log: hclog.New(&hclog.LoggerOptions{Output: os.Stderr, Level: hclog.Warn})}
 	group, err := cloud.Group(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -152,6 +160,7 @@ func TestExtendedCloud(t *testing.T) {
 	ledger.InstanceLimit = maxSize
 	ledger.CreationBudget = budget
 	ledger.DeadlineAt, _ = ctx.Deadline()
+	diagnostics.Phase("scenario", "claim")
 	if err = acceptance.Claim(ctx, cloud, ledger); err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +176,12 @@ func TestExtendedCloud(t *testing.T) {
 	retainedVerified := false
 	restartVerified := false
 	defer func() {
+		// Snapshot scenario failure before cleanup can add testing errors.
+		diagnostics.Result(!t.Failed() && normalReleased && sshCompleted && len(ledger.Instances) <= budget && (!pluginMode || len(ledger.Instances) == maxSize) && (mode != "cloud-scale" || retainedVerified) && (!restartMode || restartVerified))
+		scenarioReported = true
+		cleanupFailed, cleanupCompleted := false, false
+		diagnostics.Phase("cleanup", "plugin_shutdown")
+		defer func() { diagnostics.Result(cleanupCompleted && !cleanupFailed) }()
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer stop()
 		result := "PASS"
@@ -178,6 +193,8 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		if worker != nil {
 			if e := worker.Shutdown(cleanupCtx); e != nil {
+				cleanupFailed = true
+				diagnostics.Failure()
 				t.Error(e)
 			}
 		}
@@ -187,7 +204,10 @@ func TestExtendedCloud(t *testing.T) {
 		if gate != nil {
 			_ = gate.Close()
 		}
+		diagnostics.Phase("cleanup", "driver_cleanup")
 		if e := acceptance.Cleanup(cleanupCtx, cloud, ledger, false); e != nil {
+			cleanupFailed = true
+			diagnostics.Failure()
 			result = "CLEANUP_FAILED"
 			t.Error(e)
 		} else if t.Failed() || !normalReleased || !sshCompleted || len(ledger.Instances) > budget || (pluginMode && len(ledger.Instances) != maxSize) || (mode == "cloud-scale" && !retainedVerified) || (restartMode && !restartVerified) {
@@ -198,22 +218,32 @@ func TestExtendedCloud(t *testing.T) {
 				if result == "PASS" {
 					result = "FAIL_PRODUCT"
 				}
+				cleanupFailed = true
+				diagnostics.Failure()
 				t.Error("resource acceptance is incomplete")
 			}
 		}
+		diagnostics.Phase("cleanup", "evidence_write")
 		if e := ledger.Save(); e != nil {
+			cleanupFailed = true
+			diagnostics.Failure()
 			if result != "CLEANUP_FAILED" {
 				result = "FAIL_INFRASTRUCTURE"
 			}
 			t.Error(e)
 		}
 		if e := acceptance.WriteJSON(filepath.Join(dir, "extended-result.json"), map[string]any{"schema_version": 1, "result": result, "mode": mode, "creation_budget": budget, "resources": ledger, "transitions": transitions, "plugin_commit": os.Getenv("PLUGIN_COMMIT"), "plugin_sha256": pluginHash, "real_plugin_process": pluginMode, "response_gate_instrumented": lostIncrease, "ssh_completed": sshCompleted, "normal_release": normalReleased, "specified_release": retainedVerified, "restart_recovered": restartVerified}); e != nil {
+			cleanupFailed = true
+			diagnostics.Failure()
 			t.Error(e)
 		}
+		cleanupCompleted = true
 	}()
+	diagnostics.Phase("scenario", "ingress")
 	if err = acceptance.EnsureIngress(ctx, cloud, ledger, os.Getenv("MANAGER_CIDR")); err != nil {
 		t.Fatal(err)
 	}
+	diagnostics.Phase("scenario", "plugin_init")
 	if pluginMode {
 		// A per-run copy and PID file let independent cleanup identify an orphaned
 		// plugin without trusting an arbitrary process ID from a receipt.
@@ -368,7 +398,9 @@ func TestExtendedCloud(t *testing.T) {
 	if pluginMode {
 		increase = maxSize
 	}
+	diagnostics.Phase("scenario", "increase")
 	if lostIncrease {
+		diagnostics.Phase("scenario", "response_loss_restart")
 		type increaseResult struct {
 			n   int
 			err error
@@ -466,6 +498,7 @@ func TestExtendedCloud(t *testing.T) {
 		t.Fatal(n, e)
 	}
 	if creatingRestart {
+		diagnostics.Phase("scenario", "creation_restart")
 		acceptedAt := time.Now().UTC()
 		var e error
 		creationBefore, e = acceptance.CaptureCreating(ctx, cloud, ledger)
@@ -497,6 +530,7 @@ func TestExtendedCloud(t *testing.T) {
 			t.Fatal(n, e)
 		}
 	}
+	diagnostics.Phase("scenario", "wait_ready")
 	ids := []string{}
 	wait(func() (bool, error) {
 		ids = ids[:0]
@@ -518,6 +552,7 @@ func TestExtendedCloud(t *testing.T) {
 		}
 		return true, nil
 	})
+	diagnostics.Phase("scenario", "disk_verification")
 	if pluginMode {
 		current, e := cloud.Group(ctx)
 		if e != nil || current.DesiredCapacity != maxSize || current.TotalCapacity != maxSize {
@@ -568,13 +603,16 @@ func TestExtendedCloud(t *testing.T) {
 			want := "plugin-cloud-" + hex.EncodeToString(nonce[:16])
 			var lastErr error
 			for {
+				diagnostics.Phase("scenario", "observe_before_ssh")
 				if e := observe(); e != nil {
 					t.Fatal(e)
 				}
+				diagnostics.Phase("scenario", "connect_info")
 				info, e := worker.ConnectInfo(sshCtx, id)
 				if e == nil {
 					var output bytes.Buffer
 					attemptCtx, cancel := context.WithTimeout(sshCtx, 15*time.Second)
+					diagnostics.Phase("scenario", "ssh")
 					e = connector.Run(attemptCtx, info, connector.ConnectorOptions{DialOptions: connector.DialOptions{UseExternalAddr: true}, RunOptions: connector.RunOptions{Command: "printf " + want, Stdout: &output}})
 					cancel()
 					if e == nil {
@@ -592,10 +630,12 @@ func TestExtendedCloud(t *testing.T) {
 				}
 			}
 		}
+		diagnostics.Phase("scenario", "connect_info")
 		info, e := worker.ConnectInfo(ctx, id)
 		if e != nil {
 			t.Fatal(e)
 		}
+		diagnostics.Phase("scenario", "ssh")
 		e = connector.Run(ctx, info, connector.ConnectorOptions{DialOptions: connector.DialOptions{UseExternalAddr: true}, RunOptions: connector.RunOptions{Command: "timeout 300 sh -c 'until test -f /var/lib/fleeting-worker/ready; do sleep 2; done; printf extended-ok'"}})
 		if e != nil {
 			t.Fatal(e)
@@ -606,6 +646,7 @@ func TestExtendedCloud(t *testing.T) {
 		runSSH(id)
 	}
 	if creatingRestart || lostIncrease {
+		diagnostics.Phase("scenario", "restart_verification")
 		original := ids[0]
 		if (creationBefore.InstanceID != "" && creationBefore.InstanceID != original) || (creationAfter.InstanceID != "" && creationAfter.InstanceID != original) {
 			t.Fatal("creation restart produced a different worker")
@@ -644,6 +685,7 @@ func TestExtendedCloud(t *testing.T) {
 		transitions = append(transitions, map[string]any{"action": action, "instance_id": original, "accepted_activity_id": creationBefore.ActivityID, "accepted_activity_created_exactly_one": true, "scaling_activity_ids_unchanged": true, "ssh_after_restart": true, "desired_capacity": 1, "total_capacity": 1, "observed_at": time.Now().UTC()})
 	}
 	if mode == "cloud-restart" {
+		diagnostics.Phase("scenario", "restart")
 		original := ids[0]
 		activityIDs := func() ([]string, error) {
 			history, e := acceptance.History(ctx, cloud)
@@ -692,6 +734,7 @@ func TestExtendedCloud(t *testing.T) {
 			return len(running) == 1, nil
 		})
 		runSSH(original)
+		diagnostics.Phase("scenario", "restart_verification")
 		after, e := cloud.Group(ctx)
 		if e != nil || before.DesiredCapacity != 1 || before.TotalCapacity != 1 || after.DesiredCapacity != 1 || after.TotalCapacity != 1 || after.PendingCapacity != 0 || after.RemovingCapacity != 0 {
 			t.Fatal("restart changed one-worker capacity", e)
@@ -704,6 +747,7 @@ func TestExtendedCloud(t *testing.T) {
 		transitions = append(transitions, map[string]any{"action": "plugin_restart", "instance_id": original, "old_plugin_pid": oldPID, "new_plugin_pid": pluginPID, "old_process_exit_confirmed": true, "crash_without_provider_shutdown": true, "same_instance_rediscovered": true, "ssh_after_restart": true, "scaling_activity_ids_unchanged": true, "scaling_activity_count": len(afterActivities), "journal_kind_before_restart": journalKind, "desired_capacity": 1, "total_capacity": 1, "observed_at": time.Now().UTC()})
 	}
 	if mode == "cloud-scale" {
+		diagnostics.Phase("scenario", "specified_scale_in")
 		removed, retained := ids[0], ids[1]
 		if accepted, e := worker.Decrease(ctx, []string{removed}); e != nil || !slices.Equal(accepted, []string{removed}) {
 			t.Fatal("plugin did not accept exactly the selected worker", e)
@@ -858,10 +902,12 @@ func TestExtendedCloud(t *testing.T) {
 			return true, nil
 		})
 	}
+	diagnostics.Phase("scenario", "normal_release")
 	if accepted, e := worker.Decrease(ctx, ids); e != nil || len(accepted) != len(ids) || (removingRestart && !slices.Equal(accepted, ids)) {
 		t.Fatal(accepted, e)
 	}
 	if removingRestart {
+		diagnostics.Phase("scenario", "removal_restart")
 		acceptedAt := time.Now().UTC()
 		var e error
 		removalBefore, e = acceptance.CaptureRemoving(ctx, cloud, ledger, ids[0], beforeRemovalActivities)

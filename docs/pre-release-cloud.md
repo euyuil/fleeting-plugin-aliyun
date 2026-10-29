@@ -181,12 +181,32 @@ Linux amd64 archive's binary. The response-loss case uses its separately marked
 instrumented binary. This is Linux amd64 Manager cloud evidence; arm64 native
 installation verification remains separate.
 
-Driver failures print a restricted diagnostic summary: test source line numbers,
+Every scenario receipt retains a restricted diagnostic summary: test source line numbers,
 fixed API/transport error categories, observed worker/check counts, boolean acceptance
 checks, and matching error-message templates from the candidate's public Go
 source. Templates retain format placeholders instead of private runtime values.
 Raw driver logs, resource identities, API request IDs, and cloud error messages
 remain private. The summary does not replace a passing scenario/cleanup receipt.
+
+The `diagnostics` object separates fixture setup, the driver and outer fixture
+cleanup, with an outcome and elapsed milliseconds for each attempted operation.
+Driver evidence separately records the scenario outcome **before cleanup** and
+the driver's own cleanup outcome. A cleanup failure cannot overwrite the original
+scenario failure. Phase summaries identify inventory checks before SSH,
+connection-info retrieval, SSH execution, restart checks and release/cleanup.
+Repeated phase visits are aggregated; durations stop at the last received marker,
+so a killed driver's final phase can be incomplete and its outcome stays `UNKNOWN`.
+The first reported failure phase is retained even when later cleanup phases run.
+
+API summaries retain only allowlisted service/action/code values and fixed error
+categories. Unknown codes become `unknown`; request IDs, API parameters and error
+messages are excluded. API actions are available for the live harness and fixture
+CLI; plugin subprocess errors may have only a code/category. Phase attribution
+describes when a message was observed, not proof of the underlying cause. The
+driver runs with verbose output into its private log so interrupted runs retain
+phase markers. A sanitized console summary also survives receipt-write failure.
+All existing candidate, functional and zero-resource cleanup requirements still
+apply; diagnostic outcomes never make an otherwise failed gate pass.
 
 | Mode | Required outcome | Creation budget |
 | --- | --- | --- |
