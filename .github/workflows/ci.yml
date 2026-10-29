@@ -6,9 +6,13 @@ on:
 permissions:
   contents: read
 jobs:
-  offline:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.platform_candidate.outputs.artifact-id }}
+      manifest_sha256: ${{ steps.candidate.outputs.digest }}
+      candidate_sha: ${{ steps.candidate.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -44,9 +48,8 @@ jobs:
       - run: python3 tools/fetch-runner.py
       - run: python3 tools/check-configs.py --runner .cache/gitlab-runner-linux-amd64
       - run: make dist
-      - name: Test Debian package lifecycle without provider credentials
-        run: sudo python3 tools/test-debian-lifecycle.py --disposable-host --runner .cache/gitlab-runner-linux-amd64 --packages dist
       - name: Verify unpublished cloud candidate without credentials
+        id: candidate
         run: |
           mkdir -p .cache/candidate/responsegate
           cp -a dist .cache/candidate/dist
@@ -55,6 +58,15 @@ jobs:
           candidate_sha=$(git rev-parse HEAD)
           digest=$(python3 tools/release_candidate.py create --root .cache/candidate --sha "$candidate_sha" --version 0.1.0-dev)
           python3 tools/release_candidate.py verify --root .cache/candidate --sha "$candidate_sha" --version 0.1.0-dev --digest "$digest"
+          printf 'digest=%s\nsha=%s\n' "$digest" "$candidate_sha" >> "$GITHUB_OUTPUT"
+          tar -cf .cache/candidate.tar -C .cache/candidate .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: platform_candidate
+        with:
+          name: platform-candidate
+          path: .cache/candidate.tar
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify native assets
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
@@ -80,3 +92,22 @@ jobs:
           for asset in dist/*.tar.gz dist/*.deb dist/SHA256SUMS dist/dependencies.json; do
             cmp "$asset" ".cache/downloaded-release-candidate/$(basename "$asset")"
           done
+  platforms:
+    needs: build
+    uses: ./.github/workflows/verify-candidate.yml
+    with:
+      artifact_id: ${{ needs.build.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.build.outputs.manifest_sha256 }}
+      candidate_sha: ${{ needs.build.outputs.candidate_sha }}
+      version: 0.1.0-dev
+  offline:
+    if: always()
+    needs: [build, platforms]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      BUILD_RESULT: ${{ needs.build.result }}
+      PLATFORM_RESULT: ${{ needs.platforms.result }}
+    steps:
+      - name: Require all offline checks and supported platforms
+        run: test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success

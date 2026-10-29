@@ -60,10 +60,20 @@ CI fetches the full Git history and checks committed PR changes with
 SHAs. The three-dot range checks changes since their merge base, including when
 the target branch has advanced. For pushes to `main`, CI checks the event's
 before and after SHAs with `git diff --check "$BASE_SHA" "$HEAD_SHA" --`.
-The `main` ruleset requires the `offline` check from GitHub Actions before merging.
-That check also uploads the candidate, downloads it by artifact ID, and compares
+The `main` ruleset requires the aggregate `offline` check from GitHub Actions
+before merging. It rejects failed, canceled, or skipped build/platform jobs.
+CI uploads the candidate, downloads it by artifact ID, and compares
 every archive, Debian package, checksum file, and dependency inventory byte for
 byte. This exercises the pinned Node.js 24 artifact Actions without cloud access.
+The same sealed candidate also runs through `verify-candidate.yml` in PR CI and
+before cloud acceptance. Native Ubuntu amd64/arm64 jobs verify its source and
+manifest, install the full OCI payload, parse examples with the pinned Runner,
+and exercise the Debian package lifecycle. The amd64 job additionally boots an
+isolated Debian 12 userspace with systemd and no network, then runs the lifecycle
+test on the same package. `tools/test-debian-system.sh` requires a disposable
+GitHub-hosted amd64 runner; debootstrap downloads authenticated Debian packages
+before the isolated test starts. No cloud or GitLab credentials are used.
+
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 

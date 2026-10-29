@@ -169,6 +169,19 @@ and receipts from another candidate. The response-loss scenario must identify it
 instrumented binary; the other five must identify the ordinary Linux amd64
 distribution binary. Run the offline regression tests with `make test`.
 
+### Candidate platform checks
+
+PR CI and the pre-release cloud workflow call the same credential-free platform
+verifier with the artifact ID, manifest digest, source SHA and version. Native
+Ubuntu amd64 and arm64 hosts verify the downloaded manifest and build metadata,
+then install the complete OCI payload and run the real package lifecycle against
+the exact candidate bytes. The amd64 host also boots an isolated Debian 12
+userspace with systemd for the package lifecycle. It has no network during the
+test. No candidate is rebuilt by these checks, and no registry is published.
+A failed, canceled or skipped platform job blocks both the PR aggregate check
+and the start of cloud scenarios. Public download checks remain a separate
+post-publication requirement.
+
 ### Publication
 
 Use the trusted main branch, review final changes and CI, select a new semantic
