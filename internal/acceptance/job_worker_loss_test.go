@@ -44,23 +44,53 @@ func TestWorkerLossThenSuccessfulJob(t *testing.T) {
 }
 
 func TestWorkerLossAcceptsPinnedSSHTransportClassification(t *testing.T) {
-	s, _ := fakeWorkerLoss(t, "instance", "ssh-loss")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := s.run(ctx); err != nil {
-		t.Fatal(err)
+	for _, fault := range []string{"ssh-loss", "ssh-keepalive-loss"} {
+		t.Run(fault, func(t *testing.T) {
+			s, _ := fakeWorkerLoss(t, "instance", fault)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := s.run(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if !s.result.Jobs[0].SSHTransportLoss || s.result.Jobs[0].FailureReason != "script_failure" {
+				t.Fatal("missing explicit transport-loss evidence")
+			}
+			s.result.Executor = "docker-autoscaler"
+			if verifyJobSequence(s.result) == nil {
+				t.Fatal("instance SSH exception accepted for Docker")
+			}
+		})
 	}
-	if !s.result.Jobs[0].SSHTransportLoss || s.result.Jobs[0].FailureReason != "script_failure" {
-		t.Fatal("missing explicit transport-loss evidence")
+}
+
+const keepaliveTransportLossLine = "ERROR: Job failed: ssh connection closed by keepalive (keepalive probe timed out after 30s): run exit (exit code: 0): wait: remote command exited without exit status or exit signal"
+
+func TestWorkerLossKeepaliveErrorRequiresPinnedCanonicalTimeoutAndMissingExit(t *testing.T) {
+	for _, duration := range []string{"30s", "1m0s", "1m30.5s"} {
+		if !isSSHTransportLossLine(strings.Replace(keepaliveTransportLossLine, "30s", duration, 1)) {
+			t.Fatalf("valid connector timeout rejected: %s", duration)
+		}
 	}
-	s.result.Executor = "docker-autoscaler"
-	if verifyJobSequence(s.result) == nil {
-		t.Fatal("instance SSH exception accepted for Docker")
+	for _, duration := range []string{"0s", "-30s", "29s", "30000ms", "30.0s", "1e3s", "private", "999999999999999h"} {
+		if isSSHTransportLossLine(strings.Replace(keepaliveTransportLossLine, "30s", duration, 1)) {
+			t.Fatal("invalid or noncanonical timeout accepted")
+		}
+	}
+	for _, line := range []string{
+		strings.Replace(keepaliveTransportLossLine, "exit code: 0", "exit code: 1", 1),
+		strings.Replace(keepaliveTransportLossLine, "keepalive probe timed out after 30s", "keepalive probe failed: EOF", 1),
+		strings.Replace(keepaliveTransportLossLine, "wait: remote command exited without exit status or exit signal", "context canceled", 1),
+		keepaliveTransportLossLine + " trailing output",
+		"echo " + keepaliveTransportLossLine,
+	} {
+		if isSSHTransportLossLine(line) {
+			t.Fatal("unproven transport error accepted")
+		}
 	}
 }
 
 func TestWorkerLossRejectsWrongFailureOrIncompleteRecovery(t *testing.T) {
-	for _, fault := range []string{"early-failure", "no-checkpoint", "delete-error", "no-loss", "script-failure", "spoof-transport", "continued-transport", "canceled", "unexpected-success", "manager-restart", "leak", "replacement", "second-failure", "same-worker"} {
+	for _, fault := range []string{"early-failure", "no-checkpoint", "delete-error", "no-loss", "script-failure", "spoof-transport", "continued-transport", "spoof-keepalive", "continued-keepalive", "canceled", "unexpected-success", "manager-restart", "leak", "replacement", "second-failure", "same-worker"} {
 		t.Run(fault, func(t *testing.T) {
 			s, _ := fakeWorkerLoss(t, "instance", fault)
 			ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
@@ -109,7 +139,7 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 		}
 		if lost && index == 0 {
 			switch fault {
-			case "script-failure", "ssh-loss", "spoof-transport", "continued-transport":
+			case "script-failure", "ssh-loss", "ssh-keepalive-loss", "spoof-transport", "continued-transport", "spoof-keepalive", "continued-keepalive":
 				reason = "script_failure"
 			case "canceled":
 				status, reason = "canceled", "job_canceled"
@@ -135,10 +165,16 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 				switch fault {
 				case "ssh-loss":
 					_, _ = fmt.Fprintln(w, "2026-10-29T00:00:00.000001Z 01O \x1b[31;1m"+sshTransportLossLine+"\x1b[0;m\r")
+				case "ssh-keepalive-loss":
+					_, _ = fmt.Fprintln(w, "2026-10-29T00:00:00.000001Z 01O \x1b[31;1m"+keepaliveTransportLossLine+"\x1b[0;m\r")
 				case "spoof-transport":
 					_, _ = fmt.Fprintln(w, "01O $ printf '"+sshTransportLossLine+"'")
 				case "continued-transport":
 					_, _ = fmt.Fprintln(w, "01+ "+sshTransportLossLine)
+				case "spoof-keepalive":
+					_, _ = fmt.Fprintln(w, "01O $ printf '"+keepaliveTransportLossLine+"'")
+				case "continued-keepalive":
+					_, _ = fmt.Fprintln(w, "01+ "+keepaliveTransportLossLine)
 				}
 			}
 		case fmt.Sprintf("/jobs/%d/artifacts/result.json", jobID):

@@ -174,7 +174,11 @@ The original Manager must remain alive, and GitLab must report the original job
 as failed with `runner_system_failure`, without cancellation, retries or opening
 the job barrier. For `instance` only, the pinned Runner can classify missing SSH
 exit status as `script_failure`. That variant additionally requires the exact
-terminal Runner error line proving missing remote exit status/signal; an ordinary
+terminal Runner error line proving missing remote exit status/signal. It may
+include the pinned connector's keepalive-probe timeout wrapper: the duration must
+be canonical Go duration text and at least the connector's 30-second minimum,
+and the wrapped error must still report exit code zero and missing remote exit
+status/signal. Other keepalive causes do not qualify. An ordinary
 script failure, an echoed command, or a continued trace fragment cannot pass.
 Before a follow-up pipeline is submitted, read-only observation
 must prove zero group demand/capacity, quiet activities and absence of the worker

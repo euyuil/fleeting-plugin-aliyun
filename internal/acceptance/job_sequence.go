@@ -289,6 +289,22 @@ var runnerTraceColor = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // BuildError. GitLab labels this script_failure, despite the transport loss.
 const sshTransportLossLine = "ERROR: Job failed: run exit (exit code: 0): wait: remote command exited without exit status or exit signal"
 
+func isSSHTransportLossLine(line string) bool {
+	if line == sshTransportLossLine {
+		return true
+	}
+	const prefix = "ERROR: Job failed: ssh connection closed by keepalive (keepalive probe timed out after "
+	const suffix = "): run exit (exit code: 0): wait: remote command exited without exit status or exit signal"
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, suffix) {
+		return false
+	}
+	value := strings.TrimSuffix(strings.TrimPrefix(line, prefix), suffix)
+	timeout, err := time.ParseDuration(value)
+	// The pinned connector uses max(keepalive interval, 30s) for its probe
+	// timeout and formats it with time.Duration.String before wrapping Run's error.
+	return err == nil && timeout >= 30*time.Second && timeout.String() == value
+}
+
 func jobTraceLine(line string) string {
 	return runnerTraceHeader.ReplaceAllString(strings.TrimSuffix(line, "\r"), "")
 }
@@ -306,7 +322,7 @@ func (s jobSequence) checkpoint(ctx context.Context, e *JobEvidence, terminal bo
 	if terminal && e.Scenario == "worker-loss" && e.LossInjected && s.result.Executor == "instance" {
 		e.SSHTransportLoss = false
 		for _, line := range strings.Split(string(trace), "\n") {
-			if runnerTraceColor.ReplaceAllString(jobTraceLine(line), "") == sshTransportLossLine {
+			if isSSHTransportLossLine(runnerTraceColor.ReplaceAllString(jobTraceLine(line), "")) {
 				e.SSHTransportLoss = true
 			}
 		}

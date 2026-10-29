@@ -20,14 +20,15 @@ FLAGS = ("checkpoint", "cancel_requested", "loss_injected", "ssh_transport_loss"
 HEADER = re.compile(r"^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z )?[0-9a-f]{2}[OE] ")
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-SSH_ERROR = re.compile(r"^ERROR: Job failed: run exit \(exit code: (-?[0-9]{1,3})\): wait: remote command exited without exit status or exit signal$")
+SSH_ERROR = re.compile(r"^ERROR: Job failed: (?:ssh connection closed by keepalive \(keepalive probe timed out after [0-9hms.]+\): )?"
+                       r"run exit \(exit code: (-?[0-9]{1,3})\): wait: remote command exited without exit status or exit signal$")
 # Unknown words, numbers, identifiers and addresses are never copied. These
 # public error terms retain a useful outline when a pinned literal changes.
 ERROR_WORDS = frozenset("ERROR Job failed system failure run exit code wait remote command exited without status or signal "
                         "Process with from Reason was ssh connection closed by keepalive timeout context canceled deadline exceeded "
                         "read write tcp udp pipe broken reset peer EOF unexpected stage step_script execute executing execution "
                         "error process killed terminated aborted stopped stopping transport session not started disconnected "
-                        "permission denied socket network use of user initiated shutdown KILL TERM HUP INT QUIT".split())
+                        "permission denied socket network use of user initiated shutdown probe timed out after KILL TERM HUP INT QUIT".split())
 
 
 def error_outline(line):
@@ -39,6 +40,8 @@ def error_outline(line):
         if len(words) == 64:
             break
     match = re.match(r"ERROR: Job failed: run exit \(exit code: (-?[0-9]{1,3})\): ", line)
+    if match is None:
+        match = SSH_ERROR.fullmatch(line)
     code = int(match[1]) if match and -1 <= int(match[1]) <= 255 else None
     return {"words": words, "connector_exit_code": code}
 
