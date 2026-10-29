@@ -1,4 +1,5 @@
 import copy
+from contextlib import redirect_stdout
 import hashlib
 import io
 import json
@@ -12,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import job_acceptance as job
 from cloud_fixture import JOB_MODES, labels, name_for
+from cloud_diagnostics import CloudOperationError
 
 
 def inputs():
@@ -287,6 +289,7 @@ class JobAcceptanceTests(unittest.TestCase):
                 patch.object(job.subprocess, "check_output", return_value="192.0.2.1"), \
                 patch.object(job, "driver", side_effect=ValueError("private diagnostic")):
             root = Path(temp)
+            fixture.directory = root / "private" / "fixture"
             args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate", executor="instance", scenario="smoke",
                                    directory=root / "private", receipt=root / "receipt.json", driver=root / "driver")
             with self.assertRaises(ValueError):
@@ -350,6 +353,115 @@ class JobAcceptanceTests(unittest.TestCase):
             installed = commands.call_args_list[1].args[0]
             self.assertEqual(installed[-1], str(previous.resolve()))
             self.assertNotIn(str(candidate), installed)
+
+
+class JobRunDiagnosticTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.config, self.gitlab, env = inputs()
+        self.fixture = Mock(directory=self.root / "private" / "fixture", driver_exit_code=None,
+                            state={"ids": {"vpc": "private-resource"},
+                                   "operations": {"vpc": "unknown", "sg": "private-value", "private-key": "accepted"}})
+        self.args = SimpleNamespace(root=self.root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate",
+                                    executor="instance", scenario="worker-loss", directory=self.root / "private",
+                                    receipt=self.root / "receipt.json", driver=self.root / "driver")
+        self.enterContext(patch.dict(os.environ, env))
+        for name, value in (("require_linux", None), ("verify", manifest()), ("prepare_gitlab_fixture", self.gitlab),
+                            ("install_package", None), ("Cloud", None), ("Fixture", self.fixture)):
+            self.enterContext(patch.object(job, name, return_value=value))
+        self.enterContext(patch.object(job.subprocess, "check_output", return_value="192.0.2.1"))
+        self.driver = self.enterContext(patch.object(job, "driver"))
+        self.output = self.enterContext(redirect_stdout(io.StringIO()))
+
+    def diagnostic(self):
+        value = json.loads(self.args.receipt.read_text())
+        published = self.output.getvalue() + self.args.receipt.read_text()
+        self.assertNotIn("private-", published)
+        self.assertNotIn("project_id", published)
+        self.assertNotIn("runner_id", published)
+        self.assertEqual(json.loads(self.output.getvalue())["job_orchestration_diagnostic"], value["diagnostics"])
+        return value, value["diagnostics"]
+
+    def test_setup_and_cleanup_failures_are_both_retained_without_private_state(self):
+        primary = CloudOperationError("vpc", "CreateVpc", output='{"Code":"Forbidden.RAM","Message":"private-token"}')
+        self.fixture.prepare.side_effect = primary
+        self.fixture.cleanup.side_effect = ValueError("private-cleanup")
+        with self.assertRaises(CloudOperationError) as raised:
+            job.run(self.args)
+        self.assertIs(raised.exception, primary)
+        self.driver.assert_not_called()
+        self.fixture.cleanup.assert_called_once()
+        value, diagnostics = self.diagnostic()
+        self.assertEqual((value["result"], value["cleanup_result"], value["leftover_resources"]), ("FAIL", "FAIL", -1))
+        self.assertEqual(diagnostics["fixture_setup"]["error"]["code"], "Forbidden.RAM")
+        self.assertEqual(diagnostics["fixture_setup"]["operations"], {"vpc": "unknown", "sg": "invalid"})
+        self.assertEqual(diagnostics["fixture_cleanup"]["error"], {"kind": "validation"})
+        self.assertEqual(diagnostics["driver"], {"result": "UNKNOWN", "evidence": {"evidence": "NOT_RECORDED"}})
+
+    def test_cleanup_failure_cannot_turn_successful_driver_into_acceptance_pass(self):
+        self.fixture.cleanup.side_effect = RuntimeError("private-cleanup")
+        with self.assertRaises(RuntimeError):
+            job.run(self.args)
+        value, diagnostics = self.diagnostic()
+        self.assertEqual((value["result"], value["cleanup_result"], value["leftover_resources"]), ("PASS", "FAIL", -1))
+        self.assertEqual(diagnostics["driver"]["result"], "PASS")
+        self.assertEqual(diagnostics["fixture_cleanup"]["error"], {"kind": "runtime"})
+        with self.assertRaises(ValueError):
+            job.check_receipt(value, manifest(), "a" * 64, "candidate", "instance", "10", "1", "worker-loss")
+
+    def test_primary_cancellation_survives_cleanup_failure(self):
+        self.driver.side_effect = KeyboardInterrupt("private-cancel")
+        self.fixture.cleanup.side_effect = ValueError("private-cleanup")
+        with self.assertRaises(KeyboardInterrupt):
+            job.run(self.args)
+        _, diagnostics = self.diagnostic()
+        self.assertEqual(diagnostics["driver"]["error"], {"kind": "interrupted"})
+        self.assertEqual(diagnostics["fixture_cleanup"]["result"], "FAIL")
+
+    def test_cleanup_cancellation_takes_precedence_without_losing_primary_error(self):
+        self.driver.side_effect = TimeoutError("private-timeout")
+        self.fixture.cleanup.side_effect = KeyboardInterrupt("private-cancel")
+        with self.assertRaises(KeyboardInterrupt):
+            job.run(self.args)
+        _, diagnostics = self.diagnostic()
+        self.assertEqual(diagnostics["driver"]["error"], {"kind": "timeout"})
+        self.assertEqual(diagnostics["fixture_cleanup"]["error"], {"kind": "interrupted"})
+
+    def test_saved_driver_evidence_survives_manager_fencing_failure(self):
+        path = self.fixture.directory / "evidence" / "run-10-1" / "result.json"
+        def driver(*_):
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"result": "FAIL_PRODUCT", "project_id": "private-project",
+                                       "errors": ["job did not reach the intended terminal outcome: private-token"],
+                                       "instances": [{"instance_id": "private-worker", "spot_verified": True}],
+                                       "jobs": [{"status": "failed", "failure_reason": "script_failure", "job_id": "private-job"}]}))
+            self.fixture.driver_exit_code = 1
+            raise ValueError("private-fence")
+        self.driver.side_effect = driver
+        with self.assertRaises(ValueError):
+            job.run(self.args)
+        _, diagnostics = self.diagnostic()
+        evidence = diagnostics["driver"]["evidence"]
+        self.assertEqual((evidence["evidence"], evidence["exit_code"], evidence["result"]), ("RECORDED", 1, "FAIL_PRODUCT"))
+        self.assertEqual(evidence["workers_observed"], 1)
+        self.assertEqual(evidence["jobs"][0]["failure_reason"], "script_failure")
+
+    def test_receipt_write_failure_keeps_both_failures_in_console_fallback(self):
+        self.fixture.prepare.side_effect = CloudOperationError("vpc", "CreateVpc", output="ErrorCode: QuotaExceeded")
+        self.fixture.cleanup.side_effect = ValueError("private-cleanup")
+        with patch.object(job, "write_json", side_effect=OSError("private-path")), self.assertRaises(OSError):
+            job.run(self.args)
+        published = self.output.getvalue()
+        self.assertNotIn("private-", published)
+        diagnostics = json.loads(published)["job_orchestration_diagnostic"]
+        self.assertEqual(diagnostics["fixture_setup"]["error"]["code"], "QuotaExceeded")
+        self.assertEqual(diagnostics["fixture_cleanup"]["result"], "FAIL")
+
+    def test_success_remains_compatible_with_the_exact_receipt_gate(self):
+        job.run(self.args)
+        value, diagnostics = self.diagnostic()
+        job.check_receipt(value, manifest(), "a" * 64, "candidate", "instance", "10", "1", "worker-loss")
+        self.assertTrue(all(stage["result"] == "PASS" for stage in diagnostics.values()))
 
 
 if __name__ == "__main__":

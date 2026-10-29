@@ -295,6 +295,15 @@ No GitLab PAT, Runner authentication token or Manager cloud credentials enter
 the worker bootstrap. The selected public image must support cloud-init and root
 SSH with an ECS key pair. Both VM and container jobs independently read IMDSv2.
 
+Once fixture setup begins, the public receipt and console diagnostics retain
+separate setup, driver and cleanup verdicts. Fixture teardown cannot replace
+the failure returned by setup or the driver invocation. Diagnostics include bounded durations,
+allowlisted cloud API error categories and fixture creation-operation states,
+plus any saved driver outcome after a Manager cleanup failure. Missing driver
+evidence stays explicitly unrecorded. Raw exceptions, resource identities,
+configuration and logs remain private. Failed cleanup still fails the gate;
+confirm the independent janitor's result for the exact owning run and attempt.
+
 The fixture job has a 20-minute timeout to include ordinary preparation. The
 shipped Manager examples retain their readiness and acquisition deadlines;
 installation failure or an exceeded deadline fails acceptance. The one-Mbps
