@@ -16,6 +16,7 @@ from cloud_config import config_digest, decode, fixture_config
 from cloud_fixture import JOB_SCENARIOS, Cloud, Fixture, labels, preflight, require_linux, stop_process_group
 from cloud_diagnostics import driver_diagnostic
 from debian_package import debian_version
+from debian_upgrade import baseline, fetch_baseline, require_newer, verify_package
 from gitlab_fixture import prepare as prepare_gitlab_fixture
 from release_candidate import digest, revision, verify, write_json
 
@@ -62,7 +63,7 @@ def worker_script(executor):
             + Path("infra/bootstrap-job-worker.sh").read_text() + "\n" + Path("infra/bootstrap-linux.sh").read_text())
 
 
-def install_package(root, manifest, phase, directory):
+def install_package(root, manifest, phase, directory, scenario="smoke"):
     if os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted" or os.environ.get("GITHUB_ACTIONS") != "true":
         raise ValueError("installation requires a disposable GitHub-hosted machine")
     for path in ("/usr/bin/gitlab-runner", "/usr/bin/fleeting-plugin-aliyun", "/etc/gitlab-runner-aliyun",
@@ -83,18 +84,33 @@ def install_package(root, manifest, phase, directory):
             if digest(public / name) != manifest["files"]["dist/" + name]:
                 raise ValueError("public distribution differs from the accepted candidate")
         package = public / package.name
+    previous = None
+    installed = package
+    expected_binary = manifest["files"][manifest["normal_binary"]]
+    if scenario == "upgrade":
+        require_newer(manifest["version"])
+        previous = fetch_baseline(directory / "previous", "amd64")
+        pin = baseline("amd64")
+        verify_package(previous, pin["package_sha256"], pin["version"], "amd64")
+        installed, expected_binary = previous, pin["binary_sha256"]
     runner = subprocess.check_output([sys.executable, "tools/fetch-runner.py"], text=True).strip()
     with (directory / "install.log").open("w") as output:
         for command in (["sudo", "-n", "apt-get", "update"],
-                        ["sudo", "-n", "apt-get", "install", "-y", "--no-install-recommends", str(package.resolve())],
+                        ["sudo", "-n", "apt-get", "install", "-y", "--no-install-recommends", str(installed.resolve())],
                         ["sudo", "-n", "install", "-m", "0755", runner, "/usr/bin/gitlab-runner"]):
             subprocess.run(command, check=True, stdout=output, stderr=subprocess.STDOUT, timeout=300)
-    if digest("/usr/bin/fleeting-plugin-aliyun") != manifest["files"][manifest["normal_binary"]]:
-        raise ValueError("installed Debian binary differs from the sealed candidate")
+    if digest("/usr/bin/fleeting-plugin-aliyun") != expected_binary:
+        raise ValueError("installed Debian binary differs from the accepted artifact")
+    return package.resolve(), previous.resolve() if previous else None
 
 
 def job_cases(scenario):
-    return ["capacity"] * 3 if scenario == "capacity" else (["smoke"] if scenario == "smoke" else [scenario, "smoke"])
+    return ["capacity"] * 3 if scenario == "capacity" else (["smoke"] if scenario in ("smoke", "upgrade") else [scenario, "smoke"])
+
+
+def upgrade_receipt(scenario):
+    pin = baseline("amd64") if scenario == "upgrade" else None
+    return {"upgrade_from_version": pin["version"], "upgrade_from_package_sha256": pin["package_sha256"]} if pin else {}
 
 
 def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scenario="smoke"):
@@ -117,6 +133,13 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
         expected["crash_verified"] = True
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
+    if scenario == "upgrade":
+        pin = baseline("amd64")
+        expected_upgrade = {"version": pin["version"], "package_sha256": pin["package_sha256"],
+                            "candidate_package_sha256": manifest["files"][package_path(manifest)], "state_preserved": True, "rollback_verified": True}
+        proof = result.get("upgrade")
+        if not isinstance(proof, dict) or any(type(proof.get(k)) is not type(v) or proof[k] != v for k, v in expected_upgrade.items()):
+            raise ValueError("job lacks the pinned previous-release upgrade and rollback proof")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
         raise ValueError("job evidence lacks concrete pipeline and job identities")
     instances = result.get("instances")
@@ -168,7 +191,7 @@ def manager_fenced():
             raise ValueError("systemd Manager termination and startup fence are not confirmed")
 
 
-def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scenario="smoke"):
+def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scenario="smoke", packages=None):
     env = {k: v for k, v in os.environ.items() if k not in
            ("ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_CREDENTIALS_FILE", "ALIBABA_CLOUD_ROLE_ARN",
             "ALIBABA_CLOUD_OIDC_TOKEN_FILE", "ALIBABA_CLOUD_OIDC_PROVIDER_ARN", "ALIYUN_COMPONENT_ENDPOINT",
@@ -186,6 +209,11 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
                GITLAB_FIXTURE_SHA=gitlab["fixture_sha"], GITLAB_EXPECTED_RUNNER_ID=gitlab["runner_id"], GITLAB_RUNNER_TAG=gitlab["runner_tag"],
                GITLAB_API_TOKEN=os.environ["RELEASE_GITLAB_API_TOKEN"], GITLAB_RUNNER_TOKEN=os.environ["RELEASE_GITLAB_RUNNER_TOKEN"],
                ACCEPTANCE_OUTPUT=str((fixture.directory / "evidence").resolve()))
+    if scenario == "upgrade":
+        if packages is None or packages[1] is None:
+            raise ValueError("upgrade requires both verified Debian artifacts")
+        env.update(ACCEPTANCE_CANDIDATE_PACKAGE=str(packages[0]), ACCEPTANCE_PREVIOUS_PACKAGE=str(packages[1]),
+                   ACCEPTANCE_CANDIDATE_PACKAGE_SHA256=manifest["files"][package_path(manifest)])
     with (fixture.directory / "driver.log").open("w") as output:
         fixture.state["driver_group"] = "starting"
         fixture.save()
@@ -194,7 +222,7 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
             process = subprocess.Popen([str(binary.resolve()), "smoke"], env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             fixture.state["driver_group"] = process.pid
             fixture.save()
-            code = process.wait(timeout=(30 if scenario == "smoke" else 60 if scenario == "manager-crash" else 50) * 60)
+            code = process.wait(timeout=(30 if scenario in ("smoke", "upgrade") else 60 if scenario == "manager-crash" else 50) * 60)
         finally:
             if process is not None:
                 stop_process_group(process)
@@ -218,9 +246,11 @@ def run(args):
     require_linux()
     config, gitlab = configuration()
     manifest = verify(args.root, args.digest, args.sha, args.version)
+    if args.scenario == "upgrade":
+        require_newer(manifest["version"])
     gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"])
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=False)
-    install_package(args.root, manifest, args.phase, args.directory)
+    packages = install_package(args.root, manifest, args.phase, args.directory, args.scenario)
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     mode = f"job-{args.phase}-{args.executor}" + ("" if args.scenario == "smoke" else "-" + args.scenario)
     tags = labels(os.environ["GITHUB_REPOSITORY"], args.sha, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], mode, expires)
@@ -230,7 +260,7 @@ def run(args):
     status = cleanup = "FAIL"
     try:
         fixture.prepare(cidr, config["fixture"], worker_script=worker_script(args.executor))
-        driver(fixture, args.root, manifest, config, gitlab, args.executor, cidr, args.driver, args.scenario)
+        driver(fixture, args.root, manifest, config, gitlab, args.executor, cidr, args.driver, args.scenario, packages)
         status = "PASS"
     finally:
         try:
@@ -248,7 +278,7 @@ def run(args):
                        "fixture_config_sha256": config_digest(config), "gitlab_config_sha256": config_digest(gitlab),
                        "package_sha256": manifest["files"][package_path(manifest)],
                        "plugin_sha256": manifest["files"][manifest["normal_binary"]],
-                       "leftover_resources": 0 if cleanup == "PASS" else -1})
+                       "leftover_resources": 0 if cleanup == "PASS" else -1, **upgrade_receipt(args.scenario)})
 
 
 def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke"):
@@ -256,7 +286,7 @@ def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, a
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"], "manifest_sha256": manifest_digest,
                 "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": run_id, "run_attempt": attempt,
                 "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
-                "plugin_sha256": manifest["files"][manifest["normal_binary"]], "package_sha256": manifest["files"][package_path(manifest)]}
+                "plugin_sha256": manifest["files"][manifest["normal_binary"]], "package_sha256": manifest["files"][package_path(manifest)], **upgrade_receipt(scenario)}
     if not isinstance(receipt, dict) or any(type(receipt.get(k)) is not type(v) or receipt[k] != v for k, v in expected.items()):
         raise ValueError("job receipt is missing, failed, stale or belongs to another distribution")
     for key in ("fixture_config_sha256", "gitlab_config_sha256"):
@@ -308,6 +338,8 @@ def main():
         parser.error("gate requires the executor receipt directory")
     if args.operation == "preflight":
         configuration(read_only=args.read_only)
+        if args.version:
+            require_newer(args.version)
     elif args.operation == "gate":
         gate(args)
     else:

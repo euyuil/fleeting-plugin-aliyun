@@ -44,7 +44,7 @@ def receipt(executor="instance", phase="candidate", scenario="smoke"):
             "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": "10", "run_attempt": "1",
             "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
             "plugin_sha256": "d" * 64, "package_sha256": "e" * 64,
-            "fixture_config_sha256": "1" * 64, "gitlab_config_sha256": "2" * 64}
+            "fixture_config_sha256": "1" * 64, "gitlab_config_sha256": "2" * 64, **job.upgrade_receipt(scenario)}
 
 
 class JobAcceptanceTests(unittest.TestCase):
@@ -100,7 +100,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_job_modes_have_distinct_recoverable_fixture_names(self):
         tags = [labels("example/project", "a" * 40, "123456789012345678", "1", mode, "2030-01-01T00:00:00Z") for mode in JOB_MODES]
         names = {name_for(value) for value in tags}
-        self.assertEqual(len(names), 32)
+        self.assertEqual(len(names), 36)
         self.assertTrue(all(len(name) <= 64 for name in names))
         self.assertEqual(names, {name_for(json.loads(json.dumps(value))) for value in tags})
 
@@ -127,6 +127,17 @@ class JobAcceptanceTests(unittest.TestCase):
                             "pipeline_id": 3, "job_id": 4, "nonce": "1" * 48, "instance_id": "i-worker1", "cancel_requested": False}],
                   "instances": [{"instance_id": "i-worker1", "spot_verified": True, "deletion_verified": True, "inventory_complete": True}]}
         job.check_result(result, manifest(), gitlab, "instance", lock, "10", "1")
+        upgrade = copy.deepcopy(result)
+        pin = job.baseline("amd64")
+        upgrade.update(job_scenario="upgrade", upgrade={"version": pin["version"], "package_sha256": pin["package_sha256"],
+                       "candidate_package_sha256": "e" * 64, "state_preserved": True, "rollback_verified": True})
+        job.check_result(upgrade, manifest(), gitlab, "instance", lock, "10", "1", "upgrade")
+        for field, value in (("version", "0.0.0"), ("package_sha256", "f" * 64), ("candidate_package_sha256", "f" * 64),
+                             ("state_preserved", False), ("rollback_verified", 1)):
+            broken = copy.deepcopy(upgrade)
+            broken["upgrade"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", "upgrade")
         for key, value in {"normal_release": False, "gitlab_fixture_sha": "a" * 40, "gitlab_runner_id": 3, "gitlab_pipeline_id": 0, "gitlab_job_id": True,
                            "instances": [], "leftover_resources": ["synthetic-instance"], "errors": ["failure"], "runner_sha256": "a" * 64,
                            "github_run_id": "11", "github_run_attempt": "2", "jobs": [], "manager_pid": 0}.items():
@@ -246,6 +257,25 @@ class JobAcceptanceTests(unittest.TestCase):
                 with self.subTest(scenario=scenario, key=key), self.assertRaises(ValueError):
                     job.check_receipt({**good, key: value}, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
 
+    def test_upgrade_receipt_binds_the_published_baseline(self):
+        good = receipt(scenario="upgrade")
+        job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1", "upgrade")
+        for key, value in (("job_scenario", "smoke"), ("job_count", 2), ("upgrade_from_version", "0.0.0"), ("upgrade_from_package_sha256", "f" * 64)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                job.check_receipt({**good, key: value}, manifest(), "a" * 64, "candidate", "instance", "10", "1", "upgrade")
+
+    def test_non_upgrade_version_fails_before_fixture_or_host_mutation(self):
+        _, _, env = inputs()
+        with patch.dict(os.environ, env), patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
+                patch.object(job, "require_newer", side_effect=ValueError("not newer")), patch.object(job, "prepare_gitlab_fixture") as gitlab, \
+                patch.object(job, "install_package") as install, patch.object(job, "Fixture") as cloud:
+            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev", scenario="upgrade")
+            with self.assertRaises(ValueError):
+                job.run(args)
+            gitlab.assert_not_called()
+            install.assert_not_called()
+            cloud.assert_not_called()
+
     def test_driver_failure_still_tears_down_and_emits_only_sanitized_receipt(self):
         config, gitlab, env = inputs()
         fixture = Mock()
@@ -275,7 +305,7 @@ class JobAcceptanceTests(unittest.TestCase):
         with patch.dict(os.environ, env), patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
                 patch.object(job, "prepare_gitlab_fixture", side_effect=ValueError("unverified fixture")), \
                 patch.object(job, "install_package") as install, patch.object(job, "Fixture") as cloud:
-            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev")
+            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev", scenario="smoke")
             with self.assertRaises(ValueError):
                 job.run(args)
             install.assert_not_called()
@@ -303,6 +333,23 @@ class JobAcceptanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 job.install_package(root, m, "public", root)
             commands.assert_not_called()
+
+    def test_upgrade_installs_actual_previous_package_before_candidate_setup(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"RUNNER_ENVIRONMENT": "github-hosted", "GITHUB_ACTIONS": "true"}), \
+                patch.object(job.os.path, "lexists", return_value=False), patch.object(job, "require_newer"), \
+                patch.object(job, "verify_package") as verify_package, patch.object(job.subprocess, "check_output", return_value="/synthetic/runner"), \
+                patch.object(job.subprocess, "run") as commands, patch.object(job, "digest", return_value=job.baseline("amd64")["binary_sha256"]):
+            root = Path(temp)
+            previous = root / "previous.deb"
+            with patch.object(job, "fetch_baseline", return_value=previous):
+                candidate, selected = job.install_package(root, manifest(), "candidate", root, "upgrade")
+            pin = job.baseline("amd64")
+            verify_package.assert_called_once_with(previous, pin["package_sha256"], pin["version"], "amd64")
+            self.assertEqual(selected, previous.resolve())
+            self.assertEqual(candidate, (root / job.package_path(manifest())).resolve())
+            installed = commands.call_args_list[1].args[0]
+            self.assertEqual(installed[-1], str(previous.resolve()))
+            self.assertNotIn(str(candidate), installed)
 
 
 if __name__ == "__main__":

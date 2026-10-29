@@ -24,33 +24,34 @@ const FleetingVersion = "v0.0.0-20260915191451-6ed75a33d303"
 
 type Result struct {
 	Ledger
-	Result             string        `json:"result"`
-	Mode               string        `json:"mode"`
-	PluginCommit       string        `json:"plugin_commit"`
-	PluginSHA256       string        `json:"plugin_sha256"`
-	RunnerSHA256       string        `json:"runner_sha256"`
-	RunnerVersion      string        `json:"runner_version"`
-	FleetingVersion    string        `json:"fleeting_version"`
-	Nonce              string        `json:"run_nonce"`
-	FixtureSHA         string        `json:"gitlab_fixture_sha"`
-	ProjectID          string        `json:"gitlab_project_id"`
-	PipelineID         int64         `json:"gitlab_pipeline_id"`
-	JobID              int64         `json:"gitlab_job_id"`
-	RunnerID           int64         `json:"gitlab_runner_id"`
-	Executor           string        `json:"executor"`
-	PluginReference    string        `json:"plugin_reference"`
-	PluginVersion      string        `json:"plugin_version,omitempty"`
-	JobImage           string        `json:"job_image,omitempty"`
-	NormalRelease      bool          `json:"normal_release"`
-	Missing            []string      `json:"missing_configuration,omitempty"`
-	Errors             []string      `json:"errors,omitempty"`
-	JobScenario        string        `json:"job_scenario"`
-	Jobs               []JobEvidence `json:"jobs"`
-	CapacityVerified   bool          `json:"capacity_verified"`
-	DrainVerified      bool          `json:"drain_verified"`
-	WorkerLossVerified bool          `json:"worker_loss_verified"`
-	CrashVerified      bool          `json:"crash_verified"`
-	FinishedAt         time.Time     `json:"finished_at"`
+	Result             string          `json:"result"`
+	Mode               string          `json:"mode"`
+	PluginCommit       string          `json:"plugin_commit"`
+	PluginSHA256       string          `json:"plugin_sha256"`
+	RunnerSHA256       string          `json:"runner_sha256"`
+	RunnerVersion      string          `json:"runner_version"`
+	FleetingVersion    string          `json:"fleeting_version"`
+	Nonce              string          `json:"run_nonce"`
+	FixtureSHA         string          `json:"gitlab_fixture_sha"`
+	ProjectID          string          `json:"gitlab_project_id"`
+	PipelineID         int64           `json:"gitlab_pipeline_id"`
+	JobID              int64           `json:"gitlab_job_id"`
+	RunnerID           int64           `json:"gitlab_runner_id"`
+	Executor           string          `json:"executor"`
+	PluginReference    string          `json:"plugin_reference"`
+	PluginVersion      string          `json:"plugin_version,omitempty"`
+	JobImage           string          `json:"job_image,omitempty"`
+	NormalRelease      bool            `json:"normal_release"`
+	Missing            []string        `json:"missing_configuration,omitempty"`
+	Errors             []string        `json:"errors,omitempty"`
+	JobScenario        string          `json:"job_scenario"`
+	Jobs               []JobEvidence   `json:"jobs"`
+	CapacityVerified   bool            `json:"capacity_verified"`
+	DrainVerified      bool            `json:"drain_verified"`
+	WorkerLossVerified bool            `json:"worker_loss_verified"`
+	CrashVerified      bool            `json:"crash_verified"`
+	Upgrade            *packageUpgrade `json:"upgrade"`
+	FinishedAt         time.Time       `json:"finished_at"`
 }
 
 func Missing(get func(string) string) []string {
@@ -72,6 +73,9 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "manager-crash" {
 		duration = 50 * time.Minute
+	}
+	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "upgrade" {
+		duration, budget = 20*time.Minute, 1
 	}
 	ctx, stageCancel := context.WithTimeout(ctx, duration)
 	defer stageCancel()
@@ -382,10 +386,26 @@ func Run(ctx context.Context, dir string) (result Result) {
 			fail(e)
 			return result
 		}
-		service, systemID, err = preparePackagedManager(ctx, privateDir, &result.Ledger, binary, keyPath, config)
+		setupBinary := binary
+		if options.scenario == "upgrade" {
+			setupBinary, err = installedUpgradeBaseline()
+			if err != nil {
+				fail(err)
+				return result
+			}
+		}
+		service, systemID, err = preparePackagedManager(ctx, privateDir, &result.Ledger, setupBinary, keyPath, config)
 		if err != nil {
 			fail(err)
 			return result
+		}
+		if options.scenario == "upgrade" {
+			result.Upgrade, err = service.upgrade(ctx, get("ACCEPTANCE_CANDIDATE_PACKAGE"), get("ACCEPTANCE_CANDIDATE_PACKAGE_SHA256"),
+				get("ACCEPTANCE_PREVIOUS_PACKAGE"), options.version, binary)
+			if err != nil {
+				fail(err)
+				return result
+			}
 		}
 		if err = VerifyGitLabFixture(ctx, gl, runnerID, get("GITLAB_RUNNER_TAG"), get("GITLAB_RUNNER_TOKEN"), systemID); err != nil {
 			fail(err)

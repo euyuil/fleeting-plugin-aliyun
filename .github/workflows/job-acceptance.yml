@@ -60,7 +60,7 @@ jobs:
       fail-fast: true
       matrix:
         executor: [instance, docker-autoscaler]
-        scenario: [smoke, failure, cancel, timeout, capacity, drain, worker-loss, manager-crash]
+        scenario: [smoke, failure, cancel, timeout, capacity, drain, worker-loss, manager-crash, upgrade]
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -103,7 +103,7 @@ jobs:
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
           python3 tools/release_candidate.py verify --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256"
-          python3 tools/job_acceptance.py preflight
+          python3 tools/job_acceptance.py preflight --version "$VERSION"
           python3 tools/fetch-aliyun.py
           printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
           go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
