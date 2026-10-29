@@ -100,8 +100,6 @@ jobs:
           (cd dist && sha256sum -c SHA256SUMS)
           go test -race ./...
           go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
-          python3 tools/fetch-runner.py
-          sudo python3 tools/test-debian-lifecycle.py --disposable-host --runner .cache/gitlab-runner-linux-amd64 --packages dist
           mkdir -p .cache/candidate/responsegate
           cp -a dist .cache/candidate/dist
           GOFLAGS=-tags=responsegate make build VERSION="$VERSION"
@@ -119,8 +117,16 @@ jobs:
           path: .cache/candidate.tar
           if-no-files-found: error
           retention-days: 7
-  scenario:
+  platforms:
     needs: build
+    uses: ./.github/workflows/verify-candidate.yml
+    with:
+      artifact_id: ${{ needs.build.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.build.outputs.manifest_sha256 }}
+      candidate_sha: ${{ needs.build.outputs.candidate_sha }}
+      version: ${{ inputs.version }}
+  scenario:
+    needs: [build, platforms]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: aliyun-pre-release
@@ -188,7 +194,7 @@ jobs:
           retention-days: 7
   gate:
     if: always()
-    needs: [build, scenario]
+    needs: [build, platforms, scenario]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -199,10 +205,11 @@ jobs:
       MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
       MODE: ${{ needs.build.outputs.mode }}
       BUILD_RESULT: ${{ needs.build.result }}
+      PLATFORM_RESULT: ${{ needs.platforms.result }}
       SCENARIO_RESULT: ${{ needs.scenario.result }}
     steps:
       - name: Require completed build and cloud scenarios
-        run: test "$BUILD_RESULT" = success && test "$SCENARIO_RESULT" = success
+        run: test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success && test "$SCENARIO_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.build.outputs.candidate_sha }}

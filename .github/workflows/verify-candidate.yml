@@ -1,0 +1,72 @@
+name: Verify candidate platforms
+on:
+  workflow_call:
+    inputs:
+      artifact_id:
+        required: true
+        type: string
+      manifest_sha256:
+        required: true
+        type: string
+      candidate_sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ inputs.version }}
+      REVISION: ${{ inputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.3'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - name: Verify the exact candidate before executing its binaries
+        run: |
+          mkdir -p .cache/candidate
+          tar -xf .cache/download/candidate.tar -C .cache/candidate
+          python3 tools/release_candidate.py verify --root .cache/candidate --sha "$REVISION" --version "$VERSION" --digest "$MANIFEST_SHA256"
+          (cd .cache/candidate/dist && sha256sum -c SHA256SUMS)
+      - name: Install the complete OCI payload and load the native plugin
+        env:
+          OCI_PACKAGES: ${{ github.workspace }}/.cache/candidate/dist/packages
+        run: go test -count=1 -timeout=5m -run '^TestBuiltDistributionRoundTrip$' ./tools/distribution
+      - name: Parse examples and test Ubuntu package lifecycle
+        run: |
+          python3 tools/fetch-runner.py
+          python3 tools/check-configs.py --runner ".cache/gitlab-runner-linux-$ARCH"
+          sudo python3 tools/test-debian-lifecycle.py --disposable-host --runner ".cache/gitlab-runner-linux-$ARCH" --packages .cache/candidate/dist
+      - name: Test the same package on isolated Debian 12 with systemd
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y debootstrap debian-archive-keyring systemd-container
+          bash tools/test-debian-system.sh .cache/candidate/dist .cache/gitlab-runner-linux-amd64
