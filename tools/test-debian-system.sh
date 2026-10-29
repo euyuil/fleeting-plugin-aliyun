@@ -11,31 +11,40 @@ workspace=$(pwd -P)
 [[ "$packages" == "$workspace/"* && "$runner" == "$workspace/"* ]]
 root=$(mktemp -d "${RUNNER_TEMP:?}/debian-system.XXXXXX")
 machine="fleeting-debian-$$"
-boot_pid=''
+unit="$machine.service"
+boot_log="$RUNNER_TEMP/$machine.log"
 cleanup() {
-  sudo machinectl terminate "$machine" >/dev/null 2>&1 || true
-  if [[ -n "$boot_pid" ]]; then wait "$boot_pid" || true; fi
+  status=$?
+  trap - EXIT
+  sudo timeout 30s systemctl stop "$unit" >/dev/null 2>&1 || true
+  if [[ "$status" != 0 && -f "$boot_log" ]]; then sudo tail -n 120 "$boot_log"; fi
+  exit "$status"
 }
 trap cleanup EXIT
 sudo debootstrap --variant=minbase \
   --include=systemd-sysv,dbus,python3,openssh-client,dpkg-dev,util-linux,ca-certificates,adduser,passwd \
   bookworm "$root" https://deb.debian.org/debian
-sudo systemd-nspawn --directory="$root" --machine="$machine" --boot --private-network \
-  --bind-ro="$workspace:/workspace" > "$RUNNER_TEMP/debian-boot.log" 2>&1 &
-boot_pid=$!
+printf 'Starting isolated Debian systemd machine %s\n' "$machine"
+sudo systemd-run --unit="$unit" --collect --property=Type=exec \
+  --property=KillMode=mixed --property=TimeoutStopSec=15s --property=RuntimeMaxSec=10min \
+  --property=Delegate=yes --property=DelegateSubgroup=supervisor \
+  --property="StandardOutput=append:$boot_log" --property="StandardError=append:$boot_log" \
+  systemd-nspawn --keep-unit --directory="$root" --machine="$machine" --boot --private-network \
+  --console=read-only --bind-ro="$workspace:/workspace"
 ready=false
-for _ in {1..60}; do
-  if sudo systemd-run --machine="$machine" --wait --pipe --quiet /bin/true 2>/dev/null; then
+for _ in {1..12}; do
+  if sudo timeout 5s systemd-run --machine="$machine" --wait --pipe --quiet /bin/true 2>/dev/null; then
     ready=true
     break
   fi
   sleep 1
 done
 if [[ "$ready" != true ]]; then
-  cat "$RUNNER_TEMP/debian-boot.log"
+  echo 'Debian systemd did not become ready within the bounded wait' >&2
   exit 1
 fi
-sudo systemd-run --machine="$machine" --wait --pipe --collect --quiet \
+printf 'Running candidate package lifecycle inside Debian 12\n'
+sudo timeout 5m systemd-run --machine="$machine" --wait --pipe --collect --quiet \
   --working-directory=/workspace --setenv=PYTHONDONTWRITEBYTECODE=1 \
   /usr/bin/python3 tools/test-debian-lifecycle.py --disposable-host \
   --runner "/workspace/${runner#"$workspace/"}" --packages "/workspace/${packages#"$workspace/"}"
