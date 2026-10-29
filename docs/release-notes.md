@@ -9,9 +9,13 @@ and executable share the name `fleeting-plugin-aliyun`.
 Download the `.deb` for your Manager's architecture and `SHA256SUMS` from this
 Release. Verify the checksum, then install the local package with APT. GitLab
 Runner is installed separately. See the
-[Quick Start](https://github.com/euyuil/fleeting-plugin-aliyun/blob/v0.1.0-rc.3/README.md#quick-start-run-a-job-on-a-linux-vm)
-and [Debian guide](https://github.com/euyuil/fleeting-plugin-aliyun/blob/v0.1.0-rc.3/docs/debian-installation.md)
+[Quick Start](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/README.md#quick-start-run-a-job-on-a-linux-vm)
+and [Debian guide](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/docs/debian-installation.md)
 for download commands, configuration, upgrades, rollback, and removal.
+
+GitHub renamed the uploaded Debian files from `0.1.0~rc.3` to `0.1.0.rc.3`.
+The current guide saves downloads under the original names for checksum
+verification. The files, checksums, and source tag remain unchanged.
 
 Release assets include Linux amd64 and arm64 `.deb` packages, native archives,
 SHA-256 checksums, and a dependency inventory. Debian package version
@@ -44,6 +48,17 @@ The OCI plugin is `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3`.
   incomplete creation evidence.
 
 ## Validation and limits
+
+The [release run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40812572012)
+passed all six cloud scenarios and published from
+`ef0b980c7cd69a58794bda4876fb34858b13983b`.
+The [public installation check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815916873)
+passed anonymous OCI installation and the Debian package lifecycle on native
+Linux amd64 and arm64. The
+[independent cleanup check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815149142)
+confirmed zero leftovers for the release run. New cloud creation is disabled;
+cleanup remains enabled. See the
+[release acceptance record](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/docs/acceptance-report.md#debian-prerelease-publication-and-installation).
 
 Publication requires offline checks and all six cloud scenarios to pass for
 the exact candidate, including complete fixture cleanup. The publisher reuses

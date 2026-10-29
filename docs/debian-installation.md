@@ -30,11 +30,17 @@ In an empty download directory on the Manager host, run:
 
 ```sh
 package="fleeting-plugin-aliyun_0.1.0~rc.3_$(dpkg --print-architecture).deb"
+asset="fleeting-plugin-aliyun_0.1.0.rc.3_$(dpkg --print-architecture).deb"
 release_url='https://github.com/euyuil/fleeting-plugin-aliyun/releases/download/v0.1.0-rc.3'
-curl --fail --location --retry 3 "$release_url/$package" --output "$package"
+curl --fail --location --retry 3 "$release_url/$asset" --output "$package"
 curl --fail --location --retry 3 "$release_url/SHA256SUMS" --output SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 ```
+
+GitHub replaces `~` with `.` in the uploaded filename. These commands save the
+package under its original name so it matches `SHA256SUMS`. If you download it
+in a browser, rename `0.1.0.rc.3` to `0.1.0~rc.3` before checking the checksum.
+The package contents are unchanged.
 
 The checksum file covers native archives and Debian packages. `--ignore-missing`
 checks the files you downloaded. Continue only if your `.deb` reports `OK`:

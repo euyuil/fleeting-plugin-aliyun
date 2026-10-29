@@ -480,7 +480,7 @@ The following gates remain specific and visible:
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows | Connection logic, example and offline checks | Licensed image, network route and an actual Windows executor job. |
 | Formal suspend/resume | Standard unsupported production methods; isolated controller and offline tests | Same-ID ESS/ECS terminal states, unchanged capacity, fresh SSH after resume, interruption recovery and verified cleanup before capability activation. |
-| External publication | Corrected 0.1.0-rc.2 published; anonymous Runner install/list, exact native bytes, version/source and protocol checks passed on Linux amd64 and arm64 | Installation acceptance does not establish full GitLab job or production acceptance. The rc.1 failure remains recorded below. |
+| External publication | 0.1.0-rc.3 published after its six-scenario cloud gate; anonymous OCI and Debian installation passed on Linux amd64 and arm64 | Full GitLab job evidence remains specific to rc.2. Installation acceptance does not establish production acceptance. Earlier failures remain recorded below. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented.
 Its plugin-only smoke, scale-in, ready-worker, accepted-creation, accepted-removal
@@ -491,6 +491,54 @@ full official capability parity is not complete. M4 local distribution and
 maintenance tooling are delivered; corrected public Runner installation passed
 on both supported Linux architectures. These limits
 follow the specification's no-configuration path.
+
+## Debian prerelease publication and installation
+
+The [release run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40812572012)
+published `v0.1.0-rc.3` on 2026-10-29 from main commit
+`ef0b980c7cd69a58794bda4876fb34858b13983b`, after merging PR #62.
+The exact source tag, public prerelease, two native archives, two Debian packages,
+checksums, and dependency inventory were verified. The publisher reused the
+accepted candidate without rebuilding.
+
+All six cloud scenarios passed for that source, version, candidate manifest,
+workflow run, and attempt: smoke, specified scale-in, ready-worker restart,
+creation restart, removal restart, and lost expansion response. The first five
+used the normal Linux amd64 release binary. The last used the separately hashed
+`responsegate` build. Each receipt reports cleanup `PASS` and zero leftover
+resources. The [independent janitor](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815149142)
+also passed, with its receipt bound to release run `40812572012`, attempt `1`,
+and zero leftovers. Creation was disabled afterward; independent cleanup remained
+enabled. This gate ran plugin scenarios, not GitLab CI jobs.
+
+The [public installation check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815916873)
+passed on fresh native Ubuntu 24.04 amd64 and arm64 hosts. Each host anonymously
+downloaded and checksum-verified its native archive and Debian package, installed
+the public OCI plugin with Runner 19.5.1, and matched both installed payloads to
+the native binary. Version, source revision, plugin protocol, and early rejection
+of empty configuration passed on both architectures. The shared OCI index digest is
+`sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497`.
+
+Both hosts passed the real dpkg/systemd lifecycle checks: installation, repeated
+setup, private file permissions, graceful stopping, upgrade, rollback, removal,
+and retained state. Runner parsing uses the real pinned binary; daemon drain
+checks use a local fake busy job. These installation checks create no cloud
+resources and run no GitLab job.
+
+An [earlier public check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815670856)
+passed OCI installation but stopped at Debian download with HTTP 404 on both
+architectures. GitHub normalized `~` to `.` in uploaded filenames, and the verifier
+needed literal tilde handling across Bash versions. The corrected verifier at
+`c89563cb68e53a292411161d315de2e049abb548` downloads the normalized asset into
+the original filename, then requires exactly one matching checksum entry before
+installation. The published tag, package bytes, and checksum file were unchanged.
+Use the current [Debian guide](debian-installation.md#download-and-install).
+
+Selected cloud, OCI, Debian, and janitor receipts plus asset digests are retained
+in [`acceptance/status.json`](../acceptance/status.json). The earlier rc.2 release
+record is preserved under `previous_releases`. Full Linux VM and Docker GitLab
+job evidence below remains specific to rc.2; this release does not extend it to
+rc.3, full arm64 jobs, Windows, or production acceptance.
 
 ## First prerelease publication
 
