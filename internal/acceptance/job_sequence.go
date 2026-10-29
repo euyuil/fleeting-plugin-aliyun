@@ -52,7 +52,7 @@ func jobCases(scenario string) []string {
 
 func expectedJobOutcome(e JobEvidence) bool {
 	switch e.Scenario {
-	case "capacity":
+	case "capacity", "drain":
 		return e.Checkpoint && e.ControlReleased && e.Status == "success" && e.FailureReason == "" && !e.CancelRequested
 	case "smoke":
 		return e.Status == "success" && e.FailureReason == "" && !e.CancelRequested
@@ -72,12 +72,16 @@ func verifyJobSequence(r *Result) error {
 		return errors.New("capacity scenario lacks queue, retained-job and replacement proof")
 	}
 	cases := jobCases(r.JobScenario)
+	if r.JobScenario == "drain" && (!r.DrainVerified || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
+		return errors.New("drain scenario lacks graceful stop and distinct restart proof")
+	}
 	if len(r.Jobs) != len(cases) || len(r.Instances) != len(cases) || r.CreationBudget != len(cases) || r.ManagerPID <= 0 {
 		return errors.New("job sequence lacks its exact job and worker budget")
 	}
 	pipelines, jobs, workers, nonces := map[int64]bool{}, map[int64]bool{}, map[string]bool{}, map[string]bool{}
 	for i, e := range r.Jobs {
-		if e.Scenario != cases[i] || !expectedJobOutcome(e) || !e.NormalRelease || e.ManagerPID != r.ManagerPID ||
+		managerMatches := e.ManagerPID == r.ManagerPID || (r.JobScenario == "drain" && i == 0)
+		if e.Scenario != cases[i] || !expectedJobOutcome(e) || !e.NormalRelease || !managerMatches ||
 			e.PipelineID <= 0 || e.JobID <= 0 || e.InstanceID == "" || !regexp.MustCompile(`^[0-9a-f]{48}$`).MatchString(e.Nonce) ||
 			pipelines[e.PipelineID] || jobs[e.JobID] || workers[e.InstanceID] || nonces[e.Nonce] {
 			return errors.New("job sequence outcome, Manager identity or isolation proof is invalid")
@@ -102,32 +106,41 @@ type jobSequence struct {
 	pollInterval     time.Duration
 }
 
+func (s jobSequence) start(ctx context.Context, scenario string) (*JobEvidence, error) {
+	r := s.result
+	nonce, err := jobNonce()
+	if err != nil {
+		return nil, err
+	}
+	e := JobEvidence{Scenario: scenario, Nonce: nonce, ManagerPID: r.ManagerPID}
+	variables := []map[string]string{
+		{"key": "FLEETING_NONCE", "value": nonce}, {"key": "FLEETING_RUNNER_TAG", "value": s.tag},
+		{"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(s.runnerID, 10)},
+		{"key": "FLEETING_EXECUTION_MODE", "value": r.Executor}, {"key": "FLEETING_JOB_SCENARIO", "value": scenario},
+	}
+	var pipe pipeline
+	if err = s.gl.request(ctx, "POST", "/pipeline", map[string]any{"ref": s.ref, "variables": variables}, &pipe); err != nil {
+		return nil, err
+	}
+	// Preserve a created pipeline for cancellation even when its SHA is wrong.
+	r.PipelineID, e.PipelineID = pipe.ID, pipe.ID
+	r.Jobs = append(r.Jobs, e)
+	current := &r.Jobs[len(r.Jobs)-1]
+	if pipe.ID <= 0 || pipe.SHA != r.FixtureSHA {
+		return nil, errors.New("pipeline identity mismatch")
+	}
+	return current, nil
+}
+
 func (s jobSequence) run(ctx context.Context) error {
 	r := s.result
 	for _, scenario := range jobCases(r.JobScenario) {
 		if err := s.checkManager(ctx); err != nil {
 			return err
 		}
-		nonce, err := jobNonce()
+		current, err := s.start(ctx, scenario)
 		if err != nil {
 			return err
-		}
-		e := JobEvidence{Scenario: scenario, Nonce: nonce, ManagerPID: r.ManagerPID}
-		variables := []map[string]string{
-			{"key": "FLEETING_NONCE", "value": nonce}, {"key": "FLEETING_RUNNER_TAG", "value": s.tag},
-			{"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(s.runnerID, 10)},
-			{"key": "FLEETING_EXECUTION_MODE", "value": r.Executor}, {"key": "FLEETING_JOB_SCENARIO", "value": scenario},
-		}
-		var pipe pipeline
-		if err = s.gl.request(ctx, "POST", "/pipeline", map[string]any{"ref": s.ref, "variables": variables}, &pipe); err != nil {
-			return err
-		}
-		// Preserve a created pipeline for cancellation even when its SHA is wrong.
-		r.PipelineID, e.PipelineID = pipe.ID, pipe.ID
-		r.Jobs = append(r.Jobs, e)
-		current := &r.Jobs[len(r.Jobs)-1]
-		if pipe.ID <= 0 || pipe.SHA != r.FixtureSHA {
-			return errors.New("pipeline identity mismatch")
 		}
 		if err = s.wait(ctx, current); err != nil {
 			return err

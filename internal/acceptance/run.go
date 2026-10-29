@@ -47,6 +47,7 @@ type Result struct {
 	JobScenario      string        `json:"job_scenario"`
 	Jobs             []JobEvidence `json:"jobs"`
 	CapacityVerified bool          `json:"capacity_verified"`
+	DrainVerified    bool          `json:"drain_verified"`
 	FinishedAt       time.Time     `json:"finished_at"`
 }
 
@@ -465,7 +466,13 @@ func Run(ctx context.Context, dir string) (result Result) {
 			return WaitForNormalRelease(ctx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID"))
 		},
 	}
-	if options.scenario == "capacity" {
+	if options.scenario == "drain" {
+		err = (drainSequence{capacitySequence: capacitySequence{jobSequence: sequence,
+			openJob: func(ctx context.Context, e JobEvidence) error {
+				return openCapacityJob(ctx, cloud, e, options.executor, get("WORKER_USER"), key)
+			}}, beginDrain: service.beginDrain, drainState: service.drainState, restart: service.start,
+		}).run(ctx)
+	} else if options.scenario == "capacity" {
 		err = (capacitySequence{jobSequence: sequence,
 			openJob: func(ctx context.Context, e JobEvidence) error {
 				return openCapacityJob(ctx, cloud, e, options.executor, get("WORKER_USER"), key)

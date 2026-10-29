@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/euyuil/fleeting-plugin-aliyun/internal/aliyun"
 )
@@ -23,23 +22,8 @@ func (s capacitySequence) run(ctx context.Context) error {
 		if err := s.checkManager(ctx); err != nil {
 			return err
 		}
-		nonce, err := jobNonce()
-		if err != nil {
+		if _, err := s.start(ctx, "capacity"); err != nil {
 			return err
-		}
-		var pipe pipeline
-		variables := []map[string]string{
-			{"key": "FLEETING_NONCE", "value": nonce}, {"key": "FLEETING_RUNNER_TAG", "value": s.tag},
-			{"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(s.runnerID, 10)},
-			{"key": "FLEETING_EXECUTION_MODE", "value": r.Executor}, {"key": "FLEETING_JOB_SCENARIO", "value": "capacity"},
-		}
-		if err := s.gl.request(ctx, "POST", "/pipeline", map[string]any{"ref": s.ref, "variables": variables}, &pipe); err != nil {
-			return err
-		}
-		r.PipelineID = pipe.ID
-		r.Jobs = append(r.Jobs, JobEvidence{Scenario: "capacity", Nonce: nonce, PipelineID: pipe.ID, ManagerPID: r.ManagerPID})
-		if pipe.ID <= 0 || pipe.SHA != r.FixtureSHA {
-			return errors.New("capacity pipeline identity mismatch")
 		}
 	}
 	first, retained, queued := -1, -1, -1
