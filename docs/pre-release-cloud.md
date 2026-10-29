@@ -312,7 +312,7 @@ region, scaling group, CI run and attempt. Different scenario groups in one run
 cannot share a token, while retries for the same group retain their identity.
 Idempotency parameter conflicts have a fixed public diagnostic category.
 
-`Pre-release cloud janitor` runs independently after Release/Cloud acceptance,
+`Pre-release cloud janitor` runs independently after Release/Cloud acceptance/Cloud cleanup drill,
 hourly, and on manual dispatch. It discovers labelled fixtures without relying
 on a prior runner's files/artifacts, verifies the owning GitHub run attempt is
 completed, and uses the configured role (the acceptance role by default).
@@ -337,6 +337,56 @@ pass. Inspect failures and clean leftovers before starting a fresh complete run;
 do not automatically retry paid scenarios or reuse old successful receipts.
 Only sanitized summary receipts are uploaded. Raw CLI replies, account/resource
 identities, SSH material and driver logs remain private on the ephemeral runner.
+
+## Controlled interruption drill
+
+**Cloud cleanup drill** is a separate manual entry on main. It is not a release
+scenario and cannot satisfy the six-scenario gate. It uses the same parameterized
+fixture configuration and dedicated account, requires both cloud switches plus
+the explicit `confirm_abandon=true` input, and limits capacity to one Spot worker.
+All resources have the existing ownership tags with `fleeting-scenario=cleanup-drill`
+and names beginning `fleeting-pre-release-cleanup-`. It does not use GitLab.
+
+The supervisor starts an isolated writer, which creates the fixture and requests
+capacity one exactly once. After observing one running worker with the expected
+Spot strategy, image, zone and instance type, it verifies cumulative worker IDs,
+complete ESS activity history and group membership agree on exactly one creation.
+Replacements, failed/unknown activities and incomplete history are rejected; a
+history exceeding the single 100-row snapshot also fails closed. The writer
+publishes an atomic checkpoint and waits. The supervisor kills that process group,
+proves termination and checks the writer's cleanup-started marker is absent.
+This proves normal resource cleanup was bypassed. It uploads a
+sanitized `INTERRUPTED` receipt and exits nonzero; the source workflow is expected
+to fail. Before the checkpoint, ordinary failures attempt guarded fallback cleanup.
+An unknown writer or failed termination proof never authorizes local deletion.
+
+The completed source workflow triggers **Pre-release cloud janitor** on a fresh
+runner with fresh OIDC credentials. Recovery discovers resources from cloud tags
+and verifies the exact owning attempt is completed; it never downloads the
+writer's state or artifacts. This automatic drill recovery requires **exactly one**
+recovered fixture and two complete absence inventories. An empty scan fails the
+drill proof instead of producing a misleading success. Its public cleanup receipt
+binds the source run and attempt, recovered-fixture count and zero-leftover result.
+Before deleting a drill fixture, it independently checks the complete creation
+history and current member inventory again. An over-budget or unknown history
+does not prevent safe cleanup, but sets `drill_budget_verified=false` and fails
+the recovery proof. A cleanup-only RAM role needs `ess:DescribeScalingActivities`
+for this drill evidence in addition to its normal inventory/deletion permissions.
+
+Successful evidence consists of both the failed source run's `INTERRUPTED`
+receipt (`workers_observed=1`, `writer_terminated=true`) and its independent
+janitor's `PASS` receipt (`cleaned_fixtures=1`, `leftover_resources=0`,
+`drill_budget_verified=true`). Janitor
+success never changes the source failure or permits publication. A failed or
+missing checkpoint, cleanup failure, empty scan, skipped job or absent receipt
+does not establish recovery. The initial drill covers completion-triggered
+recovery; scheduled expiry recovery still requires its own execution evidence.
+
+Do not automatically retry a paid drill. If recovery fails, keep cleanup enabled,
+inspect the sanitized evidence and invoke the existing exact-run janitor entry.
+That manual fallback may report zero after another recovery already completed;
+it does not retroactively prove the interrupted drill. ECS auto-release remains
+only an additional bound, not proof that the surrounding fixture was deleted.
 
 ## Manual use
 

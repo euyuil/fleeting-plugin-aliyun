@@ -1,0 +1,63 @@
+name: Cloud cleanup drill
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_abandon:
+        description: Create up to one Spot and deliberately abandon its owned fixture for independent cleanup
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: aliyun-pre-release-acceptance
+  cancel-in-progress: false
+jobs:
+  interrupt:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: aliyun-pre-release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CONFIRM_ABANDON: ${{ inputs.confirm_abandon }}
+      RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
+      RELEASE_CLOUD_CLEANUP_ENABLED: ${{ vars.RELEASE_CLOUD_CLEANUP_ENABLED }}
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN || vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_FIXTURE_CONFIG || vars.RELEASE_ALIYUN_FIXTURE_CONFIG }}
+      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS || vars.RELEASE_ALIYUN_CLEANUP_REGIONS }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require explicit manual drill authorization and both cloud switches
+        run: |
+          test "$CONFIRM_ABANDON" = true
+          python3 tools/cloud_fixture.py preflight
+          python3 tools/fetch-aliyun.py
+          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
+      - name: Obtain fresh credentials in the dedicated account
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ env.RELEASE_ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: cleanup-drill-${{ github.run_id }}
+      - name: Interrupt the writer after one owned Spot is running (expected failure)
+        run: |
+          python3 tools/cloud_cleanup_drill.py run --confirm-abandon-owned-fixture \
+            --directory .live/cleanup-drill --receipt .cache/cleanup-drill/interruption.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cleanup-drill-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/cleanup-drill/*.json
+          if-no-files-found: warn
+          retention-days: 7
