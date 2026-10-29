@@ -25,7 +25,7 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
    pending human approval; release initiation itself remains an explicit manual
    operation. Trust the exact repository/environment, not every repository in
    the owner account. See [GitHub OIDC guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-cloud-providers).
-4. Set the following in that **Environment**, initially leaving the enabled flag false.
+4. Set the following in that **Environment**, initially leaving both enabled flags false.
    Account identifiers and ARNs should normally be **Secrets**. The workflow also
    accepts Variables; a nonempty Secret takes precedence. Resource settings may
    be Variables or Secrets. Do not keep duplicate names in both stores. The
@@ -34,7 +34,8 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
 
    | Name | Value |
    | --- | --- |
-   | `RELEASE_CLOUD_ACCEPTANCE_ENABLED` | `true` only after reviewing the new account and role scopes |
+   | `RELEASE_CLOUD_ACCEPTANCE_ENABLED` | Allows new paid acceptance runs; requires cleanup to be enabled too |
+   | `RELEASE_CLOUD_CLEANUP_ENABLED` | Allows independent recovery with new acceptance disabled; enable after reviewing the account, role and cleanup regions |
    | `RELEASE_ALIYUN_ACCOUNT_ID` | The new account's 16-digit account ID |
    | `RELEASE_ALIYUN_ROLE_ARN` | Acceptance role ARN in that account |
    | `RELEASE_ALIYUN_CLEANUP_ROLE_ARN` | Optional separate cleanup role ARN; omitted by default, so cleanup uses the acceptance role |
@@ -156,6 +157,11 @@ Dedicated account isolation is required even with these application checks.
    [`ess:ScaleWithAdjustment`](https://help.aliyun.com/zh/auto-scaling/developer-reference/api-ess-2022-02-22-scalewithadjustment).
    Do not grant administrator policies to solve a missing action. Enable the gate
    only when this review and separate paid-operation authorization are complete.
+   Set `RELEASE_CLOUD_CLEANUP_ENABLED=true` before enabling acceptance. Existing
+   installations must add this explicit variable; an unset value disables the
+   janitor and blocks new acceptance. Read-only configuration checks need neither
+   switch. To stop new runs, set only `RELEASE_CLOUD_ACCEPTANCE_ENABLED=false`;
+   keep cleanup enabled until all owned resources are confirmed absent.
 
 If the setup check fails, use its step to locate the boundary: local preflight
 means missing/invalid configuration; OIDC authentication means issuer/audience,
@@ -312,7 +318,15 @@ on a prior runner's files/artifacts, verifies the owning GitHub run attempt is
 completed, and uses the configured role (the acceptance role by default).
 A completed-run event can recover
 that exact run/attempt immediately; scheduled/manual scans recover expired
-fixtures. Manual cleanup can also select an exact completed run and attempt.
+fixtures. Manual cleanup can also select an exact completed run and attempt;
+this selection never includes another run's expired resources. An expiry scan
+without a selector still requires each owning attempt to be completed, and
+preserves active, foreign or ambiguously owned resources.
+The janitor uses `RELEASE_CLOUD_CLEANUP_ENABLED`, independently of the creation
+switch. Its CLI boundary allows only identity/inventory reads and deletion;
+creation, expansion and tag mutation are rejected even when using the same RAM
+role as acceptance. This local guard supplements the RAM policy and ownership
+checks; it does not grant additional permissions.
 ECS auto-release is an additional one-hour bound, not a substitute for
 fixture teardown or an account spending cap.
 

@@ -34,10 +34,17 @@ SPECS = {
 }
 
 
-def preflight(env=os.environ, *, read_only=False):
+def preflight(env=os.environ, *, read_only=False, cleanup_only=False):
+    if read_only and cleanup_only:
+        raise ValueError("select either read-only or cleanup-only access")
     required = ("RELEASE_ALIYUN_ACCOUNT_ID", "RELEASE_ALIYUN_ROLE_ARN", "RELEASE_ALIYUN_OIDC_PROVIDER_ARN")
-    if (not read_only and env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true") or any(not env.get(k) for k in required):
-        raise ValueError("configure the dedicated pre-release account and explicitly enable cloud acceptance")
+    if any(not env.get(k) for k in required):
+        raise ValueError("configure the dedicated pre-release account")
+    if not read_only:
+        if env.get("RELEASE_CLOUD_CLEANUP_ENABLED") != "true":
+            raise ValueError("explicitly enable independent cloud cleanup before cloud writes")
+        if not cleanup_only and env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true":
+            raise ValueError("explicitly enable cloud acceptance before resource creation")
     account = env["RELEASE_ALIYUN_ACCOUNT_ID"]
     if not re.fullmatch(r"[0-9]{16}", account):
         raise ValueError("expected Alibaba account ID must have 16 digits")
@@ -108,9 +115,9 @@ def verified_members(response, group, owned):
 
 
 class Cloud:
-    def __init__(self, region, *, read_only=False):
-        self.region, self.read_only = region, read_only
-        self.account = preflight(read_only=read_only)
+    def __init__(self, region, *, read_only=False, cleanup_only=False):
+        self.region, self.read_only, self.cleanup_only = region, read_only, cleanup_only
+        self.account = preflight(read_only=read_only, cleanup_only=cleanup_only)
         if any(not os.environ.get(k) for k in ("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", "ALIBABA_CLOUD_SECURITY_TOKEN")):
             raise ValueError("fresh OIDC STS credentials are required; developer profiles and long-lived keys are not used")
         self.cli_profile = {
@@ -126,6 +133,12 @@ class Cloud:
         reads = {(s[0], s[1]) for s in SPECS.values()} | {("sts", "GetCallerIdentity")}
         if self.read_only and (service, action) not in reads:
             raise ValueError("configuration checks permit only identity and resource inventories")
+        cleanup_actions = reads | {("ess", "DescribeScalingInstances"), ("ess", "DeleteScalingGroup"),
+                                   ("ecs", "DeleteInstance"), ("ecs", "DeleteDisk"), ("ecs", "DeleteNetworkInterface"),
+                                   ("ecs", "DeleteLaunchTemplate"), ("ecs", "DeleteKeyPairs"), ("ecs", "DeleteSecurityGroup"),
+                                   ("vpc", "DeleteVSwitch"), ("vpc", "DeleteVpc")}
+        if self.cleanup_only and (service, action) not in cleanup_actions:
+            raise ValueError("cleanup access permits only identity, inventories and deletion")
         command = ["aliyun", service, action, "--mode", "StsToken", "--region", self.region,
                    "--retry-count", "0", "--connect-timeout", "10", "--read-timeout", "30"]
         if service != "sts":
@@ -508,7 +521,7 @@ def janitor(directory, completed_run=None, completed_attempt=None):
     failures = 0
     for region in cleanup_regions():
         try:
-            janitor_region(Cloud(region), directory / region, completed_run, completed_attempt)
+            janitor_region(Cloud(region, cleanup_only=True), directory / region, completed_run, completed_attempt)
         except Exception:
             # A malformed response in one region must not strand other regions.
             # Process termination still propagates (BaseException).
@@ -531,7 +544,7 @@ def janitor_region(cloud, directory, completed_run, completed_attempt):
                               tags.get("fleeting-ci-attempt", ""), tags.get("fleeting-scenario", ""), tags.get("fleeting-fixture-expires", ""))
             expired = datetime.strptime(expected["fleeting-fixture-expires"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
             completed = (completed_run, completed_attempt) == (expected["fleeting-ci-run"], expected["fleeting-ci-attempt"])
-            if not expired and not completed:
+            if (completed_run and not completed) or (not completed_run and not expired):
                 continue
             if not stopped_run(expected):
                 continue
@@ -571,7 +584,7 @@ def main():
     if (args.read_only or args.cleanup) and args.operation != "preflight":
         parser.error("--read-only and --cleanup apply only to preflight; use check for read-only cloud access")
     if args.operation == "preflight":
-        preflight(read_only=args.read_only)
+        preflight(read_only=args.read_only, cleanup_only=args.cleanup)
         cleanup_regions() if args.cleanup else fixture_config()
         if os.environ.get("GITHUB_ACTIONS") == "true":
             for key, value in os.environ.items():

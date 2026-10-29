@@ -319,7 +319,7 @@ class FixtureTests(unittest.TestCase):
     def test_all_cleanup_regions_are_attempted_without_fixture_config(self):
         env = {"RELEASE_ALIYUN_CLEANUP_REGIONS": '["example-1","previous-2"]',
                "RELEASE_ALIYUN_FIXTURE_CONFIG": "broken"}
-        with mock.patch.dict(os.environ, env), mock.patch("cloud_fixture.Cloud", side_effect=lambda region: region):
+        with mock.patch.dict(os.environ, env), mock.patch("cloud_fixture.Cloud", side_effect=lambda region, **_kwargs: region):
             for error in (RuntimeError("unavailable"), TypeError("malformed tags"), KeyError("missing field")):
                 with self.subTest(error=type(error)), mock.patch("cloud_fixture.janitor_region", side_effect=[error, None]) as recover:
                     with self.assertRaisesRegex(RuntimeError, "remaining regions were attempted"):
@@ -328,6 +328,35 @@ class FixtureTests(unittest.TestCase):
             with mock.patch("cloud_fixture.janitor_region", side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     fixture.janitor(self.directory)
+
+    def test_janitor_exact_selection_preserves_other_expired_runs_and_active_owners(self):
+        expired = "2000-01-01T00:00:00Z"
+        selected = {**self.tags, "fleeting-fixture-expires": expired}
+        others = [{**selected, "fleeting-ci-run": "124"}, {**selected, "fleeting-ci-attempt": "2"},
+                  {**selected, "fleeting-project": "other/project"}]
+        self.cloud.rows["vpc"] = [{"VpcId": "synthetic-" + str(n), "VpcName": fixture.name_for(tags),
+                                   "Tags": {"Tag": [{"Key": k, "Value": v} for k, v in tags.items()]}}
+                                  for n, tags in enumerate([selected, *others])]
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/plugin"}), mock.patch("time.sleep"):
+            with mock.patch("cloud_fixture.stopped_run", return_value=False):
+                fixture.janitor_region(self.cloud, self.directory / "recovery", "123", "1")
+            self.assertEqual(len(self.cloud.rows["vpc"]), 4)
+            with mock.patch("cloud_fixture.stopped_run", return_value=True) as stopped:
+                fixture.janitor_region(self.cloud, self.directory / "recovery", "123", "1")
+            self.assertEqual([r["VpcId"] for r in self.cloud.rows["vpc"]], ["synthetic-1", "synthetic-2", "synthetic-3"])
+            stopped.assert_called_once_with(selected)
+
+    def test_expiry_scan_requires_both_expiry_and_completed_owner(self):
+        expired = {**self.tags, "fleeting-fixture-expires": "2000-01-01T00:00:00Z"}
+        self.cloud.rows["vpc"] = [{"VpcId": "synthetic-expired", "VpcName": fixture.name_for(expired),
+                                   "Tags": {"Tag": [{"Key": k, "Value": v} for k, v in expired.items()]}}]
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/plugin"}), mock.patch("time.sleep"):
+            with mock.patch("cloud_fixture.stopped_run", return_value=False):
+                fixture.janitor_region(self.cloud, self.directory / "recovery", None, None)
+            self.assertEqual(len(self.cloud.rows["vpc"]), 1)
+            with mock.patch("cloud_fixture.stopped_run", return_value=True):
+                fixture.janitor_region(self.cloud, self.directory / "recovery", None, None)
+            self.assertEqual(self.cloud.rows["vpc"], [])
 
     def test_unconfirmed_local_writer_prevents_fixture_deletion(self):
         self.owner.state["driver_group"] = 123
@@ -485,7 +514,7 @@ class IdentityAndInventoryTests(unittest.TestCase):
                 self.assertIn("apply only to preflight", result.stderr)
 
     def environment(self):
-        return {"RELEASE_CLOUD_ACCEPTANCE_ENABLED": "true", "GITHUB_REF": "refs/heads/main",
+        return {"RELEASE_CLOUD_ACCEPTANCE_ENABLED": "true", "RELEASE_CLOUD_CLEANUP_ENABLED": "true", "GITHUB_REF": "refs/heads/main",
                 "RELEASE_ALIYUN_ACCOUNT_ID": "1234567890123456",
                 "RELEASE_ALIYUN_ROLE_ARN": "acs:ram::1234567890123456:role/test",
                 "RELEASE_ALIYUN_CLEANUP_ROLE_ARN": "acs:ram::1234567890123456:role/cleanup",
@@ -505,6 +534,33 @@ class IdentityAndInventoryTests(unittest.TestCase):
                     fixture.preflight(invalid)
         with self.assertRaises(ValueError):
             fixture.preflight({"ALIYUN_ROLE_ARN": env["RELEASE_ALIYUN_ROLE_ARN"]})
+
+    def test_creation_and_cleanup_have_independent_explicit_switches(self):
+        for create in ("true", "false", "", True):
+            for cleanup in ("true", "false", "", True):
+                env = {**self.environment(), "RELEASE_CLOUD_ACCEPTANCE_ENABLED": create, "RELEASE_CLOUD_CLEANUP_ENABLED": cleanup}
+                with self.subTest(create=create, cleanup=cleanup):
+                    self.assertEqual(fixture.preflight(env, read_only=True), env["RELEASE_ALIYUN_ACCOUNT_ID"])
+                    for cleanup_only in (False, True):
+                        if cleanup == "true" and (cleanup_only or create == "true"):
+                            self.assertEqual(fixture.preflight(env, cleanup_only=cleanup_only), env["RELEASE_ALIYUN_ACCOUNT_ID"])
+                        else:
+                            with self.assertRaises(ValueError):
+                                fixture.preflight(env, cleanup_only=cleanup_only)
+        with self.assertRaises(ValueError):
+            fixture.preflight(self.environment(), read_only=True, cleanup_only=True)
+
+    def test_cleanup_credentials_cannot_create_or_expand_with_creation_disabled(self):
+        env = {**self.environment(), **STS_ENV, "RELEASE_CLOUD_ACCEPTANCE_ENABLED": "false"}
+        with mock.patch.dict(os.environ, env), mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"AccountId":"1234567890123456"}')) as run:
+            cloud = fixture.Cloud(CONFIG["region"], cleanup_only=True)
+            for service, action in (("vpc", "CreateVpc"), ("ecs", "RunInstances"), ("ess", "ScaleWithAdjustment"), ("ess", "TagResources")):
+                with self.subTest(action=action), self.assertRaisesRegex(ValueError, "cleanup access"):
+                    cloud.call(service, action)
+            self.assertEqual(run.call_count, 1)
+            cloud.call("ess", "DescribeScalingInstances")
+            cloud.call("ess", "DeleteScalingGroup")
+            self.assertEqual(run.call_count, 3)
 
     def test_wrong_authenticated_account_is_rejected_before_writes(self):
         env = {**self.environment(), "ALIBABA_CLOUD_ACCESS_KEY_ID": "synthetic", "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "synthetic", "ALIBABA_CLOUD_SECURITY_TOKEN": "synthetic"}
@@ -646,7 +702,7 @@ class IdentityAndInventoryTests(unittest.TestCase):
     def test_pagination_rejects_incomplete_or_duplicated_inventory(self):
         cloud = object.__new__(fixture.Cloud)
         cloud.region = CONFIG["region"]
-        cloud.read_only = False
+        cloud.read_only = cloud.cleanup_only = False
         for response in ({"Vpcs": {"Vpc": []}}, {"TotalCount": 1, "Vpcs": {"Vpc": []}},
                          {"TotalCount": 2, "Vpcs": {"Vpc": [{"VpcId": "vpc-test"}, {"VpcId": "vpc-test"}]}}):
             with mock.patch.object(cloud, "call", return_value=response):
@@ -669,7 +725,7 @@ class IdentityAndInventoryTests(unittest.TestCase):
     def test_cloud_command_errors_never_print_private_request_arguments(self):
         cloud = object.__new__(fixture.Cloud)
         cloud.region = CONFIG["region"]
-        cloud.read_only = False
+        cloud.read_only = cloud.cleanup_only = False
         cloud.cli_profile = {"name": "synthetic", "mode": "StsToken"}
         sensitive = "synthetic-host-private-key-and-access-key-and-token"
         def fail(command, **_kwargs):

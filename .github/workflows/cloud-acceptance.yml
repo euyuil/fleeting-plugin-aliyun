@@ -137,6 +137,7 @@ jobs:
       MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
       MODE: ${{ matrix.mode }}
       RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
+      RELEASE_CLOUD_CLEANUP_ENABLED: ${{ vars.RELEASE_CLOUD_CLEANUP_ENABLED }}
       RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
       RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
       RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
@@ -159,6 +160,8 @@ jobs:
           merge-multiple: true
       - name: Verify candidate and dedicated account configuration before cloud access
         run: |
+          test "$RELEASE_CLOUD_ACCEPTANCE_ENABLED" = true
+          test "$RELEASE_CLOUD_CLEANUP_ENABLED" = true
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
           python3 tools/release_candidate.py verify --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256"
