@@ -24,6 +24,8 @@ trap cleanup EXIT
 sudo debootstrap --variant=minbase \
   --include=systemd-sysv,dbus,python3,openssh-client,dpkg-dev,util-linux,ca-certificates,adduser,passwd \
   bookworm "$root" https://deb.debian.org/debian
+# mktemp creates mode 0700; the guest root must be searchable by service users.
+sudo chmod 0755 "$root"
 printf 'Starting isolated Debian systemd machine %s\n' "$machine"
 sudo systemd-run --unit="$unit" --collect --property=Type=exec \
   --property=KillMode=mixed --property=TimeoutStopSec=15s --property=RuntimeMaxSec=10min \
