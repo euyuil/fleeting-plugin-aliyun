@@ -42,7 +42,7 @@ release workflow checks immutable versions/tags, serializes publication, and
 verifies the source tag before publishing. The corrected prerelease passed
 anonymous public installation on both Linux architectures, as described below.
 
-## Selected baseline
+## Original implementation baseline
 
 - Runner 19.5.1 is the initial minimum and primary version.
 - Fleeting is pinned to `6ed75a33d303` as selected by that Runner release.
@@ -53,7 +53,8 @@ anonymous public installation on both Linux architectures, as described below.
 
 ## Actual offline validation
 
-The following documented commands passed during delivery. No cloud or GitLab
+The following documented commands passed during the original implementation
+delivery. Current executable checks are maintained in [CONTRIBUTING.md](../CONTRIBUTING.md). No cloud or GitLab
 credentials were used. API-boundary fakes, signed loopback HTTP, real plugin
 processes, authenticated loopback SSH, temporary files and a loopback OCI registry
 supply the controlled boundaries.
@@ -74,10 +75,10 @@ supply the controlled boundaries.
 | Pinned Runner config parsing | All three examples parsed by the real checksum-verified Runner. No GitLab registration or job ran. |
 | Staged review | Full staged scope, new-file whitespace, and `git diff --cached --check` checked per commit. Significant implementation slices received independent review. |
 
-[CONTRIBUTING.md](../CONTRIBUTING.md) owns the executable procedures. CI runs the
-same offline checks, builds the tagged CLI, packages both architectures, executes
-the Linux amd64 asset, and retains release candidates for seven days. CI success
-is not evidence that a live job or publication happened.
+[CONTRIBUTING.md](../CONTRIBUTING.md) owns the executable procedures. Current CI runs shared code/security checks and verifies both native Linux
+architectures plus the documented Debian userspace. These checks do not change
+the versions or scope of the historical evidence below. CI success is not
+evidence that a live job or publication happened.
 
 ## Live acceptance and resource outcomes
 

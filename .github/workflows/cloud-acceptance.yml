@@ -50,6 +50,9 @@ permissions:
 concurrency:
   group: aliyun-pre-release-acceptance
   cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
 jobs:
   security:
     uses: ./.github/workflows/security.yml
@@ -94,17 +97,14 @@ jobs:
           PY
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
           cache: true
       - name: Validate and build the unpublished distribution
         run: |
           go run ./tools/distribution -validate-version "$VERSION"
           python3 tools/fetch-aliyun.py
           export PATH="$GITHUB_WORKSPACE/.cache/tools:$PATH"
-          make deps test lint dist VERSION="$VERSION"
-          (cd dist && sha256sum -c SHA256SUMS)
-          go test -race ./...
-          go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider
+          make verify-code dist VERSION="$VERSION"
           mkdir -p .cache/candidate/responsegate
           cp -a dist .cache/candidate/dist
           GOFLAGS=-tags=responsegate make build VERSION="$VERSION"
@@ -162,7 +162,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
           cache: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -221,7 +221,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}

@@ -12,6 +12,9 @@ permissions:
 concurrency:
   group: aliyun-pre-release-acceptance
   cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
 jobs:
   interrupt:
     if: github.ref == 'refs/heads/main'

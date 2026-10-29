@@ -11,6 +11,9 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
   preflight:
     if: github.ref == 'refs/heads/main'
@@ -23,7 +26,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
       - name: Validate version and refuse existing releases
         run: python3 tools/release-preflight.py
   acceptance:
@@ -61,7 +64,7 @@ jobs:
           ref: ${{ needs.acceptance.outputs.candidate_sha }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.acceptance.outputs.artifact_id }}

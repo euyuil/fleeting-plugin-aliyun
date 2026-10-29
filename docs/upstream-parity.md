@@ -24,9 +24,10 @@ Implementation, offline validation, and live validation are maintained separatel
 in [`acceptance/status.json`](../acceptance/status.json). This snapshot delivers
 the SDK, core provider, opt-in expiring SSH credentials, explicit live acceptance
 tooling, and an isolated suspend experiment. Formal suspend support stays gated
-on live evidence; see [ADR 0006](adr/0006-suspend-resume.md). Native/OCI packaging has
-offline build and official-installer validation; publication has not run.
-No cloud or GitLab live validation is claimed.
+on live evidence; see [ADR 0006](adr/0006-suspend-resume.md). Publication and live
+validation are recorded with their exact versions and scope in the
+[acceptance report](acceptance-report.md) and its machine-readable status. This
+architecture mapping does not duplicate those evolving acceptance results.
 
 | Capability | Official baseline behavior | Alibaba mapping / implementation boundary |
 |---|---|---|

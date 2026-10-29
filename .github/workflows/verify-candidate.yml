@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ inputs.artifact_id }}
@@ -54,16 +54,13 @@ jobs:
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
           python3 tools/release_candidate.py verify --root .cache/candidate --sha "$REVISION" --version "$VERSION" --digest "$MANIFEST_SHA256"
-          (cd .cache/candidate/dist && sha256sum -c SHA256SUMS)
       - name: Install the complete OCI payload and load the native plugin
-        env:
-          OCI_PACKAGES: ${{ github.workspace }}/.cache/candidate/dist/packages
-        run: go test -count=1 -timeout=5m -run '^TestBuiltDistributionRoundTrip$' ./tools/distribution
+        run: make verify-dist DIST_DIR=.cache/candidate/dist
       - name: Parse examples and test Ubuntu package lifecycle
         run: |
           python3 tools/fetch-runner.py
           python3 tools/check-configs.py --runner ".cache/gitlab-runner-linux-$ARCH"
-          sudo python3 tools/test-debian-lifecycle.py --disposable-host --runner ".cache/gitlab-runner-linux-$ARCH" --packages .cache/candidate/dist
+          make test-debian-lifecycle DISPOSABLE_HOST=true RUNNER_BINARY=".cache/gitlab-runner-linux-$ARCH" DIST_DIR=.cache/candidate/dist
       - name: Test the same package on isolated Debian 12 with systemd
         if: matrix.arch == 'amd64'
         run: |
