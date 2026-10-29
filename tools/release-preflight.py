@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Refuse existing version releases and source tags before publication."""
+"""Validate release notes and refuse existing versions before publication."""
 import os
+from pathlib import Path
 import re
 import subprocess
 
 version = os.environ["VERSION"]
+title = Path("docs/release-notes.md").read_text().partition("\n")[0].strip()
+if title != "# " + version:
+    raise SystemExit("release notes must start with '# " + version + "'")
 subprocess.run(["go", "run", "./tools/distribution", "-validate-version", version], check=True)
 repository = "repos/" + os.environ["GITHUB_REPOSITORY"]
 for label, endpoint in (

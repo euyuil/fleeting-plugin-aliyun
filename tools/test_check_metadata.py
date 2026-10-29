@@ -71,3 +71,43 @@ class MetadataTests(unittest.TestCase):
         for arch in ("amd64", "arm64"):
             release["linux_" + arch + "_runner_installation"] = "not_run"
         metadata.check_status(status)
+
+    def test_debian_pass_requires_matching_receipts(self):
+        original = json.loads((self.root / "acceptance/status.json").read_text())
+        for receipts in ([], original["published_release"]["debian_installation_receipts"][:1]):
+            status = copy.deepcopy(original)
+            status["published_release"]["debian_installation_receipts"] = receipts
+            with self.subTest(receipts=len(receipts)), self.assertRaisesRegex(ValueError, "Debian PASS"):
+                metadata.check_status(status)
+
+    def test_debian_receipt_identity_and_success_are_checked(self):
+        original = json.loads((self.root / "acceptance/status.json").read_text())
+        mutations = {"version": "9.9.9", "architecture": "s390x", "package": "other.deb",
+                     "release_asset": "other.deb", "package_sha256": "0" * 64,
+                     "anonymous_download": False, "native_binary_match": False, "lifecycle": False}
+        for field, value in mutations.items():
+            status = copy.deepcopy(original)
+            status["published_release"]["debian_installation_receipts"][0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "Debian"):
+                metadata.check_status(status)
+
+    def test_debian_receipts_need_unique_architectures_and_recorded_assets(self):
+        original = json.loads((self.root / "acceptance/status.json").read_text())
+        status = copy.deepcopy(original)
+        receipts = status["published_release"]["debian_installation_receipts"]
+        receipts.append(copy.deepcopy(receipts[0]))
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            metadata.check_status(status)
+        status = copy.deepcopy(original)
+        status["published_release"]["release_assets"] = []
+        with self.assertRaisesRegex(ValueError, "asset checksum"):
+            metadata.check_status(status)
+
+    def test_older_releases_without_debian_evidence_remain_valid(self):
+        status = json.loads((self.root / "acceptance/status.json").read_text())
+        release = status["published_release"]
+        del release["debian_installation_receipts"]
+        del release["release_assets"]
+        for arch in ("amd64", "arm64"):
+            del release["linux_" + arch + "_debian_lifecycle"]
+        metadata.check_status(status)
