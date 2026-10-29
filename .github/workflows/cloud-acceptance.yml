@@ -66,7 +66,7 @@ jobs:
       CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
       MODE: ${{ inputs.mode || 'all' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -87,7 +87,7 @@ jobs:
               output.write('sha=' + sha + '\nmode=' + mode + '\n')
               output.write('matrix=' + json.dumps({'mode': list(MODES) if mode == 'all' else [mode]}) + '\n')
           PY
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.27.3'
           cache: true
@@ -145,11 +145,11 @@ jobs:
       RELEASE_ALIYUN_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_FIXTURE_CONFIG || vars.RELEASE_ALIYUN_FIXTURE_CONFIG }}
       RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS || vars.RELEASE_ALIYUN_CLEANUP_REGIONS }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.build.outputs.candidate_sha }}
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.27.3'
           cache: true
@@ -203,11 +203,11 @@ jobs:
     steps:
       - name: Require completed build and cloud scenarios
         run: test "$BUILD_RESULT" = success && test "$SCENARIO_RESULT" = success
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.build.outputs.candidate_sha }}
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.27.3'
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333

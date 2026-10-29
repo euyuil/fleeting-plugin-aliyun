@@ -6,9 +6,11 @@ dependency sources have been modified. Preserve the upstream license and any
 applicable notices when redistributing linked binaries.
 
 CI uses the unmodified MIT-licensed
+[checkout v7.0.1](https://github.com/actions/checkout/tree/v7.0.1),
+[setup-go v7.0.0](https://github.com/actions/setup-go/tree/v7.0.0),
 [upload-artifact v7.0.2](https://github.com/actions/upload-artifact/tree/v7.0.2) and
 [download-artifact v8.0.2](https://github.com/actions/download-artifact/tree/v8.0.2)
-Actions, pinned to full commits in `upstream.lock.json` and the workflows. Both
+Actions, pinned to full commits in `upstream.lock.json` and the workflows. All
 run on Node.js 24 on GitHub-hosted runners. They are CI tools and are not bundled
 in the plugin packages.
 
