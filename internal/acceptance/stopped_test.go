@@ -3,11 +3,13 @@ package acceptance
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -38,6 +40,13 @@ func TestExtendedCleanupRequiresTerminatedDriver(t *testing.T) {
 }
 
 func TestPluginCloudCleanupRequiresOwnedPluginTermination(t *testing.T) {
+	if os.Getenv("FLEETING_TEST_OWNED_PLUGIN") == "1" {
+		if _, err := os.Stdout.WriteString("ready\n"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Minute)
+		return
+	}
 	for _, mode := range []string{"cloud-smoke", "cloud-scale", "cloud-restart", "cloud-create-restart", "cloud-remove-restart", "cloud-increase-response-loss"} {
 		t.Run(mode, func(t *testing.T) { checkOwnedPluginTermination(t, mode) })
 	}
@@ -90,21 +99,40 @@ func checkOwnedPluginTermination(t *testing.T, mode string) {
 	if err := StopLocalManager(context.Background(), l, dir); err == nil {
 		t.Fatal("unrelated process accepted as the owned plugin")
 	}
-	binary, err := os.ReadFile("/bin/sleep")
+	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(pluginDir, "fleeting-plugin-aliyun")
-	if err = os.WriteFile(path, binary, 0700); err != nil {
+	// System utilities may dispatch on argv[0], so use our own helper process.
+	if err = os.Symlink(executable, path); err != nil {
 		t.Fatal(err)
 	}
-	plugin := exec.Command(path, "60")
+	ready, announce, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	defer announce.Close()
+	plugin := exec.Command(path, "-test.run=^TestPluginCloudCleanupRequiresOwnedPluginTermination$")
+	plugin.Env = append(os.Environ(), "FLEETING_TEST_OWNED_PLUGIN=1")
+	plugin.Stdout = announce
+	plugin.Stderr = os.Stderr
 	if err = plugin.Start(); err != nil {
 		t.Fatal(err)
 	}
+	_ = announce.Close()
 	done := make(chan struct{})
-	go func() { _ = plugin.Wait(); close(done) }()
+	var exitErr error
+	go func() { exitErr = plugin.Wait(); close(done) }()
 	t.Cleanup(func() { _ = plugin.Process.Kill(); <-done })
+	if err = ready.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var message [6]byte
+	if _, err = io.ReadFull(ready, message[:]); err != nil || string(message[:]) != "ready\n" {
+		t.Fatalf("plugin helper did not become ready: %q, %v", message, err)
+	}
 	if err = os.WriteFile(pidFile, []byte(strconv.Itoa(plugin.Process.Pid)), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +143,10 @@ func checkOwnedPluginTermination(t *testing.T, mode string) {
 	}
 	select {
 	case <-done:
+		var exit *exec.ExitError
+		if !errors.As(exitErr, &exit) || exit.Sys().(syscall.WaitStatus).Signal() != syscall.SIGTERM {
+			t.Fatalf("owned plugin was not terminated by SIGTERM: %v", exitErr)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("owned orphan plugin is still running")
 	}
