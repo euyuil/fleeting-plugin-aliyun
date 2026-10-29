@@ -16,6 +16,8 @@ import tempfile
 import time
 
 from release_candidate import MODES, digest, revision, verify, write_json
+from cloud_diagnostics import (CloudOperationError, diagnostic_error, duration_ms,
+                               driver_diagnostic, matching_error_templates, read_driver_diagnostic)
 from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
@@ -143,9 +145,9 @@ class Cloud:
         except (subprocess.SubprocessError, OSError):
             # UserData contains a per-run host private key. Subprocess exceptions
             # include argv, so neither their text nor exception chain may escape.
-            raise RuntimeError("cloud operation unavailable: " + service + "/" + action) from None
+            raise CloudOperationError(service, action, unavailable=True) from None
         if result.returncode:
-            raise RuntimeError("cloud operation failed: " + service + "/" + action)
+            raise CloudOperationError(service, action, output=result.stderr + "\n" + result.stdout)
         return json.loads(result.stdout)
 
     def inventory(self, kind):
@@ -177,6 +179,7 @@ class Fixture:
         self.name = name_for(tags)
         self.path = self.directory / "fixture.json"
         self.state = {"tags": tags, "name": self.name, "operations": {}, "ids": {}}
+        self.driver_exit_code = None
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
             if self.state["tags"] != tags or self.state["name"] != self.name:
@@ -349,71 +352,6 @@ class Fixture:
                 path.unlink()
 
 
-def matching_error_templates(log, source):
-    templates = set()
-    pattern = r'\b(?:errors\.New|fmt\.Errorf|t\.(?:Fatalf?|Errorf?))\(\s*("(?:[^"\\]|\\.)*")'
-    for literal in re.findall(pattern, source):
-        try:
-            template = json.loads(literal)
-        except ValueError:
-            continue
-        prefix = template.split("%", 1)[0]
-        if len(prefix) >= 12 and prefix in log:
-            # Return only the published source literal, never interpolated data.
-            templates.add(template)
-    return sorted(templates)
-
-
-def driver_diagnostic(receipt, code, log):
-    """Select public test facts without copying private log or receipt values."""
-    if not isinstance(receipt, dict):
-        receipt = {}
-    resources = receipt.get("resources", {})
-    resources = resources if isinstance(resources, dict) else {}
-    instances = resources.get("instances")
-    results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "CLEANUP_FAILED")
-    root = Path(__file__).resolve().parent.parent
-    sources = [root / "tests/live/extended_test.go"]
-    for package in ("acceptance", "aliyun", "provider"):
-        sources.extend(p for p in (root / "internal" / package).glob("*.go") if not p.name.endswith("_test.go"))
-    templates = set()
-    for path in sources:
-        try:
-            templates.update(matching_error_templates(log, path.read_text()))
-        except OSError:
-            continue
-    categories = set()
-    for error in re.findall(r"Alibaba Cloud API error: code=([^\s]+)", log):
-        category = "other_cloud_api"
-        for prefixes, label in ((("Forbidden", "AccessDenied", "Unauthorized", "NoPermission"), "authorization"),
-                                (("IdempotentParameterMismatch",), "idempotency_conflict"),
-                                (("Quota", "LimitExceeded"), "quota"),
-                                (("InsufficientInstanceCapacity", "ResourceNotAvailable", "SoldOut"), "capacity"),
-                                (("Throttling",), "throttling"), (("TransportError",), "transport")):
-            if error.startswith(prefixes):
-                category = label
-                break
-        categories.add(category)
-    return {"exit_code": code, "result": receipt.get("result") if receipt.get("result") in results else "UNKNOWN",
-            "test_lines": sorted({int(n) for n in re.findall(r"(?m)^\s+extended_test\.go:([1-9][0-9]{0,4}):", log)}),
-            "api_error_categories": sorted(categories),
-            "transport_error_categories": [name for name, markers in (
-                ("authentication", ("ssh: unable to authenticate",)),
-                ("host_key", ("ssh: host key mismatch", "knownhosts: key mismatch")),
-                ("timeout", ("i/o timeout", "context deadline exceeded")),
-                ("connection_refused", ("connection refused",)),
-                ("connection_reset", ("connection reset by peer",)),
-                ("handshake", ("ssh: handshake failed",))) if any(marker in log for marker in markers)],
-            "matched_error_templates": sorted(templates),
-            "workers_observed": len(instances) if isinstance(instances, list) else None,
-            "worker_checks": {k: sum(isinstance(row, dict) and row.get(k) is True for row in instances)
-                              if isinstance(instances, list) else None for k in
-                              ("inventory_complete", "spot_verified", "deletion_verified")},
-            "evidence_incomplete": resources.get("evidence_incomplete") if type(resources.get("evidence_incomplete")) is bool else None,
-            "checks": {k: receipt.get(k) if type(receipt.get(k)) is bool else None for k in
-                       ("ssh_completed", "normal_release", "specified_release", "restart_recovered")}}
-
-
 def driver(fixture, root, manifest, cidr, config):
     mode = fixture.tags["fleeting-scenario"]
     binary = root / manifest["fault_binary" if mode == MODES[-1] else "normal_binary"]
@@ -441,11 +379,12 @@ def driver(fixture, root, manifest, cidr, config):
         fixture.save()
         process = None
         try:
-            process = subprocess.Popen(["go", "test", "-tags", "live", "-count=1", "-timeout=24m", "-run", "^TestExtendedCloud$", "./tests/live"],
+            process = subprocess.Popen(["go", "test", "-v", "-tags", "live", "-count=1", "-timeout=24m", "-run", "^TestExtendedCloud$", "./tests/live"],
                                        env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             fixture.state["driver_group"] = process.pid
             fixture.save()
             code = process.wait(timeout=25 * 60)
+            fixture.driver_exit_code = code
         finally:
             if process is not None:
                 stop_process_group(process)
@@ -516,21 +455,50 @@ def run(args):
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
     status = cleanup_status = "FAIL"
     plugin_hash = ""
+    diagnostics = {"fixture_setup": {"result": "UNKNOWN"}, "driver": {"result": "UNKNOWN"},
+                   "fixture_cleanup": {"result": "UNKNOWN"}}
+    primary_error = cleanup_error = None
+    stage, started = "fixture_setup", time.monotonic()
     try:
         fixture.prepare(cidr, config)
+        diagnostics[stage] = {"result": "PASS", "duration_ms": duration_ms(started)}
+        stage, started = "driver", time.monotonic()
         plugin_hash = driver(fixture, args.root, manifest, cidr, config)
         status = "PASS"
+        diagnostics[stage] = {"result": "PASS", "duration_ms": duration_ms(started)}
+    except BaseException as error:
+        # Preserve cancellation as well as normal failure, but always attempt the
+        # existing guarded cleanup and persist both outcomes before propagating.
+        primary_error = error
+        diagnostics[stage] = {"result": "FAIL", "duration_ms": duration_ms(started),
+                              "error": diagnostic_error(error)}
     finally:
+        started = time.monotonic()
         try:
             fixture.cleanup()
             cleanup_status = "PASS"
-        finally:
-            write_json(args.receipt, {"schema_version": 1, "result": status, "cleanup_result": cleanup_status,
-                "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
-                "mode": args.mode, "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
-                "fixture_config_sha256": config_digest(config),
-                "plugin_sha256": plugin_hash, "response_gate_instrumented": args.mode == MODES[-1],
-                "leftover_resources": 0 if cleanup_status == "PASS" else -1})
+            diagnostics["fixture_cleanup"] = {"result": "PASS", "duration_ms": duration_ms(started)}
+        except BaseException as error:
+            cleanup_error = error
+            diagnostics["fixture_cleanup"] = {"result": "FAIL", "duration_ms": duration_ms(started),
+                                               "error": diagnostic_error(error)}
+        diagnostics["driver"]["evidence"] = read_driver_diagnostic(
+            fixture.directory, tags["fleeting-ci-run"], tags["fleeting-ci-attempt"], fixture.driver_exit_code)
+        receipt = {"schema_version": 1, "result": status, "cleanup_result": cleanup_status,
+                   "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
+                   "mode": args.mode, "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
+                   "fixture_config_sha256": config_digest(config),
+                   "plugin_sha256": plugin_hash, "response_gate_instrumented": args.mode == MODES[-1],
+                   "leftover_resources": 0 if cleanup_status == "PASS" else -1, "diagnostics": diagnostics}
+        # The console fallback survives a failure to write/upload the receipt.
+        print(json.dumps({"cloud_diagnostic": diagnostics}), flush=True)
+        write_json(args.receipt, receipt)
+    if isinstance(cleanup_error, (KeyboardInterrupt, SystemExit)) and not isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+        raise cleanup_error
+    if primary_error is not None:
+        raise primary_error
+    if cleanup_error is not None:
+        raise cleanup_error
 
 
 def janitor(directory, completed_run=None, completed_attempt=None):
