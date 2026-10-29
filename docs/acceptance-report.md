@@ -1,6 +1,6 @@
 # Implementation and acceptance report
 
-Reviewed on 2026-10-28. This report separates implemented code, offline evidence,
+Updated on 2026-10-29 (Asia/Shanghai). This report separates implemented code, offline evidence,
 live acceptance, and external publication. The machine-readable status is
 [`acceptance/status.json`](../acceptance/status.json); exact source versions are
 in [`upstream.lock.json`](../upstream.lock.json).
@@ -62,7 +62,7 @@ supply the controlled boundaries.
 |---|---|
 | `make deps` | Locked complete module graph downloaded and verified; repeated installation left checksums stable. |
 | `make build` | Actual native plugin binary built with revision/version information. |
-| `make test` | Provider scenarios T01–T18, API signing/errors, journal/restart regressions, process/SSH, fixture and official OCI installer tests; eight Python guards. |
+| `make test` | Provider scenarios T01–T18, API signing/errors, journal/restart regressions, process/SSH, fixture and official OCI installer tests, and Python guards. |
 | `make test-component` | Actual plugin process and SSH, helper file behavior, and synthetic fixture CLI requests. |
 | `make lint` | Formatting, vet, pinned actionlint, finite configuration checks, and tracked whitespace. No configured hook or security scanner is claimed. |
 | `go test -race ./...` | Offline Go packages passed race-enabled execution. |
@@ -88,14 +88,61 @@ plugin termination. An instrumented expansion-response-loss restart also passed.
 Released-plugin Linux amd64 **VM and Docker GitLab job cycles passed** with
 Runner 19.5.1, as recorded [below](#released-plugin-vm-and-docker-jobs). Earlier
 preparation failures remain recorded separately. One temporary prepared image
-and its snapshot were created for these jobs and deleted afterward. No persistent
-Manager or cloud OIDC configuration was created. All task cloud fixtures were
-deleted and their absence was verified twice per fixture.
+and its snapshot were created for these jobs and deleted afterward. Those local
+runs did not create persistent Manager or cloud OIDC configuration. Their task
+cloud fixtures were deleted and absence was verified twice per fixture. The later
+dedicated-account GitHub OIDC gate is recorded separately below.
 
 Raw evidence, resource identities, account information and local runtime paths
 remain outside version control. The summary below records the selected facts
 needed for maintenance; it is not production acceptance or a publication claim.
 The live tools retain private JSON receipts under the selected output directory.
+
+### Dedicated-account pre-release cloud gate
+
+On 2026-10-29 (Asia/Shanghai), the manual
+[Cloud acceptance run](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40724709276)
+passed its build, all six serial scenarios, and final artifact/receipt gate.
+The run used fresh GitHub OIDC STS credentials in the dedicated test account.
+No GitLab job or release publication was performed by this run.
+
+The accepted candidate is `ea3879ab92e1ec71822b73f0c13a96d920ef3de9`, version
+`0.1.0-dev`, run attempt `1`. Its manifest SHA-256 is
+`71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9`.
+The artifact is `cloud-candidate-40724709276-1` (ID `12831758870`); its archive
+SHA-256 is `3b2b4451b275bb24ebe96e2ee618b5063506e4ff30a929cc0159415c5370151b`.
+These identify different layers: the archive digest is not the manifest digest.
+GitHub retains the payload for seven days. The selected public receipts are
+archived in `pre_release_cloud_gate` in the machine-readable status above.
+
+| Mode | Scenario | Fixture cleanup | Leftovers |
+| --- | --- | --- | --- |
+| `cloud-smoke` | PASS | PASS | 0 |
+| `cloud-scale` | PASS | PASS | 0 |
+| `cloud-restart` | PASS | PASS | 0 |
+| `cloud-create-restart` | PASS | PASS | 0 |
+| `cloud-remove-restart` | PASS | PASS | 0 |
+| `cloud-increase-response-loss` | PASS | PASS | 0 |
+
+All receipts bind the same candidate, version, manifest, run/attempt and fixture
+configuration digest. The first five modes used the normal Linux amd64
+distribution binary; response loss used its separately hashed `responsegate`
+test binary. The [workflow-completion janitor](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40728720450)
+checked this exact owning run/attempt and passed with zero fixtures to recover.
+The acceptance switch was restored to false after verification. This proves the
+completion-triggered scan, not hourly recovery of abandoned fixtures.
+
+Earlier attempts exposed fixture tag visibility during creation/deletion and
+cross-group reuse of the driver's cleanup idempotency token; these were corrected
+in PRs #54, #55 and #59. The token collision was reproduced in an offline
+regression. Its exact historical cloud error code was not retained. An earlier
+SSH-check-stage failure also lacks sufficient evidence for a precise root cause;
+the successful run does not retroactively turn failed attempts into passes.
+
+This evidence covers the exact candidate above. It does not cover the later
+Debian/Manager addition in `72e2628` or later source changes, Linux arm64 cloud
+execution, full GitLab jobs, STS renewal, or broader lifecycle scenarios. Future
+publication must run its own gate against the version and artifacts it publishes.
 
 ### Direct ECS connectivity preflight
 
@@ -393,6 +440,7 @@ The following gates remain specific and visible:
 
 | Gate | Completed work | Next evidence required |
 |---|---|---|
+| Dedicated-account pre-release gate | Six serial OIDC scenarios, matching candidate receipts, zero leftovers and workflow-completion janitor passed on `ea3879a` | Later candidates, STS renewal and scheduled abandoned-fixture recovery need separate evidence. |
 | Plugin-only 0→1→SSH→0 | Real plugin, actual Spot/disk checks, authenticated SSH, normal specified release and full fixture cleanup passed | Broader lifecycle scenarios remain separate. |
 | Plugin-only 0→2→1→0 | Target-only release, original retained-worker SSH and final normal release passed; full fixture cleanup confirmed twice | Larger release batches and recovery remain separate. |
 | Ready-worker plugin restart | Old process exit, distinct new PID, original instance rediscovery, fresh SSH, unchanged activity IDs and normal release passed; fixture cleanup confirmed twice | Lost removal replies and multi-page cloud snapshots remain unverified. |
@@ -576,8 +624,9 @@ receipts remain outside this repository.
 
 This establishes the selected single-worker Linux amd64 job cycles. Windows,
 full arm64 jobs, other images, larger pools, interruption and production
-Manager deployment are not covered. The GitHub OIDC live workflow and scheduled
-janitor remain unconfigured and unrun; local acceptance does not configure them.
+Manager deployment are not covered. The separate GitLab `Live acceptance`
+workflow and its fixed-pool janitor remain unconfigured and unrun; the plugin-only
+pre-release cloud gate above does not configure those workflows.
 
 ## One-time configuration and cost responsibilities
 
