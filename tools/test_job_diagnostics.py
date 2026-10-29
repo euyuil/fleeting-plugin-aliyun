@@ -113,6 +113,23 @@ class JobDiagnosticTests(unittest.TestCase):
             self.assertNotIn("private", json.dumps(result))
         self.assertEqual(diagnostic.outcome([]), {"status": "unknown", "failure_reason": "unknown"})
 
+    def test_unrecognized_terminal_error_has_only_fixed_words_and_bounded_code(self):
+        line = "ERROR: Job failed: run exit (exit code: 137): Process exited with status 137 from signal KILL"
+        value = diagnostic.trace_diagnostic(("00E " + line).encode())["terminal_errors"][0]
+        self.assertEqual(value["connector_exit_code"], 137)
+        self.assertEqual(value["words"][-6:], ["with", "status", "?", "from", "signal", "KILL"])
+        private = "ERROR: Job failed: read tcp 192.0.2.1:22 private-project private-token private.example.invalid i-private: connection reset by peer"
+        value = diagnostic.trace_diagnostic((private + "\n").encode() * 10)
+        self.assertEqual(len(value["terminal_errors"]), 4)
+        for item in value["terminal_errors"]:
+            self.assertTrue(set(item["words"]) <= diagnostic.ERROR_WORDS | {"?"})
+            self.assertIsNone(item["connector_exit_code"])
+        self.assertNotIn("private", json.dumps(value))
+        self.assertNotIn("192", json.dumps(value))
+        self.assertEqual(len(diagnostic.error_outline("error " * 1000)["words"]), 64)
+        for code in ("999", "-2", "123456789"):
+            self.assertIsNone(diagnostic.error_outline(line.replace("code: 137", "code: " + code))["connector_exit_code"])
+
     def test_cli_failure_never_prints_exception_or_private_api_fields(self):
         args = ["job_diagnostics.py", "--sha", SHA, "--executor", "instance", "--scenario", "worker-loss",
                 "--started-at", START, "--completed-at", END]

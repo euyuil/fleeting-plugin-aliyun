@@ -200,8 +200,9 @@ the candidate ref to fewer than 100 pipelines. Only generated `acceptance/<SHA>`
 refs are supported; cases that reused the unchanged configured base ref require
 private inspection in GitLab. Capacity has three pipelines in one case: use a
 narrower window identifying one pipeline. `upgrade` selects its actual `smoke`
-job. Only fixed status/failure enums, booleans, and bounded exit
-codes are printed; original traces and private identities remain in GitLab.
+job. Only fixed status/failure enums, booleans, bounded exit codes, and an outline
+using a fixed public error vocabulary are printed. Unknown words and numbers in
+that outline become `?`; original traces and private identities remain in GitLab.
 These diagnostics neither change acceptance assertions nor produce a PASS receipt.
 
 To exercise independent cleanup after a deliberate process loss, separately

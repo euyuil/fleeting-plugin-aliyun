@@ -21,6 +21,26 @@ HEADER = re.compile(r"^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 SSH_ERROR = re.compile(r"^ERROR: Job failed: run exit \(exit code: (-?[0-9]{1,3})\): wait: remote command exited without exit status or exit signal$")
+# Unknown words, numbers, identifiers and addresses are never copied. These
+# public error terms retain a useful outline when a pinned literal changes.
+ERROR_WORDS = frozenset("ERROR Job failed system failure run exit code wait remote command exited without status or signal "
+                        "Process with from Reason was ssh connection closed by keepalive timeout context canceled deadline exceeded "
+                        "read write tcp udp pipe broken reset peer EOF unexpected stage step_script execute executing execution "
+                        "error process killed terminated aborted stopped stopping transport session not started disconnected "
+                        "permission denied socket network use of user initiated shutdown KILL TERM HUP INT QUIT".split())
+
+
+def error_outline(line):
+    words = []
+    for token in re.findall(r"[A-Za-z0-9_]+", line):
+        value = token if token in ERROR_WORDS else "?"
+        if value != "?" or not words or words[-1] != "?":
+            words.append(value)
+        if len(words) == 64:
+            break
+    match = re.match(r"ERROR: Job failed: run exit \(exit code: (-?[0-9]{1,3})\): ", line)
+    code = int(match[1]) if match and -1 <= int(match[1]) <= 255 else None
+    return {"words": words, "connector_exit_code": code}
 
 
 class ReadOnlyGitLab(GitLab):
@@ -52,11 +72,13 @@ def outcome(job):
 def trace_diagnostic(raw):
     """Classify fixed Runner messages without copying trace text or identifiers."""
     result = {"ssh_exit_codes": [], "ssh_message_with_sgr_only": False, "ssh_message_with_csi_removed": False,
-              "script_exit_codes": [], "terminal_error_seen": False}
+              "script_exit_codes": [], "terminal_error_seen": False, "terminal_errors": []}
     for line in raw.decode("utf-8", errors="replace").split("\n"):
         line = HEADER.sub("", line.removesuffix("\r"))
         sgr, csi = SGR.sub("", line), CSI.sub("", line)
         result["terminal_error_seen"] |= csi.startswith("ERROR: Job failed")
+        if csi.startswith("ERROR: Job failed") and len(result["terminal_errors"]) < 4:
+            result["terminal_errors"].append(error_outline(csi))
         for value, key in ((sgr, "ssh_message_with_sgr_only"), (csi, "ssh_message_with_csi_removed")):
             match = SSH_ERROR.fullmatch(value)
             if match and -1 <= int(match[1]) <= 255:
