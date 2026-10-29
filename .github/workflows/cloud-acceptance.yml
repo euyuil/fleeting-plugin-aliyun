@@ -61,7 +61,7 @@ jobs:
   build:
     needs: security
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     outputs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
@@ -132,7 +132,7 @@ jobs:
       version: ${{ inputs.version }}
   scenario:
     needs: [build, platforms]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     environment: aliyun-pre-release
     permissions:
@@ -200,7 +200,7 @@ jobs:
   gate:
     if: always()
     needs: [build, platforms, scenario]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       release_ready: ${{ steps.result.outputs.release_ready }}

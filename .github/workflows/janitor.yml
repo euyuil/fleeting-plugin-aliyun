@@ -22,7 +22,7 @@ jobs:
       vars.ALIYUN_REGION != '' && vars.ALIYUN_SCALING_GROUP_ID != '' &&
       ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
        github.event_name == 'schedule' || github.event.workflow_run.head_branch == 'main')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 12
     permissions:
       contents: read

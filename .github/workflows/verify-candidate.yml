@@ -25,6 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - runner: ubuntu-26.04
+            arch: amd64
+          - runner: ubuntu-26.04-arm
+            arch: arm64
           - runner: ubuntu-24.04
             arch: amd64
           - runner: ubuntu-24.04-arm
@@ -62,7 +66,7 @@ jobs:
           python3 tools/check-configs.py --runner ".cache/gitlab-runner-linux-$ARCH"
           make test-debian-lifecycle DISPOSABLE_HOST=true RUNNER_BINARY=".cache/gitlab-runner-linux-$ARCH" DIST_DIR=.cache/candidate/dist
       - name: Test the same package on isolated Debian 12 with systemd
-        if: matrix.arch == 'amd64'
+        if: matrix.runner == 'ubuntu-26.04'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y debootstrap debian-archive-keyring systemd-container

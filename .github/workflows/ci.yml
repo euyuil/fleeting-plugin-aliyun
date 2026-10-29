@@ -12,7 +12,7 @@ jobs:
   security:
     uses: ./.github/workflows/security.yml
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.platform_candidate.outputs.artifact-id }}
@@ -100,7 +100,7 @@ jobs:
   offline:
     if: always()
     needs: [build, platforms, security]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     env:
       BUILD_RESULT: ${{ needs.build.result }}
