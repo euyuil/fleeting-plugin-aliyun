@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 scenario=${FLEETING_JOB_SCENARIO:-smoke}
-case "$scenario" in smoke|failure|cancel|timeout|capacity|drain) ;; *) exit 1 ;; esac
+case "$scenario" in smoke|failure|cancel|timeout|capacity|drain|worker-loss) ;; *) exit 1 ;; esac
 test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"
 test -f .gitlab-ci.yml
 case "$FLEETING_EXECUTION_MODE" in
@@ -25,7 +25,7 @@ printf '%s' "$FLEETING_NONCE" > acceptance-sentinel
 printf '{"nonce":"%s","fixture_sha":"%s","instance_id":"%s","runner_id":%s,"checkout_ok":true,"command_ok":true,"executor":"%s","container_detected":%s,"isolation_ok":true}\n' "$FLEETING_NONCE" "$CI_COMMIT_SHA" "$instance" "$CI_RUNNER_ID" "$FLEETING_EXECUTION_MODE" "$container" > result.json
 printf 'FLEETING_CHECKPOINT %s %s %s %s\n' "$FLEETING_NONCE" "$scenario" "$CI_JOB_ID" "$instance"
 case "$scenario" in
-  capacity|drain)
+  capacity|drain|worker-loss)
     # A nonce-bound driver command releases this job after the queue assertions.
     elapsed=0
     until test -f "/tmp/fleeting-acceptance-release-$FLEETING_NONCE"; do

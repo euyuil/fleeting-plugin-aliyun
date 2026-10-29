@@ -40,7 +40,7 @@ and canceling pipelines. Keep logs and IDs private. See the authoritative
 [scenario contract](../../../docs/job-acceptance.md#expected-failures-and-continued-service)
 for outcome, identity, release and follow-up-job requirements.
 
-The `capacity` and `drain` scenarios use the same files with a 40-minute job timeout and a
+The `capacity`, `drain`, and `worker-loss` scenarios use the same files with a 40-minute job timeout and a
 nonce-bound barrier. Its checkout and `/tmp` sentinels prove isolation; the driver
 releases the barrier only after its concurrent-job and queue checks. See
 [capacity acceptance](../../../docs/job-acceptance.md#capacity-queueing-and-job-isolation)
@@ -48,3 +48,6 @@ for the three-job/two-worker limits and normal release requirements.
 The [graceful-stop case](../../../docs/job-acceptance.md#graceful-stop-during-a-real-job)
 releases its first barrier only after the installed Manager enters draining,
 then requires normal cleanup and a successful job after restart.
+The [worker-loss case](../../../docs/job-acceptance.md#abrupt-worker-loss-during-a-real-job)
+leaves the barrier closed and deletes the verified worker, then requires an
+verified failure, resource reconciliation and a fresh successful job.

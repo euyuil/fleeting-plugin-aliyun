@@ -16,20 +16,22 @@ import (
 )
 
 // JobEvidence stays in the private result. Public receipts expose only the
-// scenario and counts after all identities and normal releases are verified.
+// scenario and counts after identities and resource release are verified.
 type JobEvidence struct {
-	Scenario        string `json:"scenario"`
-	Nonce           string `json:"nonce"`
-	PipelineID      int64  `json:"pipeline_id"`
-	JobID           int64  `json:"job_id"`
-	InstanceID      string `json:"instance_id"`
-	ManagerPID      int    `json:"manager_pid"`
-	Status          string `json:"status"`
-	FailureReason   string `json:"failure_reason"`
-	Checkpoint      bool   `json:"checkpoint"`
-	CancelRequested bool   `json:"cancel_requested"`
-	ControlReleased bool   `json:"control_released"`
-	NormalRelease   bool   `json:"normal_release"`
+	Scenario         string `json:"scenario"`
+	Nonce            string `json:"nonce"`
+	PipelineID       int64  `json:"pipeline_id"`
+	JobID            int64  `json:"job_id"`
+	InstanceID       string `json:"instance_id"`
+	ManagerPID       int    `json:"manager_pid"`
+	Status           string `json:"status"`
+	FailureReason    string `json:"failure_reason"`
+	Checkpoint       bool   `json:"checkpoint"`
+	CancelRequested  bool   `json:"cancel_requested"`
+	ControlReleased  bool   `json:"control_released"`
+	LossInjected     bool   `json:"loss_injected"`
+	SSHTransportLoss bool   `json:"ssh_transport_loss"`
+	NormalRelease    bool   `json:"normal_release"`
 }
 
 func jobNonce() (string, error) {
@@ -52,6 +54,9 @@ func jobCases(scenario string) []string {
 
 func expectedJobOutcome(e JobEvidence) bool {
 	switch e.Scenario {
+	case "worker-loss":
+		failure := e.FailureReason == "runner_system_failure" || (e.FailureReason == "script_failure" && e.SSHTransportLoss)
+		return e.Checkpoint && e.LossInjected && !e.ControlReleased && e.Status == "failed" && failure && !e.CancelRequested
 	case "capacity", "drain":
 		return e.Checkpoint && e.ControlReleased && e.Status == "success" && e.FailureReason == "" && !e.CancelRequested
 	case "smoke":
@@ -68,6 +73,9 @@ func expectedJobOutcome(e JobEvidence) bool {
 }
 
 func verifyJobSequence(r *Result) error {
+	if r.JobScenario == "worker-loss" && !r.WorkerLossVerified {
+		return errors.New("worker loss lacks reconciliation proof")
+	}
 	if r.JobScenario == "capacity" && (!r.CapacityVerified || r.InstanceLimit != 2) {
 		return errors.New("capacity scenario lacks queue, retained-job and replacement proof")
 	}
@@ -81,7 +89,10 @@ func verifyJobSequence(r *Result) error {
 	pipelines, jobs, workers, nonces := map[int64]bool{}, map[int64]bool{}, map[string]bool{}, map[string]bool{}
 	for i, e := range r.Jobs {
 		managerMatches := e.ManagerPID == r.ManagerPID || (r.JobScenario == "drain" && i == 0)
-		if e.Scenario != cases[i] || !expectedJobOutcome(e) || !e.NormalRelease || !managerMatches ||
+		injected := r.JobScenario == "worker-loss" && i == 0
+		normalRelease := !injected
+		if e.Scenario != cases[i] || !expectedJobOutcome(e) || e.NormalRelease != normalRelease || e.LossInjected != injected || !managerMatches ||
+			(e.SSHTransportLoss && (!injected || r.Executor != "instance")) ||
 			e.PipelineID <= 0 || e.JobID <= 0 || e.InstanceID == "" || !regexp.MustCompile(`^[0-9a-f]{48}$`).MatchString(e.Nonce) ||
 			pipelines[e.PipelineID] || jobs[e.JobID] || workers[e.InstanceID] || nonces[e.Nonce] {
 			return errors.New("job sequence outcome, Manager identity or isolation proof is invalid")
@@ -257,6 +268,12 @@ func (s jobSequence) currentWorker(id string) bool {
 // is not a new checkpoint line. Bare lines support older unframed trace files.
 var runnerTraceHeader = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z )?[0-9a-f]{2}[OE] `)
 
+var runnerTraceColor = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// Pinned Runner wraps Fleeting's missing SSH exit status in an unclassified
+// BuildError. GitLab labels this script_failure, despite the transport loss.
+const sshTransportLossLine = "ERROR: Job failed: run exit (exit code: 0): wait: remote command exited without exit status or exit signal"
+
 func jobTraceLine(line string) string {
 	return runnerTraceHeader.ReplaceAllString(strings.TrimSuffix(line, "\r"), "")
 }
@@ -271,6 +288,14 @@ func (s jobSequence) checkpoint(ctx context.Context, e *JobEvidence, terminal bo
 		return fmt.Errorf("cannot read GitLab job trace: %w", err)
 	}
 	prefix := fmt.Sprintf("FLEETING_CHECKPOINT %s %s %d ", e.Nonce, e.Scenario, e.JobID)
+	if terminal && e.Scenario == "worker-loss" && e.LossInjected && s.result.Executor == "instance" {
+		e.SSHTransportLoss = false
+		for _, line := range strings.Split(string(trace), "\n") {
+			if runnerTraceColor.ReplaceAllString(jobTraceLine(line), "") == sshTransportLossLine {
+				e.SSHTransportLoss = true
+			}
+		}
+	}
 	expectedExit := false
 	for _, line := range strings.Split(string(trace), "\n") {
 		if jobTraceLine(line) == "FLEETING_EXPECTED_EXIT "+e.Nonce+" 42" {

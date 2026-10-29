@@ -24,31 +24,32 @@ const FleetingVersion = "v0.0.0-20260915191451-6ed75a33d303"
 
 type Result struct {
 	Ledger
-	Result           string        `json:"result"`
-	Mode             string        `json:"mode"`
-	PluginCommit     string        `json:"plugin_commit"`
-	PluginSHA256     string        `json:"plugin_sha256"`
-	RunnerSHA256     string        `json:"runner_sha256"`
-	RunnerVersion    string        `json:"runner_version"`
-	FleetingVersion  string        `json:"fleeting_version"`
-	Nonce            string        `json:"run_nonce"`
-	FixtureSHA       string        `json:"gitlab_fixture_sha"`
-	ProjectID        string        `json:"gitlab_project_id"`
-	PipelineID       int64         `json:"gitlab_pipeline_id"`
-	JobID            int64         `json:"gitlab_job_id"`
-	RunnerID         int64         `json:"gitlab_runner_id"`
-	Executor         string        `json:"executor"`
-	PluginReference  string        `json:"plugin_reference"`
-	PluginVersion    string        `json:"plugin_version,omitempty"`
-	JobImage         string        `json:"job_image,omitempty"`
-	NormalRelease    bool          `json:"normal_release"`
-	Missing          []string      `json:"missing_configuration,omitempty"`
-	Errors           []string      `json:"errors,omitempty"`
-	JobScenario      string        `json:"job_scenario"`
-	Jobs             []JobEvidence `json:"jobs"`
-	CapacityVerified bool          `json:"capacity_verified"`
-	DrainVerified    bool          `json:"drain_verified"`
-	FinishedAt       time.Time     `json:"finished_at"`
+	Result             string        `json:"result"`
+	Mode               string        `json:"mode"`
+	PluginCommit       string        `json:"plugin_commit"`
+	PluginSHA256       string        `json:"plugin_sha256"`
+	RunnerSHA256       string        `json:"runner_sha256"`
+	RunnerVersion      string        `json:"runner_version"`
+	FleetingVersion    string        `json:"fleeting_version"`
+	Nonce              string        `json:"run_nonce"`
+	FixtureSHA         string        `json:"gitlab_fixture_sha"`
+	ProjectID          string        `json:"gitlab_project_id"`
+	PipelineID         int64         `json:"gitlab_pipeline_id"`
+	JobID              int64         `json:"gitlab_job_id"`
+	RunnerID           int64         `json:"gitlab_runner_id"`
+	Executor           string        `json:"executor"`
+	PluginReference    string        `json:"plugin_reference"`
+	PluginVersion      string        `json:"plugin_version,omitempty"`
+	JobImage           string        `json:"job_image,omitempty"`
+	NormalRelease      bool          `json:"normal_release"`
+	Missing            []string      `json:"missing_configuration,omitempty"`
+	Errors             []string      `json:"errors,omitempty"`
+	JobScenario        string        `json:"job_scenario"`
+	Jobs               []JobEvidence `json:"jobs"`
+	CapacityVerified   bool          `json:"capacity_verified"`
+	DrainVerified      bool          `json:"drain_verified"`
+	WorkerLossVerified bool          `json:"worker_loss_verified"`
+	FinishedAt         time.Time     `json:"finished_at"`
 }
 
 func Missing(get func(string) string) []string {
@@ -466,7 +467,11 @@ func Run(ctx context.Context, dir string) (result Result) {
 			return WaitForNormalRelease(ctx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID"))
 		},
 	}
-	if options.scenario == "drain" {
+	if options.scenario == "worker-loss" {
+		err = (workerLossSequence{jobSequence: sequence, loseWorker: func(ctx context.Context, e JobEvidence) error {
+			return injectWorkerLoss(ctx, cloud, &result.Ledger, e)
+		}}).run(ctx)
+	} else if options.scenario == "drain" {
 		err = (drainSequence{capacitySequence: capacitySequence{jobSequence: sequence,
 			openJob: func(ctx context.Context, e JobEvidence) error {
 				return openCapacityJob(ctx, cloud, e, options.executor, get("WORKER_USER"), key)
@@ -490,7 +495,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	result.Result = "PASS"
-	result.NormalRelease = true
+	result.NormalRelease = options.scenario != "worker-loss"
 	return result
 }
 func RunnerConfig(url, token, region, group, user, key string, options smokeOptions) string {

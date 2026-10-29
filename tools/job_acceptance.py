@@ -99,7 +99,7 @@ def job_cases(scenario):
 
 def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scenario="smoke"):
     cases = job_cases(scenario)
-    expected = {"result": "PASS", "cleanup_result": "PASS", "normal_release": True,
+    expected = {"result": "PASS", "cleanup_result": "PASS", "normal_release": scenario != "worker-loss",
                 "mode": "smoke", "executor": executor, "manager_mode": "systemd", "job_scenario": scenario,
                 "plugin_commit": manifest["candidate_sha"], "plugin_version": manifest["version"],
                 "plugin_sha256": manifest["files"][manifest["normal_binary"]],
@@ -111,6 +111,8 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
         expected["capacity_verified"] = True
     if scenario == "drain":
         expected["drain_verified"] = True
+    if scenario == "worker-loss":
+        expected["worker_loss_verified"] = True
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
@@ -126,10 +128,16 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
     for index, (step, case) in enumerate(zip(steps, cases)):
         pid = step.get("manager_pid") if isinstance(step, dict) else None
         manager_matches = type(pid) is int and pid > 0 and (pid != result["manager_pid"] if scenario == "drain" and index == 0 else pid == result["manager_pid"])
+        injected = scenario == "worker-loss" and index == 0
         status, reason = {"smoke": ("success", ""), "capacity": ("success", ""), "drain": ("success", ""), "failure": ("failed", "script_failure"),
+                          "worker-loss": ("failed", "runner_system_failure"),
                           "cancel": ("canceled", None), "timeout": ("failed", "job_execution_timeout")}[case]
+        if isinstance(step, dict) and injected and executor == "instance" and step.get("ssh_transport_loss") is True and step.get("failure_reason") == "script_failure":
+            reason = "script_failure"
         if (not isinstance(step, dict) or step.get("scenario") != case or step.get("status") != status or
-                (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not True or
+                (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not (not injected) or
+                step.get("loss_injected", False) is not injected or (injected and step.get("control_released") is not False) or
+                (step.get("ssh_transport_loss", False) is not False and (not injected or executor != "instance" or step["ssh_transport_loss"] is not True)) or
                 not manager_matches or
                 step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True) or
                 (case in ("capacity", "drain") and step.get("control_released") is not True)):

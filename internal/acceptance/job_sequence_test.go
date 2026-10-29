@@ -93,7 +93,7 @@ func TestRecoveryReceiptRejectsDuplicateIdentitiesAndChangedManager(t *testing.T
 func TestJobRecoveryRequiresSystemdBeforeResources(t *testing.T) {
 	base := map[string]string{"ACCEPTANCE_MANAGER_MODE": "systemd", "ACCEPTANCE_DISPOSABLE_HOST": "true",
 		"PLUGIN_VERSION": "0.1.0-dev", "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "GITHUB_REF": "refs/heads/main"}
-	for _, scenario := range []string{"failure", "cancel", "timeout", "capacity", "drain"} {
+	for _, scenario := range []string{"failure", "cancel", "timeout", "capacity", "drain", "worker-loss"} {
 		base["ACCEPTANCE_JOB_SCENARIO"] = scenario
 		if _, err := readSmokeOptions(func(k string) string { return base[k] }); err != nil {
 			t.Fatal(err)
