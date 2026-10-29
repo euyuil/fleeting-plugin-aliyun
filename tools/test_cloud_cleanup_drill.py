@@ -11,6 +11,8 @@ from unittest import mock
 
 import cloud_cleanup_drill as drill
 import cloud_fixture as fixture
+from cloud_diagnostics import CloudOperationError
+from cloud_drill_diagnostics import WriterDiagnostic, read_writer_diagnostic
 from test_cloud_config import CONFIG, CONFIG_ENV
 from test_cloud_fixture import FakeCloud
 
@@ -156,6 +158,139 @@ class CleanupDrillTests(unittest.TestCase):
         owner.return_value.cleanup.assert_called_once()
         self.assertFalse((self.directory / "checkpoint.json").exists())
 
+    def test_actual_child_failure_reaches_parent_receipt_with_independent_cleanup_errors(self):
+        # Exercise the process/file boundary that lost the original live failure.
+        # Only the child's cloud boundary is fake; no credentials are consulted.
+        script = """
+import pathlib, sys
+sys.path.insert(0, sys.argv[1])
+import cloud_cleanup_drill as drill
+from cloud_diagnostics import CloudOperationError
+class Owner:
+    def __init__(self, *_args):
+        self.state = {'ids': {'group': 'synthetic-group'}}
+        self.cloud = self
+    def prepare(self, *_args): pass
+    def call(self, *_args, **_kwargs):
+        raise CloudOperationError('ess', 'ScaleWithAdjustment', output='{"Code":"Forbidden.RAM","Message":"private-secret","RequestId":"private-request"}')
+    def cleanup(self): raise RuntimeError('private-cleanup-error')
+drill.Cloud = lambda *_args: None
+drill.Fixture = Owner
+drill.writer(pathlib.Path(sys.argv[2]))
+"""
+        popen = subprocess.Popen
+        def spawn(args, **kwargs):
+            return popen([sys.executable, "-c", script, str(Path(drill.__file__).parent), args[-1]], **kwargs)
+        def stopped(process):
+            self.assertEqual(process.wait(timeout=5), 1)
+        receipt = self.directory / "public.json"
+        with mock.patch("cloud_cleanup_drill.drill_context", return_value=self.context), mock.patch("subprocess.Popen", side_effect=spawn):
+            with mock.patch("cloud_cleanup_drill.stop_process_group", side_effect=stopped), mock.patch("cloud_cleanup_drill.Cloud"), mock.patch("cloud_cleanup_drill.Fixture") as owner:
+                with self.assertRaisesRegex(RuntimeError, "exited before"):
+                    drill.run(self.directory / "private", receipt, True)
+                owner.return_value.cleanup.assert_called_once()
+        result = json.loads(receipt.read_text())
+        self.assertEqual((result["result"], result["cleanup_result"]), ("FAIL", "PASS"))
+        writer = result["writer"]
+        self.assertEqual((writer["evidence"], writer["exit_code"], writer["failure_phase"]), ("RECORDED", 1, "scale_request"))
+        self.assertEqual(writer["error"], {"kind": "cloud_api", "service": "ess", "action": "ScaleWithAdjustment", "code": "Forbidden.RAM", "category": "authorization"})
+        self.assertEqual(writer["cleanup"], {"result": "FAIL", "error": {"kind": "runtime"}})
+        self.assertNotIn("private", receipt.read_text())
+
+    def test_writer_preserves_failure_before_and_during_setup(self):
+        context = self.directory / "context.json"
+        context.write_text("invalid private context")
+        with self.assertRaises(ValueError):
+            drill.writer(self.directory)
+        result = read_writer_diagnostic(self.directory, 1)
+        self.assertEqual((result["failure_phase"], result["error"], result["cleanup"]["result"]), ("context", {"kind": "validation"}, "NOT_STARTED"))
+        fixture.write_json(context, {"tags": self.tags, "config": CONFIG, "cidr": self.context[2]})
+        error = CloudOperationError("sts", "GetCallerIdentity", output='{"Code":"AccessDenied","Message":"private"}')
+        with mock.patch("cloud_cleanup_drill.Cloud", side_effect=error), self.assertRaises(CloudOperationError):
+            drill.writer(self.directory)
+        self.assertEqual(read_writer_diagnostic(self.directory, 1)["failure_phase"], "authentication")
+        with mock.patch("cloud_cleanup_drill.Cloud"), mock.patch("cloud_cleanup_drill.Fixture") as owner:
+            owner.return_value.prepare.side_effect = ValueError("private-setup-error")
+            owner.return_value.cleanup.side_effect = RuntimeError("private-cleanup-error")
+            with self.assertRaisesRegex(ValueError, "private-setup-error"):
+                drill.writer(self.directory)
+        result = read_writer_diagnostic(self.directory, 1)
+        self.assertEqual((result["failure_phase"], result["error"]["kind"], result["cleanup"]["result"]), ("fixture_setup", "validation", "FAIL"))
+        self.assertNotIn("private", json.dumps(result))
+
+    def test_actual_history_failure_records_phase_and_fixed_reason(self):
+        fixture.write_json(self.directory / "context.json", {"tags": self.tags, "config": CONFIG, "cidr": self.context[2]})
+        worker = {"InstanceId": "i-synthetic", "InstanceType": CONFIG["instance_type"], "ImageId": CONFIG["image"], "ZoneId": CONFIG["zone"],
+                  "SpotStrategy": "SpotAsPriceGo", "InstanceChargeType": "PostPaid", "Status": "Running"}
+        with mock.patch("cloud_cleanup_drill.Cloud"), mock.patch("cloud_cleanup_drill.Fixture") as owner:
+            owner.return_value.state = {"ids": {"group": "synthetic-group", "instance": ["i-synthetic"]}}
+            owner.return_value.owned.return_value = [worker]
+            owner.return_value.cloud.call.side_effect = [{}, {"TotalCount": 1, "ScalingActivities": {"ScalingActivity": []}}]
+            with self.assertRaisesRegex(ValueError, "history is incomplete"):
+                drill.writer(self.directory)
+            owner.return_value.cleanup.assert_called_once()
+        result = read_writer_diagnostic(self.directory, 1)
+        self.assertEqual(result["failure_phase"], "creation_verification")
+        self.assertEqual(result["error"], {"kind": "validation", "reason": "activity_history_incomplete"})
+        self.assertEqual(result["cleanup"]["result"], "PASS")
+
+    def test_diagnostic_write_failure_does_not_suppress_cleanup_or_primary_error(self):
+        fixture.write_json(self.directory / "context.json", {"tags": self.tags, "config": CONFIG, "cidr": self.context[2]})
+        with mock.patch("cloud_cleanup_drill.Cloud"), mock.patch("cloud_cleanup_drill.Fixture") as owner:
+            owner.return_value.prepare.side_effect = KeyError("private-response")
+            with mock.patch("cloud_drill_diagnostics.write_json", side_effect=OSError("disk full")):
+                with self.assertRaises(KeyError):
+                    drill.writer(self.directory)
+            owner.return_value.cleanup.assert_called_once()
+        self.assertEqual(read_writer_diagnostic(self.directory, 1)["evidence"], "MISSING")
+
+    def test_writer_retains_cancellation_priority_and_both_failures(self):
+        for primary, cleanup, expected in ((KeyboardInterrupt, RuntimeError, KeyboardInterrupt),
+                                           (ValueError, KeyboardInterrupt, KeyboardInterrupt)):
+            with self.subTest(primary=primary, cleanup=cleanup):
+                directory = self.directory / primary.__name__
+                directory.mkdir()
+                fixture.write_json(directory / "context.json", {"tags": self.tags, "config": CONFIG, "cidr": self.context[2]})
+                with mock.patch("cloud_cleanup_drill.Cloud"), mock.patch("cloud_cleanup_drill.Fixture") as owner:
+                    owner.return_value.prepare.side_effect = primary("private-primary")
+                    owner.return_value.cleanup.side_effect = cleanup("private-cleanup")
+                    with self.assertRaises(expected):
+                        drill.writer(directory)
+                    owner.return_value.cleanup.assert_called_once()
+                result = read_writer_diagnostic(directory, 1)
+                self.assertEqual(result["failure_phase"], "fixture_setup")
+                self.assertEqual(result["cleanup"]["result"], "FAIL")
+                self.assertEqual(result["error"]["kind"], "interrupted" if primary is KeyboardInterrupt else "validation")
+                self.assertEqual(result["cleanup"]["error"]["kind"], "interrupted" if cleanup is KeyboardInterrupt else "runtime")
+                self.assertNotIn("private", json.dumps(result))
+
+    def test_diagnostic_reader_projects_only_bounded_public_fields(self):
+        diagnostic = WriterDiagnostic(self.directory)
+        diagnostic.phase("creation_verification")
+        diagnostic.failure(AttributeError("private-field"))
+        path = self.directory / "writer-diagnostic.json"
+        data = json.loads(path.read_text())
+        data.update(raw_log="private-log", resource_id="private-resource")
+        data["error"].update(message="private-error", reason="private-reason")
+        data["cleanup"]["private"] = "private-token"
+        fixture.write_json(path, data)
+        result = read_writer_diagnostic(self.directory, True)
+        self.assertEqual(result["error"], {"kind": "response_shape"})
+        self.assertIsNone(result["exit_code"])
+        self.assertNotIn("private", json.dumps(result))
+        for raw in ("{", "[" * 2000, "x" * 16_385, json.dumps({**data, "schema_version": True}),
+                    json.dumps({**data, "last_phase": "private-phase"})):
+            path.write_text(raw)
+            self.assertEqual(read_writer_diagnostic(self.directory, 1), {"evidence": "UNREADABLE", "exit_code": 1})
+
+    def test_opaque_api_values_are_reclassified_without_copying_private_text(self):
+        diagnostic = WriterDiagnostic(self.directory)
+        diagnostic.phase("scale_request")
+        diagnostic.failure(CloudOperationError("ess", "ScaleWithAdjustment", output='{"Code":"Forbidden.private-id","Message":"private-secret"}'))
+        result = read_writer_diagnostic(self.directory, 1)
+        self.assertEqual((result["error"]["category"], result["error"]["code"]), ("authorization", "unknown"))
+        self.assertNotIn("private", json.dumps(result))
+
     def test_any_region_cleanup_failure_blocks_recovery_receipt(self):
         env = {"RELEASE_ALIYUN_CLEANUP_REGIONS": '["example-1","previous-2"]'}
         receipt = self.directory / "cleanup.json"
@@ -171,12 +306,15 @@ class CleanupDrillTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "writer-termination proof requires Linux procfs")
     def test_real_sigkill_bypasses_finally_cleanup(self):
         path, cleanup = self.directory / "checkpoint.json", self.directory / "cleanup.txt"
-        script = "import pathlib, sys, time\ntry:\n p = pathlib.Path(sys.argv[1])\n p.with_suffix('.tmp').write_text(sys.argv[3])\n p.with_suffix('.tmp').replace(p)\n time.sleep(30)\nfinally:\n pathlib.Path(sys.argv[2]).write_text('cleanup')\n"
-        process = subprocess.Popen([sys.executable, "-c", script, str(path), str(cleanup), json.dumps(self.expected)], start_new_session=True)
+        script = "import pathlib, sys, time\nsys.path.insert(0, sys.argv[4])\nfrom cloud_drill_diagnostics import WriterDiagnostic\ntry:\n p = pathlib.Path(sys.argv[1])\n WriterDiagnostic(p.parent).phase('await_interruption')\n p.with_suffix('.tmp').write_text(sys.argv[3])\n p.with_suffix('.tmp').replace(p)\n time.sleep(30)\nfinally:\n pathlib.Path(sys.argv[2]).write_text('cleanup')\n"
+        process = subprocess.Popen([sys.executable, "-c", script, str(path), str(cleanup), json.dumps(self.expected), str(Path(drill.__file__).parent)], start_new_session=True)
         try:
             drill.interrupt_at_checkpoint(process, path, self.expected, timeout=10)
             self.assertEqual(process.returncode, -signal.SIGKILL)
             self.assertFalse(cleanup.exists())
+            result = read_writer_diagnostic(self.directory, process.returncode)
+            self.assertEqual((result["evidence"], result["last_phase"], result["failure_phase"]), ("RECORDED", "await_interruption", None))
+            self.assertEqual(result["cleanup"]["result"], "NOT_STARTED")
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)

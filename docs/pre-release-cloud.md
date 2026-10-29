@@ -360,6 +360,21 @@ sanitized `INTERRUPTED` receipt and exits nonzero; the source workflow is expect
 to fail. Before the checkpoint, ordinary failures attempt guarded fallback cleanup.
 An unknown writer or failed termination proof never authorizes local deletion.
 
+The interruption receipt also includes a separate `writer` diagnostic. The writer
+atomically records its last stage and original failure before attempting cleanup;
+the supervisor retains that failure even when fallback cleanup succeeds. Stages
+separate authentication, fixture setup, the scale request, worker inventory and
+configuration, creation-history verification, checkpoint publication and waiting
+for interruption. The writer's cleanup result/error is separate from the
+supervisor's existing `cleanup_result`/`cleanup_error` fields. Cloud failures expose
+only allowlisted service/action, error code and category; validation failures may
+include a fixed reason, and unexpected response shapes have their own category.
+Raw messages, CLI replies, resource identities, configuration and writer logs are
+never uploaded. Missing or unreadable diagnostics stay explicit and do not change
+cleanup authorization, interruption proof, worker budgets or release eligibility.
+The parent bounds and filters the diagnostic again before adding it to the public
+receipt. Diagnostic file I/O failure does not suppress resource cleanup.
+
 The completed source workflow triggers **Pre-release cloud janitor** on a fresh
 runner with fresh OIDC credentials. Recovery discovers resources from cloud tags
 and verifies the exact owning attempt is completed; it never downloads the

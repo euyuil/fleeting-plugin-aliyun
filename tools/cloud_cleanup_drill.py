@@ -13,6 +13,7 @@ import time
 
 from cloud_config import config_digest, fixture_config
 from cloud_diagnostics import diagnostic_error
+from cloud_drill_diagnostics import WriterDiagnostic, read_writer_diagnostic
 from cloud_fixture import Cloud, DRILL_MODE, Fixture, labels, preflight, require_linux, stop_process_group, verify_drill_creation
 from release_candidate import revision, write_json
 
@@ -40,50 +41,82 @@ def checkpoint(tags, config):
             "fixture_config_sha256": config_digest(config), "workers_observed": 1}
 
 
-def wait_for_worker(owner, config):
+def wait_for_worker(owner, config, diagnostic=None):
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
+        if diagnostic:
+            diagnostic.phase("worker_inventory")
         workers = owner.owned("instance")
         if len(workers) > 1 or len(owner.state["ids"].get("instance", [])) > 1:
             raise ValueError("cleanup drill exceeded its one-worker budget")
         if workers:
+            if diagnostic:
+                diagnostic.phase("worker_configuration")
             worker = workers[0]
             if any(worker.get(key) != value for key, value in {
                 "InstanceType": config["instance_type"], "ImageId": config["image"],
                 "ZoneId": config["zone"], "SpotStrategy": "SpotAsPriceGo", "InstanceChargeType": "PostPaid",
             }.items()):
                 raise ValueError("cleanup drill worker differs from the configured Spot fixture")
-            if worker.get("Status") == "Running" and verify_drill_creation(owner, worker["InstanceId"]):
-                return
+            if worker.get("Status") == "Running":
+                if diagnostic:
+                    diagnostic.phase("creation_verification")
+                if verify_drill_creation(owner, worker["InstanceId"]):
+                    return
         time.sleep(3)
     raise RuntimeError("cleanup drill did not observe one running owned worker")
-
 
 
 def writer(directory):
     # This subprocess has a normal finally-cleanup path. The supervisor's SIGKILL
     # must bypass it; simply skipping cleanup would not exercise process loss.
-    context = json.loads((directory / "context.json").read_text())
-    tags, config, cidr = context["tags"], context["config"], context["cidr"]
-    owner = Fixture(Cloud(config["region"]), directory / "fixture", tags)
+    diagnostic = WriterDiagnostic(directory)
+    owner = None
+    primary_error = cleanup_error = None
     try:
+        diagnostic.phase("context")
+        context = json.loads((directory / "context.json").read_text())
+        tags, config, cidr = context["tags"], context["config"], context["cidr"]
+        diagnostic.phase("authentication")
+        owner = Fixture(Cloud(config["region"]), directory / "fixture", tags)
+        diagnostic.phase("fixture_setup")
         owner.prepare(cidr, config)
         group = owner.state["ids"]["group"]
         token = hashlib.sha256(json.dumps([DRILL_MODE, group, tags], sort_keys=True).encode()).hexdigest()
+        diagnostic.phase("scale_request")
         owner.cloud.call("ess", "ScaleWithAdjustment", ScalingGroupId=group,
                          AdjustmentType="TotalCapacity", AdjustmentValue=1, SyncActivity="false", ClientToken=token)
-        wait_for_worker(owner, config)
+        wait_for_worker(owner, config, diagnostic)
+        diagnostic.phase("checkpoint")
         temporary = directory / "checkpoint.tmp"
         write_json(temporary, checkpoint(tags, config))
         temporary.replace(directory / "checkpoint.json")
+        diagnostic.phase("await_interruption")
         # If the supervisor disappears without killing us, do not wait forever.
         time.sleep(120)
         raise RuntimeError("cleanup drill supervisor did not interrupt at the checkpoint")
+    except BaseException as error:
+        primary_error = error
+        diagnostic.failure(error)
     finally:
         # Once this exists, the supervisor must not claim it bypassed cleanup.
         # Check only after SIGKILL/exit proof, eliminating the check/cleanup race.
-        (directory / "cleanup-started").touch(exist_ok=False)
-        owner.cleanup()
+        if owner is not None:
+            try:
+                (directory / "cleanup-started").touch(exist_ok=False)
+                diagnostic.cleanup("RUNNING")
+                owner.cleanup()
+            except BaseException as error:
+                cleanup_error = error
+                diagnostic.cleanup("FAIL", error)
+            else:
+                diagnostic.cleanup("PASS")
+    if isinstance(cleanup_error, (KeyboardInterrupt, SystemExit)) and not isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+        raise cleanup_error
+    if primary_error is not None:
+        raise primary_error
+    if cleanup_error is not None:
+        raise cleanup_error
 
 
 def interrupt_at_checkpoint(process, path, expected, timeout=1200):
@@ -143,6 +176,7 @@ def run(directory, receipt, confirmed):
             result["cleanup_result"] = "FAIL"
             result["cleanup_error"] = diagnostic_error(error)
         finally:
+            result["writer"] = read_writer_diagnostic(directory, process.returncode if process is not None else None)
             write_json(receipt, result)
     if isinstance(cleanup_error, (KeyboardInterrupt, SystemExit)) and not isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
         raise cleanup_error
