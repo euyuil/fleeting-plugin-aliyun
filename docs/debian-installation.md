@@ -5,13 +5,15 @@ arm64 manager. The package, executable, and repository are all named
 `fleeting-plugin-aliyun`. This package includes the plugin and local manager
 commands. GitLab Runner is installed separately.
 
-The package is built and tested in GitHub Actions on every PR and push to main.
-Until a release containing this feature is published, use a successful **main**
-CI build for evaluation as described below. The `0.1.0-rc.2` release contains
-neither a Debian package nor the `manager` commands. A hosted APT repository
-is not provided.
-CI executes the service lifecycle on Ubuntu 24.04 amd64 and checks the payloads
-of both architecture packages; arm64 lifecycle execution is not covered yet.
+Download `.deb` packages from the
+[0.1.0-rc.3 Release](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3).
+Downloads are public and need no GitHub login. A hosted APT repository is not
+provided; install the downloaded file with APT. Versions before `0.1.0-rc.3`
+do not include Debian packages or `manager` commands.
+
+Every PR and push to main tests the service lifecycle on Ubuntu 24.04 amd64.
+The [public release check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/workflows/verify-release.yml)
+tests downloaded packages on native Ubuntu amd64 and arm64 hosts.
 
 ## Download and install
 
@@ -24,33 +26,28 @@ package. The currently tested version is recorded in
 [`upstream.lock.json`](../upstream.lock.json) (19.5.1). Keep any existing Runner
 pools separate.
 
-1. Open [main CI runs](https://github.com/euyuil/fleeting-plugin-aliyun/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush).
-2. Choose a successful run on **main** and note its source commit.
-3. Under **Artifacts**, download `release-candidate`. GitHub requires
-   [sign-in for artifact downloads](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
-   Artifacts expire after seven days; choose an available successful main run
-   if an older download has expired.
-4. Extract the full archive into an empty directory on the Manager host. It
-   includes both architecture packages and `SHA256SUMS`.
-
-In that directory, verify the files, then install the package for the host:
+In an empty download directory on the Manager host, run:
 
 ```sh
-sha256sum --check SHA256SUMS
+package="fleeting-plugin-aliyun_0.1.0~rc.3_$(dpkg --print-architecture).deb"
+release_url='https://github.com/euyuil/fleeting-plugin-aliyun/releases/download/v0.1.0-rc.3'
+curl --fail --location --retry 3 "$release_url/$package" --output "$package"
+curl --fail --location --retry 3 "$release_url/SHA256SUMS" --output SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-Continue only if all checks report `OK`:
+The checksum file covers native archives and Debian packages. `--ignore-missing`
+checks the files you downloaded. Continue only if your `.deb` reports `OK`:
 
 ```sh
-sudo apt install "./fleeting-plugin-aliyun_0.1.0~dev_$(dpkg --print-architecture).deb"
+sudo apt install "./fleeting-plugin-aliyun_0.1.0~rc.3_$(dpkg --print-architecture).deb"
 fleeting-plugin-aliyun version
 fleeting-plugin-aliyun manager help
 ```
 
-Main CI builds use package version `0.1.0~dev`; save the CI run and source commit
-alongside the download to distinguish builds. For a future release package, use
-its downloaded filename. Debian prerelease versions use `~`, so they sort before
-the final release. The program reports the original version and source revision.
+Use `amd64` for x86-64 hosts and `arm64` for ARM64 hosts. Debian uses version
+`0.1.0~rc.3` so it sorts before the final `0.1.0` release; the program reports
+`0.1.0-rc.3` and its source revision. Keep the downloaded package for rollback.
 Installation does not start or enable the service and does not call GitLab or
 Alibaba Cloud. It does not download a second plugin through OCI.
 

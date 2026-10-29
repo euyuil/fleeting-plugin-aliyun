@@ -11,10 +11,11 @@ the package does not adopt the manual service created here. It can run on
 the GitLab host or another Linux host. Jobs run on remote ECS workers. Runner
 starts the plugin as a child process; the plugin needs no separate service.
 
-Use GitLab Runner 19.5.1 and plugin `0.1.0-rc.2`, the combination used for the
-recorded Linux VM and Docker job checks. This released version does not include
-the new `manager` commands. Its public OCI package needs no registry login or
-Docker daemon.
+Use GitLab Runner 19.5.1 and plugin `0.1.0-rc.3`. Its public OCI package needs no
+registry login or Docker daemon. This manual path uses Runner's OCI installer;
+the local `manager` setup commands require the Debian package and its systemd unit.
+The recorded full Linux VM and Docker job checks used `0.1.0-rc.2`; see the
+[acceptance report](acceptance-report.md#released-plugin-vm-and-docker-jobs) for their scope.
 
 ## Worker and cloud prerequisites
 

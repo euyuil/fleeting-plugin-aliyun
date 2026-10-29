@@ -29,21 +29,30 @@ packages for amd64 and arm64 with `dpkg-deb`. These contain the exact native/OCI
 plugin binary, local `manager` commands, service and example files, and retained
 licenses. Debian versions map prerelease `-` to `~`; package checksums are included
 in `SHA256SUMS`. Packages do not bundle GitLab Runner or start a service on install.
-The CI artifact includes these packages; a public release still requires the
-existing explicit release gates. There is no hosted APT repository.
+Download packages from the
+[0.1.0-rc.3 Release](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3).
+CI also produces development artifacts for contributors. There is no hosted APT
+repository. The same explicit release gates apply to every published package.
 
 ## OCI
 
-### Verified prerelease
+### Current prerelease
 
-Use `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2` for evaluation. Anonymous
+Use `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3` for evaluation. Follow the
+[manual OCI service guide](installation.md#linux-service-setup) for installation.
+For `.deb` installation and local `manager` commands, use the
+[Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm).
+The [public release workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/workflows/verify-release.yml)
+checks anonymous OCI and Debian downloads, compares their binaries with the native
+Release archive, and exercises the Debian lifecycle on both supported architectures.
+
+### Earlier 0.1.0-rc.2 verification
+
+Anonymous
 download, real Runner 19.5.1 installation and listing, exact Release binary
 comparison, version/source checks, and plugin protocol loading passed on native
 Linux amd64 and arm64 in the
 [public installation workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094).
-The [manual OCI service guide](installation.md#linux-service-setup) has the
-installation steps. For `.deb` installation and `manager` commands from main CI,
-use the [Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm).
 The [acceptance report](acceptance-report.md#corrected-prerelease-installation)
 records the exact source, manifest and installed binary checksums. These checks
 did not run a GitLab job or create cloud workers.
@@ -95,7 +104,7 @@ verify without registry credentials:
 Use a temporary empty DOCKER_CONFIG, FLEETING_PLUGIN_PATH and a temporary Runner
 config, then run `gitlab-runner fleeting --config <config> install`, list the
 installed plugin and load its protocol through the pinned Fleeting library.
-These checks passed for `0.1.0-rc.2` as recorded above. The offline loopback test uses
+Earlier `0.1.0-rc.2` results are recorded above. The offline loopback test uses
 the identical releaser/installer module version and compares installed bytes.
 It also rejects a second publication of the same version. Local registry routing
 uses a test transport because the pinned upstream path escaper does not support
@@ -124,7 +133,11 @@ cloud API calls.
 
 The tool emits a small JSON receipt with the source revision, platform, manifest
 digest, binary checksum, and verification results. It does not run a GitLab job
-or create a worker. See [contributor commands](../CONTRIBUTING.md) for the
+or create a worker. For releases with Debian packages, the workflow also downloads
+the architecture's `.deb` without credentials, verifies its checksum and native
+binary, and runs the existing dpkg/systemd lifecycle test on that host. It saves
+a separate Debian receipt. Older releases retain OCI-only checks.
+See [contributor commands](../CONTRIBUTING.md) for the
 verification command.
 
 ## Release gate

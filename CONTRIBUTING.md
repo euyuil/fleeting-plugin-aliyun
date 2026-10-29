@@ -122,11 +122,14 @@ anonymous installation on both supported Linux architectures. The manual
 workflow uses fresh GitHub-hosted Linux amd64 and arm64 hosts:
 
 ```sh
-gh workflow run verify-release.yml --ref main -f version=0.1.0-rc.2
+gh workflow run verify-release.yml --ref main -f version=0.1.0-rc.3
 ```
 
-Wait for both jobs to finish successfully and inspect their JSON receipt
-artifacts. To run the same verification on your own Linux hosts, prepare the clean
+Wait for both jobs to finish successfully and inspect their OCI and Debian JSON
+receipts. The Debian check downloads the public package and runs the disposable-host
+lifecycle test above against its checksum-verified native binary. Older tags
+without Debian packaging retain OCI-only checks.
+To run OCI verification on your own Linux hosts, prepare the clean
 credential and plugin directories described in [distribution](docs/distribution.md#public-installation-check),
 an OCI Runner config, the exact source commit, and the checksum-verified native
 Release binary. With `DOCKER_CONFIG` and `FLEETING_PLUGIN_PATH` set for that check:
@@ -135,8 +138,8 @@ Release binary. With `DOCKER_CONFIG` and `FLEETING_PLUGIN_PATH` set for that che
 gitlab-runner fleeting --config PATH_TO_CHECK_CONFIG install
 gitlab-runner fleeting --config PATH_TO_CHECK_CONFIG list
 go run ./tools/distribution \
-  -verify-ref ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2 \
-  -expected-version 0.1.0-rc.2 -expected-revision SOURCE_COMMIT \
+  -verify-ref ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3 \
+  -expected-version 0.1.0-rc.3 -expected-revision SOURCE_COMMIT \
   -expected-binary PATH_TO_VERIFIED_RELEASE_BINARY
 ```
 

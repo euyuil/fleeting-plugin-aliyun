@@ -71,6 +71,32 @@ jobs:
             -expected-version "$VERSION" -expected-revision "$(git rev-parse HEAD)" \
             -expected-binary "$release_dir/fleeting-plugin-aliyun" \
             | tee "install-receipt-$ARCH.json"
+      - name: Download and test the public Debian package
+        # Older tags predate Debian packaging and retain OCI-only verification.
+        if: hashFiles('tools/test-debian-lifecycle.py') != ''
+        run: |
+          unset GH_TOKEN GITHUB_TOKEN
+          release_dir="$RUNNER_TEMP/release"
+          package="fleeting-plugin-aliyun_${VERSION/-/~}_${ARCH}.deb"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
+          curl --fail --location --silent --show-error --retry 3 "$base/$package" -o "$release_dir/$package"
+          awk -v package="$package" '$2 == package { print; count++ } END { if (count != 1) exit 1 }' \
+            "$release_dir/SHA256SUMS" > "$release_dir/debian.sha256"
+          (cd "$release_dir" && sha256sum --check debian.sha256)
+          mkdir -p "$release_dir/packages/linux/$ARCH"
+          cp "$release_dir/fleeting-plugin-aliyun" "$release_dir/packages/linux/$ARCH/plugin"
+          sudo python3 tools/test-debian-lifecycle.py --disposable-host \
+            --runner ".cache/gitlab-runner-linux-$ARCH" --packages "$release_dir"
+          python3 - "$release_dir/$package" <<'PY'
+          import hashlib, json, os, pathlib, sys
+          package = pathlib.Path(sys.argv[1])
+          receipt = {
+              'version': os.environ['VERSION'], 'architecture': os.environ['ARCH'],
+              'package': package.name, 'package_sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
+              'anonymous_download': True, 'native_binary_match': True, 'lifecycle': True,
+          }
+          pathlib.Path('install-receipt-debian-' + os.environ['ARCH'] + '.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-install-${{ matrix.arch }}

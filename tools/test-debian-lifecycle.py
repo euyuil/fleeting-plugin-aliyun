@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -218,9 +219,11 @@ while True:
             run("dpkg", "-i", package)
             run(CLI, "manager", "doctor")
             # Reconfiguration is explicit: stop, back up/edit, then doctor.
-            content = docker_config.read_text().replace(
-                'plugin = "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2"',
-                'plugin = "/usr/bin/fleeting-plugin-aliyun"').replace(
+            content, replacements = re.subn(
+                r'(?m)^([ \t]*plugin[ \t]*=[ \t]*)"[^"\n]+"',
+                r'\1"/usr/bin/fleeting-plugin-aliyun"', docker_config.read_text(), count=1)
+            assert replacements == 1
+            content = content.replace(
                 'key_path = "/run/secrets/worker-key"', 'key_path = "/etc/gitlab-runner-aliyun/worker.key"')
             (CONFIG / "config.toml").write_text(content)
             run(CLI, "manager", "doctor")
