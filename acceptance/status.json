@@ -192,8 +192,8 @@
       "implementation": "implemented",
       "offline_validation": "pass",
       "live_validation": "partial_pass",
-      "gap": "Restricted RAM roles, GitHub OIDC, STS issuance/renewal and denied-permission behavior remain unverified.",
-      "verified_scope": "Official CLI OAuth profile used directly by the production SDK/plugin."
+      "gap": "STS renewal and denied-permission behavior remain unverified; the dedicated GitHub OIDC cloud gate does not establish every RAM policy boundary.",
+      "verified_scope": "Official CLI OAuth was used by earlier local runs. Fresh GitHub OIDC STS credentials in the dedicated test account passed all six plugin-only scenarios and the workflow-completion janitor for the candidate recorded in pre_release_cloud_gate."
     },
     {
       "capability": "native_oci_distribution",
@@ -215,7 +215,7 @@
     "offline_validation": "pass",
     "live_validation": "PARTIAL_PASS_PLUGIN_CLOUD_AND_RELEASED_VM_DOCKER_JOBS",
     "entry_point": "docs/testing.md",
-    "gap": "Local cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart and cloud-increase-response-loss passed with CLI OAuth. The response-loss case uses a responsegate test build. Released Linux amd64 VM and Docker job cycles passed separately. Lost-removal-response recovery, interruption/suspend, GitHub OIDC and scheduled janitor remain unrun."
+    "gap": "Six local CLI OAuth scenarios passed, followed by one complete dedicated-account GitHub OIDC cloud gate on the exact candidate in pre_release_cloud_gate. Released Linux amd64 VM and Docker job cycles passed separately. Lost-removal-response recovery, interruption/suspend, STS renewal and scheduled abandoned-fixture recovery remain unverified."
   },
   "milestones": {
     "M0": "complete",
@@ -226,9 +226,9 @@
   },
   "cleanup": {
     "cloud_resources_created": true,
-    "cloud_cleanup": "PASS_CONNECTIVITY_PLUGIN_AND_RELEASED_JOB_FIXTURES",
+    "cloud_cleanup": "PASS_RECORDED_LOCAL_AND_PRE_RELEASE_CLOUD_FIXTURES",
     "known_cloud_leftovers": [],
-    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. All six Spot instances across released-job preparation and job attempts were also deleted; every fixture was confirmed absent twice. The temporary prepared image and its one snapshot were deleted. Both successful jobs passed normal release before fallback cleanup. The scheduled janitor and broader lifecycle recovery remain unverified."
+    "limitation": "All resources from the connectivity preflight, three single-worker smoke attempts, a two-worker cycle, a ready-worker restart, two accepted-creation attempts, an accepted-removal cycle and a lost-expansion-response cycle were confirmed absent twice per isolated attempt. All six Spot instances across released-job preparation and job attempts were also deleted; every fixture was confirmed absent twice. The temporary prepared image and its one snapshot were deleted. Both successful jobs passed normal release before fallback cleanup. The pre-release gate separately verified zero leftovers in all six receipts and a workflow-completion janitor with no fixtures to recover. Scheduled abandoned-fixture recovery and broader lifecycle recovery remain unverified."
   },
   "missing_live_configuration": [
     "ALIYUN_REGION",
@@ -1289,5 +1289,129 @@
     "task_manager_containers_remaining": 0,
     "runner_posix_escaping": true
   },
-  "github_live_workflow_status": "NOT_RUN_MISSING_CONFIGURATION"
+  "github_live_workflow_status": "NOT_RUN_MISSING_CONFIGURATION",
+  "github_cloud_acceptance_workflow_status": "PASS_EXACT_CANDIDATE",
+  "pre_release_cloud_gate": {
+    "status": "PASS",
+    "date": "2026-10-29",
+    "date_timezone": "Asia/Shanghai",
+    "scope": "Dedicated-account GitHub OIDC, six serial plugin-only scenarios on Linux amd64; no GitLab job or release publication.",
+    "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40724709276",
+    "started_at_utc": "2026-10-28T16:18:44Z",
+    "completed_at_utc": "2026-10-28T16:43:07Z",
+    "candidate_artifact": {
+      "id": 12831758870,
+      "name": "cloud-candidate-40724709276-1",
+      "archive_sha256": "3b2b4451b275bb24ebe96e2ee618b5063506e4ff30a929cc0159415c5370151b",
+      "retention_days": 7
+    },
+    "receipts": [
+      {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "candidate_sha": "ea3879ab92e1ec71822b73f0c13a96d920ef3de9",
+        "version": "0.1.0-dev",
+        "manifest_sha256": "71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9",
+        "mode": "cloud-create-restart",
+        "run_id": "40724709276",
+        "run_attempt": "1",
+        "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+        "plugin_sha256": "c068918135068b6609d9f783ef51158668edc23350c3836ebe7260fdb0a30adf",
+        "response_gate_instrumented": false,
+        "leftover_resources": 0
+      },
+      {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "candidate_sha": "ea3879ab92e1ec71822b73f0c13a96d920ef3de9",
+        "version": "0.1.0-dev",
+        "manifest_sha256": "71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9",
+        "mode": "cloud-increase-response-loss",
+        "run_id": "40724709276",
+        "run_attempt": "1",
+        "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+        "plugin_sha256": "e14c0168545df472a5074afc658de4ad01c949b9e6d600905e160da436f8ae00",
+        "response_gate_instrumented": true,
+        "leftover_resources": 0
+      },
+      {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "candidate_sha": "ea3879ab92e1ec71822b73f0c13a96d920ef3de9",
+        "version": "0.1.0-dev",
+        "manifest_sha256": "71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9",
+        "mode": "cloud-remove-restart",
+        "run_id": "40724709276",
+        "run_attempt": "1",
+        "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+        "plugin_sha256": "c068918135068b6609d9f783ef51158668edc23350c3836ebe7260fdb0a30adf",
+        "response_gate_instrumented": false,
+        "leftover_resources": 0
+      },
+      {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "candidate_sha": "ea3879ab92e1ec71822b73f0c13a96d920ef3de9",
+        "version": "0.1.0-dev",
+        "manifest_sha256": "71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9",
+        "mode": "cloud-restart",
+        "run_id": "40724709276",
+        "run_attempt": "1",
+        "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+        "plugin_sha256": "c068918135068b6609d9f783ef51158668edc23350c3836ebe7260fdb0a30adf",
+        "response_gate_instrumented": false,
+        "leftover_resources": 0
+      },
+      {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "candidate_sha": "ea3879ab92e1ec71822b73f0c13a96d920ef3de9",
+        "version": "0.1.0-dev",
+        "manifest_sha256": "71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9",
+        "mode": "cloud-scale",
+        "run_id": "40724709276",
+        "run_attempt": "1",
+        "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+        "plugin_sha256": "c068918135068b6609d9f783ef51158668edc23350c3836ebe7260fdb0a30adf",
+        "response_gate_instrumented": false,
+        "leftover_resources": 0
+      },
+      {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "candidate_sha": "ea3879ab92e1ec71822b73f0c13a96d920ef3de9",
+        "version": "0.1.0-dev",
+        "manifest_sha256": "71dd14b46094a3b7404d9df99c9724d0625aa187f98122d44eb92505c5ef3dd9",
+        "mode": "cloud-smoke",
+        "run_id": "40724709276",
+        "run_attempt": "1",
+        "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+        "plugin_sha256": "c068918135068b6609d9f783ef51158668edc23350c3836ebe7260fdb0a30adf",
+        "response_gate_instrumented": false,
+        "leftover_resources": 0
+      }
+    ],
+    "independent_cleanup": {
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40728720450",
+      "trigger": "workflow_run",
+      "owning_run_id": "40724709276",
+      "owning_run_attempt": "1",
+      "result": "PASS",
+      "cleaned_fixtures": 0
+    },
+    "acceptance_enabled_after_run": false,
+    "release_published": false,
+    "limitations": [
+      "Evidence applies only to ea3879ab92e1ec71822b73f0c13a96d920ef3de9 and version 0.1.0-dev. It does not cover the later Debian/Manager changes or later commits.",
+      "The response-loss mode uses a separately hashed responsegate binary; the other five modes use the normal distribution binary.",
+      "The workflow-completion janitor found no fixtures to recover. This does not demonstrate scheduled recovery of abandoned resources.",
+      "A prior SSH-check-stage failure lacks enough retained evidence for a precise root cause. The later cleanup-token collision was reproduced offline; its exact historical cloud error code was not retained."
+    ]
+  }
 }
