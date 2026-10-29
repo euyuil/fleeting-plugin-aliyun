@@ -48,7 +48,7 @@ Every executor runs nine independently bounded scenarios:
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
 Cancellation is requested only after that worker has complete independent Spot
 and associated-resource inventory. A preparation failure, missing checkpoint,
-wrong failure reason, unexpected retry or different worker cannot satisfy an
+wrong failure reason, unexpected job retry or different worker cannot satisfy an
 expected-failure scenario. The timeout covers the actual script stage after
 worker acquisition and preparation; it does not simulate a timeout with `exit`.
 
@@ -69,6 +69,16 @@ with at most two active workers per fixture. Both candidate and public phases
 require all eighteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
+
+The Go job driver retries GitLab GET transport failures, including interrupted
+response bodies, up to three attempts with one- and two-second waits. Each
+attempt retains the existing twenty-second HTTP timeout and the caller's
+scenario deadline; cancellation also interrupts the wait. A partial response is
+discarded before retrying. HTTP error responses and malformed JSON still fail
+immediately. Writes, including pipeline creation and cancellation, are never
+retried by the driver because a lost response may already have committed the
+operation. This read retry does not repeat a GitLab job or relax any acceptance
+assertion.
 
 ## Upgrade from a published Debian package
 
