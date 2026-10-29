@@ -352,7 +352,9 @@ capacity one exactly once. After observing one running worker with the expected
 Spot strategy, image, zone and instance type, it verifies cumulative worker IDs,
 complete ESS activity history and group membership agree on exactly one creation.
 Replacements, failed/unknown activities and incomplete history are rejected; a
-history exceeding the single 100-row snapshot also fails closed. The writer
+history exceeding the single 50-row snapshot also fails closed, respecting the
+[activity API's page-size limit](https://www.alibabacloud.com/help/en/auto-scaling/developer-reference/api-ess-2014-08-28-describescalingactivities).
+The writer
 publishes an atomic checkpoint and waits. The supervisor kills that process group,
 proves termination and checks the writer's cleanup-started marker is absent.
 This proves normal resource cleanup was bypassed. It uploads a
