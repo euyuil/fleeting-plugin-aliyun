@@ -32,6 +32,8 @@ You need a GitLab project where you can create a runner, plus:
 - A pinned launch-template version and a dedicated, active ESS group with desired
   capacity enabled, unit instance weights, minimum and desired capacity `0`, and
   maximum capacity `1`. Use one Manager as the group's only capacity writer.
+  Configure the template's system disk and any temporary data disks to be released
+  with the instance; use only disposable worker disks for this quick start.
 - Cloud permissions for the Manager, SSH access from it to workers, and HTTPS
   access from both to GitLab. Workers also need access to job dependencies.
 
@@ -40,8 +42,10 @@ ECS workers, disks, images, and network traffic can cost money.
 
 ### 1. Install GitLab Runner and the plugin package
 
-Reuse Runner 19.5.1 if already installed. Otherwise, in an empty download directory,
-install it from the [official repository](https://docs.gitlab.com/runner/install/linux-repository/):
+Reuse Runner 19.5.1 if installed at `/usr/bin/gitlab-runner`, the path required by
+the packaged service. Check with `/usr/bin/gitlab-runner --version`. Otherwise,
+in an empty download directory, install it from the
+[official repository](https://docs.gitlab.com/runner/install/linux-repository/):
 
 ```sh
 sudo apt update
@@ -134,10 +138,14 @@ sudo fleeting-plugin-aliyun manager start
 
 ### 4. Run a job and check cleanup
 
-Add this job to your project's `.gitlab-ci.yml`, commit it, and run a pipeline:
+Create `.gitlab-ci.yml` at your project's repository root, or add this job to its
+existing file. If the existing `stages` list has no `test` stage, replace
+`stage: test` below with a stage from that list. Commit and push the file to
+GitLab, then run a pipeline for that branch if one was not triggered automatically:
 
 ```yaml
 hello-aliyun:
+  stage: test
   tags: [aliyun-vm]
   script:
     - printf 'Hello from Alibaba Cloud\n' > hello.txt

@@ -17,7 +17,7 @@ tests downloaded packages on native Ubuntu amd64 and arm64 hosts.
 
 ## Download and install
 
-Follow [Quick Start step 1](../README.md#1-install-gitlab-runner-and-the-plugin-package)
+Follow [online Quick Start step 1](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/README.md#1-install-gitlab-runner-and-the-plugin-package)
 for the Runner installation, plugin download, checksum verification, and APT
 commands. The tested Runner version is pinned in
 [`upstream.lock.json`](../upstream.lock.json). Keep existing Runner pools separate.
@@ -44,7 +44,7 @@ fleeting-plugin-aliyun manager help
 
 ## Configure a pool
 
-[Quick Start steps 2 and 3](../README.md#2-create-a-runner-in-gitlab) cover the
+[Quick Start steps 2 and 3](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/README.md#2-create-a-runner-in-gitlab) cover the
 GitLab runner token, private configuration, SSH key, credentials, and setup
 command. For Docker jobs, use the [Docker worker configuration](operations.md#other-prepared-workers).
 
@@ -95,7 +95,7 @@ sudo journalctl -u gitlab-runner-aliyun.service -n 100 --no-pager
 parsing with the installed Runner as the service user. It never prints Runner
 `list` output, which can include authentication tokens. It does **not** test
 GitLab access, cloud credentials, ESS permissions, SSH reachability or real jobs.
-Validate those with the [first job and cleanup check](../README.md#4-run-a-job-and-check-cleanup).
+Validate those with the [first job and cleanup check](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/README.md#4-run-a-job-and-check-cleanup).
 
 ## Start and stop
 
@@ -105,7 +105,7 @@ sudo fleeting-plugin-aliyun manager start
 
 Start checks the local setup and enables the service at boot. Queued jobs can
 then create billable workers. Continue with the
-[first job and cleanup check](../README.md#4-run-a-job-and-check-cleanup).
+[first job and cleanup check](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/README.md#4-run-a-job-and-check-cleanup).
 
 When you want to pause the pool:
 
