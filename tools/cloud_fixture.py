@@ -17,7 +17,8 @@ import time
 
 from release_candidate import MODES, digest, revision, verify, write_json
 from cloud_diagnostics import (CloudOperationError, diagnostic_error, duration_ms,
-                               driver_diagnostic, matching_error_templates, read_driver_diagnostic)
+                               driver_diagnostic, matching_error_templates as matching_error_templates,
+                               read_driver_diagnostic)
 from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"

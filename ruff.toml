@@ -1,0 +1,6 @@
+target-version = "py311"
+extend-exclude = [".cache", "dist"]
+
+[lint]
+# Correctness checks; formatting and broad style migrations are separate changes.
+select = ["E9", "F"]

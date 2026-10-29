@@ -6,6 +6,8 @@ on:
 permissions:
   contents: read
 jobs:
+  security:
+    uses: ./.github/workflows/security.yml
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -102,12 +104,13 @@ jobs:
       version: 0.1.0-dev
   offline:
     if: always()
-    needs: [build, platforms]
+    needs: [build, platforms, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     env:
       BUILD_RESULT: ${{ needs.build.result }}
       PLATFORM_RESULT: ${{ needs.platforms.result }}
+      SECURITY_RESULT: ${{ needs.security.result }}
     steps:
       - name: Require all offline checks and supported platforms
-        run: test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success
+        run: test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success && test "$SECURITY_RESULT" = success

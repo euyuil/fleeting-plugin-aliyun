@@ -60,3 +60,15 @@ Manager configuration parsing uses the unmodified MIT-licensed
 [BurntSushi/toml v1.6.0](https://github.com/BurntSushi/toml/tree/v1.6.0).
 Its license is included by the linked-module inventory in native, OCI and Debian
 packages. Debian packaging uses the host's `dpkg-deb`; it is not bundled.
+
+Development-only security tools are pinned in `upstream.lock.json` and
+`tools/requirements-dev.txt`: [Gitleaks 8.30.1](https://github.com/gitleaks/gitleaks/tree/v8.30.1)
+and [Ruff 0.17.3](https://github.com/astral-sh/ruff/tree/0.17.3) are MIT;
+[ShellCheck 0.11.0](https://github.com/koalaman/shellcheck/tree/v0.11.0) is GPL-3.0;
+[govulncheck 1.9.0](https://github.com/golang/vuln/tree/v1.9.0) uses the Go
+BSD-style license. The unmodified executables run locally/in CI and are not
+bundled in plugin distributions. ShellCheck is a separate lint process, not
+linked into the plugin. Retain the applicable license and source obligations if
+redistributing these tools; this repository does not redistribute their binaries.
+The x/net security update to v0.60.0 retains its existing Go BSD-style license
+and is included in the generated linked-module inventory when applicable.

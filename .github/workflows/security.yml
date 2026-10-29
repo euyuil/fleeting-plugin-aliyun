@@ -1,0 +1,32 @@
+name: Security checks
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        type: string
+        required: false
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * 1'
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.3'
+      - name: Scan scripts, committed secrets and reachable Go vulnerabilities
+        env:
+          SCAN_RANGE: ${{ github.event_name == 'pull_request' && format('{0}..HEAD', github.event.pull_request.base.sha) || '--all' }}
+        run: make security
