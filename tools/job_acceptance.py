@@ -16,6 +16,7 @@ from cloud_config import config_digest, decode, fixture_config
 from cloud_fixture import JOB_SCENARIOS, Cloud, Fixture, labels, preflight, require_linux, stop_process_group
 from cloud_diagnostics import driver_diagnostic
 from debian_package import debian_version
+from gitlab_fixture import prepare as prepare_gitlab_fixture
 from release_candidate import digest, revision, verify, write_json
 
 EXECUTORS = ("instance", "docker-autoscaler")
@@ -191,6 +192,7 @@ def run(args):
     require_linux()
     config, gitlab = configuration()
     manifest = verify(args.root, args.digest, args.sha, args.version)
+    gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"])
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     install_package(args.root, manifest, args.phase, args.directory)
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")

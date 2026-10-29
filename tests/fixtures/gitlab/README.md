@@ -20,7 +20,10 @@ Use a dedicated project-scoped PAT with the permissions in
 project token where its version and policy permit. Set the project's maximum
 job timeout and API-variable restrictions for the nonce, expected ID,
 dedicated tag, `FLEETING_EXECUTION_MODE` and fixed `FLEETING_JOB_SCENARIO` inputs shown in the fixture. Pin the
-reviewed fixture SHA after updates. Keep artifacts for one day.
+initial fixture SHA. The release job driver provisions reviewed fixture updates
+through the bounded API path described in
+[release job acceptance](../../../docs/job-acceptance.md#dedicated-configuration).
+Keep artifacts for one day.
 
 Set `GITLAB_URL=https://gitlab.com`, or the HTTPS URL of the existing CE server.
 Both GitHub and workers must reach checkout, job and artifact endpoints. A

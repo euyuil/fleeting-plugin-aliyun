@@ -180,6 +180,7 @@ class JobAcceptanceTests(unittest.TestCase):
         fixture.state = {"ids": {}}
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, env), \
                 patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
+                patch.object(job, "prepare_gitlab_fixture", return_value=gitlab), \
                 patch.object(job, "install_package"), patch.object(job, "Cloud"), patch.object(job, "Fixture", return_value=fixture), \
                 patch.object(job.subprocess, "check_output", return_value="192.0.2.1"), \
                 patch.object(job, "driver", side_effect=ValueError("private diagnostic")):
@@ -196,6 +197,17 @@ class JobAcceptanceTests(unittest.TestCase):
             self.assertEqual(value["gitlab_config_sha256"], job.config_digest(gitlab))
             self.assertNotIn("private diagnostic", args.receipt.read_text())
             self.assertFalse({"project_id", "runner_id", "fixture_sha", "instances", "errors"} & value.keys())
+
+    def test_unverified_fixture_fails_before_package_or_cloud_mutation(self):
+        _, _, env = inputs()
+        with patch.dict(os.environ, env), patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
+                patch.object(job, "prepare_gitlab_fixture", side_effect=ValueError("unverified fixture")), \
+                patch.object(job, "install_package") as install, patch.object(job, "Fixture") as cloud:
+            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev")
+            with self.assertRaises(ValueError):
+                job.run(args)
+            install.assert_not_called()
+            cloud.assert_not_called()
 
     def test_unconfirmed_writer_exit_does_not_clear_fixture_barrier(self):
         config, gitlab, env = inputs()

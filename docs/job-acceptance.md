@@ -71,11 +71,11 @@ plugin-only fixture configuration is separate. Add these Environment secrets:
 
 - `RELEASE_GITLAB_API_TOKEN`: project-scoped fine-grained PAT, permitted to
   create/read/update pipelines and read jobs, job artifacts, the project,
-  repository commits and its dedicated runner. Initial fixture provisioning
-  additionally needs Commit Create. Do not grant User or Global permissions.
+  repository files/branches/commits and its dedicated runner. Fixture provisioning
+  needs Commit Create on this project. Do not grant User or Global permissions.
 - `RELEASE_GITLAB_RUNNER_TOKEN`: the persistent project's Runner authentication
   token. Reuse this Runner identity for every temporary Manager.
-- `RELEASE_GITLAB_CONFIG`: the exact private project, runner and fixed test ref:
+- `RELEASE_GITLAB_CONFIG`: the exact private project, runner and pinned fixture base:
 
 ```json
 {
@@ -90,10 +90,30 @@ plugin-only fixture configuration is separate. Add these Environment secrets:
 
 The project must be private, expose only the expected locked project Runner,
 disable untagged jobs, and permit the token owner's role to supply pipeline
-variables. Commit only the reviewed `.gitlab-ci.yml` and `smoke.sh` from
-`tests/fixtures/gitlab`, then pin their full commit SHA. A moved ref, different
-runner, pending prior job or stale artifact fails acceptance. Never update the
-fixture ref without reviewing the new files and updating its pinned SHA.
+variables. Initially commit only `.gitlab-ci.yml` and `smoke.sh` from
+`tests/fixtures/gitlab`, then pin their full commit SHA. A moved base ref,
+different runner, pending prior job or stale artifact fails acceptance.
+
+Before package installation or cloud creation, `tools/gitlab_fixture.py` verifies
+that private project and its pinned base. If the two files already match the
+reviewed candidate checkout byte for byte, it reuses the base. Otherwise it uses
+the [GitLab Commits API](https://docs.gitlab.com/api/commits/#create-a-commit)
+to create `acceptance/FULL_CANDIDATE_SHA` from that exact base, changing only the
+two fixed paths. Push pipelines are disabled by the fixture's API-only workflow.
+It never force-updates or deletes a branch. An existing candidate branch must
+have the expected single parent, commit message and exact file bytes. Complete
+root-tree comparison also requires unchanged modes and every other file/subtree
+object ID; a root with 100 or more entries is refused rather than truncated.
+Conflicting content fails. An uncertain write is recovered through readback, without repeating
+the POST. HTTP redirects are refused so the PAT cannot follow another endpoint.
+
+The read-back commit becomes the runtime fixture pin for every executor/scenario
+and both release phases. The configured base and GitHub secrets remain unchanged.
+The Go driver rechecks the ref and requires each pipeline to use that exact SHA.
+Only a configuration digest enters the public receipt. Keep generated branches
+in the private fixture project for repeatable candidate and public verification;
+do not move their refs. Updating the configured base remains an explicit reviewed
+configuration change.
 
 Add `RELEASE_ALIYUN_JOB_FIXTURE_CONFIG` as a private Environment secret (or a
 variable where the deployment policy permits private resource configuration).
