@@ -21,6 +21,7 @@ from cloud_diagnostics import (CloudOperationError, diagnostic_error, duration_m
 from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
+DRILL_MODE = "cleanup-drill"
 SPECS = {
     "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
     "vswitch": ("vpc", "DescribeVSwitches", "VSwitches", "VSwitch", "VSwitchId", "VSwitchName"),
@@ -63,7 +64,7 @@ def labels(project, sha, run, attempt, mode, expires):
     revision(sha)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", project):
         raise ValueError("an exact owner/repository is required")
-    if mode not in MODES or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
+    if mode not in (*MODES, DRILL_MODE) or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
         raise ValueError("invalid scenario or run identity")
     return {"fleeting-purpose": PURPOSE, "fleeting-project": project, "fleeting-candidate": sha,
             "fleeting-ci-run": run, "fleeting-ci-attempt": attempt, "fleeting-scenario": mode,
@@ -72,6 +73,7 @@ def labels(project, sha, run, attempt, mode, expires):
 
 def name_for(tags):
     aliases = dict(zip(MODES, ("smoke", "scale", "restart", "creating", "removing", "lost-reply")))
+    aliases[DRILL_MODE] = "cleanup"
     identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
     return f"fleeting-pre-release-{aliases[tags['fleeting-scenario']]}-{tags['fleeting-ci-run'][-12:]}-{token}"
@@ -133,7 +135,7 @@ class Cloud:
         reads = {(s[0], s[1]) for s in SPECS.values()} | {("sts", "GetCallerIdentity")}
         if self.read_only and (service, action) not in reads:
             raise ValueError("configuration checks permit only identity and resource inventories")
-        cleanup_actions = reads | {("ess", "DescribeScalingInstances"), ("ess", "DeleteScalingGroup"),
+        cleanup_actions = reads | {("ess", "DescribeScalingInstances"), ("ess", "DescribeScalingActivities"), ("ess", "DeleteScalingGroup"),
                                    ("ecs", "DeleteInstance"), ("ecs", "DeleteDisk"), ("ecs", "DeleteNetworkInterface"),
                                    ("ecs", "DeleteLaunchTemplate"), ("ecs", "DeleteKeyPairs"), ("ecs", "DeleteSecurityGroup"),
                                    ("vpc", "DeleteVSwitch"), ("vpc", "DeleteVpc")}
@@ -514,23 +516,83 @@ def run(args):
         raise cleanup_error
 
 
-def janitor(directory, completed_run=None, completed_attempt=None):
+def verify_drill_creation(owner, identity=None):
+    group = owner.state["ids"]["group"]
+    response = owner.cloud.call("ess", "DescribeScalingActivities", ScalingGroupId=group, PageNumber=1, PageSize=100)
+    total = response.get("TotalCount")
+    rows = response.get("ScalingActivities", {}).get("ScalingActivity")
+    if type(total) is not int or not isinstance(rows, list) or not 0 <= total == len(rows) <= 100:
+        raise ValueError("cleanup drill activity history is incomplete")
+    activities, instances, created, pending = set(), set(), 0, False
+    for row in rows:
+        activity = row.get("ScalingActivityId")
+        count = row.get("CreatedCapacity", 0)
+        ids = row.get("CreatedInstances", {}).get("CreatedInstance", [])
+        status = row.get("StatusCode")
+        if (not isinstance(activity, str) or not activity or activity in activities or row.get("ScalingGroupId") != group or
+                type(count) is not int or count < 0 or not isinstance(ids, list) or
+                any(not isinstance(value, str) or not value.startswith("i-") for value in ids) or len(set(ids)) != len(ids) or
+                status not in ("Successful", "InProgress")):
+            raise ValueError("cleanup drill activity is failed, unknown or malformed")
+        activities.add(activity)
+        if status == "Successful" and count != len(ids):
+            raise ValueError("cleanup drill activity creation evidence is incomplete")
+        created += count
+        instances.update(ids)
+        pending |= status == "InProgress"
+    if created > 1 or len(instances) > 1 or (identity is not None and instances - {identity}):
+        raise ValueError("cleanup drill activity history exceeds its one-worker budget")
+    if pending or created != 1 or len(instances) != 1:
+        return False
+    members = owner.cloud.call("ess", "DescribeScalingInstances", ScalingGroupId=group, PageSize=100)
+    current = {row["InstanceId"] for row in owner.owned("instance")}
+    if len(owner.state["ids"].get("instance", [])) > 1 or current - instances:
+        raise ValueError("cleanup drill observed a replacement worker")
+    members = verified_members(members, group, current)
+    return members == {identity} if identity is not None else members <= instances
+
+
+def janitor(directory, completed_run=None, completed_attempt=None, *, receipt=None, require_recovery=False):
     if completed_run or completed_attempt:
         if any(not isinstance(v, str) or not re.fullmatch(r"[1-9][0-9]*", v) for v in (completed_run, completed_attempt)):
             raise ValueError("both completed run and attempt must be positive identifiers")
-    failures = 0
-    for region in cleanup_regions():
-        try:
-            janitor_region(Cloud(region, cleanup_only=True), directory / region, completed_run, completed_attempt)
-        except Exception:
-            # A malformed response in one region must not strand other regions.
-            # Process termination still propagates (BaseException).
-            failures += 1
-    if failures:
-        raise RuntimeError("cleanup failed in one or more configured regions; remaining regions were attempted")
+    if require_recovery and not completed_run:
+        raise ValueError("a recovery drill requires an exact completed run and attempt")
+    result = {"schema_version": 1, "result": "FAIL", "cleaned_fixtures": 0, "leftover_resources": -1,
+              "source_run_id": completed_run, "source_run_attempt": completed_attempt,
+              "scope": "completed-run" if completed_run else "expired", "recovery_required": require_recovery,
+              "drill_budget_verified": False if require_recovery else None}
+    try:
+        failures = 0
+        budget_verified = True
+        for region in cleanup_regions():
+            try:
+                recovered = janitor_region(Cloud(region, cleanup_only=True), directory / region, completed_run, completed_attempt, require_recovery=require_recovery)
+                result["cleaned_fixtures"] += recovered["cleaned_fixtures"]
+                if require_recovery:
+                    budget_verified &= recovered["drill_budget_verified"]
+            except Exception:
+                # A malformed response in one region must not strand other regions.
+                # Process termination still propagates (BaseException).
+                failures += 1
+        if failures:
+            raise RuntimeError("cleanup failed in one or more configured regions; remaining regions were attempted")
+        if require_recovery and result["cleaned_fixtures"] != 1:
+            raise RuntimeError("cleanup drill requires exactly one recovered fixture; an empty scan is not proof")
+        result["leftover_resources"] = 0
+        if require_recovery:
+            result["drill_budget_verified"] = budget_verified
+        if require_recovery and not result["drill_budget_verified"]:
+            raise RuntimeError("fixture cleanup completed but the one-worker drill budget is not proven")
+        result.update(result="PASS", leftover_resources=0)
+    finally:
+        print(json.dumps(result), flush=True)
+        if receipt is not None:
+            write_json(receipt, result)
+    return result
 
 
-def janitor_region(cloud, directory, completed_run, completed_attempt):
+def janitor_region(cloud, directory, completed_run, completed_attempt, *, require_recovery=False):
     project = os.environ["GITHUB_REPOSITORY"]
     fixtures = {}
     # Every atomic create is labelled; scanning all kinds also recovers a setup
@@ -549,9 +611,21 @@ def janitor_region(cloud, directory, completed_run, completed_attempt):
             if not stopped_run(expected):
                 continue
             fixtures[name_for(expected)] = expected
+    budget_verified = True
     for name, tags in fixtures.items():
-        Fixture(cloud, directory / name, tags).cleanup()
-    print(json.dumps({"result": "PASS", "cleaned_fixtures": len(fixtures)}))
+        owner = Fixture(cloud, directory / name, tags)
+        if require_recovery:
+            try:
+                for kind in ("vpc", "template", "group"):
+                    owner.owned(kind)
+                if tags["fleeting-scenario"] != DRILL_MODE or not verify_drill_creation(owner):
+                    budget_verified = False
+            except Exception:
+                # An unknown/failed budget observation must not strand resources.
+                # Cleanup retains its independent, strict ownership checks.
+                budget_verified = False
+        owner.cleanup()
+    return {"cleaned_fixtures": len(fixtures), "drill_budget_verified": budget_verified}
 
 
 def check_configuration():
@@ -580,7 +654,10 @@ def main():
     parser.add_argument("--cleanup", action="store_true", help="validate only identity and recovery regions")
     parser.add_argument("--completed-run")
     parser.add_argument("--completed-attempt")
+    parser.add_argument("--require-recovery", action="store_true", help="require exactly one recovered drill fixture")
     args = parser.parse_args()
+    if args.require_recovery and args.operation != "janitor":
+        parser.error("--require-recovery applies only to janitor")
     if (args.read_only or args.cleanup) and args.operation != "preflight":
         parser.error("--read-only and --cleanup apply only to preflight; use check for read-only cloud access")
     if args.operation == "preflight":
@@ -595,7 +672,7 @@ def main():
     elif args.operation == "check":
         check_configuration()
     elif args.operation == "janitor":
-        janitor(args.directory, args.completed_run, args.completed_attempt)
+        janitor(args.directory, args.completed_run, args.completed_attempt, receipt=args.receipt, require_recovery=args.require_recovery)
     else:
         run(args)
 

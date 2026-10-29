@@ -11,7 +11,7 @@ on:
   schedule:
     - cron: '37 * * * *'
   workflow_run:
-    workflows: [Release, Cloud acceptance]
+    workflows: [Release, Cloud acceptance, Cloud cleanup drill]
     types: [completed]
 permissions:
   contents: read
@@ -61,5 +61,16 @@ jobs:
         env:
           COMPLETED_RUN: ${{ github.event.workflow_run.id || inputs.run_id }}
           COMPLETED_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
+          REQUIRE_RECOVERY: ${{ github.event.workflow_run.name == 'Cloud cleanup drill' }}
         run: |
-          python3 tools/cloud_fixture.py janitor --completed-run "$COMPLETED_RUN" --completed-attempt "$COMPLETED_ATTEMPT"
+          args=()
+          if [ "$REQUIRE_RECOVERY" = true ]; then args+=(--require-recovery); fi
+          python3 tools/cloud_fixture.py janitor --completed-run "$COMPLETED_RUN" --completed-attempt "$COMPLETED_ATTEMPT" \
+            --receipt .cache/cleanup/result.json "${args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
+        with:
+          name: cloud-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/cleanup/*.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -321,7 +321,7 @@ class FixtureTests(unittest.TestCase):
                "RELEASE_ALIYUN_FIXTURE_CONFIG": "broken"}
         with mock.patch.dict(os.environ, env), mock.patch("cloud_fixture.Cloud", side_effect=lambda region, **_kwargs: region):
             for error in (RuntimeError("unavailable"), TypeError("malformed tags"), KeyError("missing field")):
-                with self.subTest(error=type(error)), mock.patch("cloud_fixture.janitor_region", side_effect=[error, None]) as recover:
+                with self.subTest(error=type(error)), mock.patch("cloud_fixture.janitor_region", side_effect=[error, {"cleaned_fixtures": 0, "drill_budget_verified": True}]) as recover:
                     with self.assertRaisesRegex(RuntimeError, "remaining regions were attempted"):
                         fixture.janitor(self.directory)
                     self.assertEqual([c.args[0] for c in recover.call_args_list], ["example-1", "previous-2"])

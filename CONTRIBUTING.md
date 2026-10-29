@@ -100,6 +100,20 @@ budgets and recovery are documented in [pre-release cloud acceptance](docs/pre-r
 For immediate recovery of a completed run, add `-f run_id=RUN_ID -f run_attempt=ATTEMPT`
 to the janitor command; otherwise it scans only expired fixtures.
 
+To exercise independent cleanup after a deliberate process loss, separately
+authorize the paid drill and enable both creation and cleanup switches, then run:
+
+```sh
+gh workflow run cloud-cleanup-drill.yml --ref main -f confirm_abandon=true
+```
+
+The source workflow must fail after producing an `INTERRUPTED` receipt. Follow its
+completion-triggered **Pre-release cloud janitor** run to a terminal result and
+check the two bound receipts as described in the
+[controlled interruption drill](docs/pre-release-cloud.md#controlled-interruption-drill).
+No cloud drill runs in ordinary CI. Offline tests include the actual SIGKILL
+checkpoint/cleanup-bypass check on Linux; macOS skips that procfs-specific test.
+
 See [distribution](docs/distribution.md) for native and OCI packaging, installation,
 and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.
 
