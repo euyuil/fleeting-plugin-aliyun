@@ -31,20 +31,28 @@ sudo systemd-run --unit="$unit" --collect --property=Type=exec \
   --property="StandardOutput=append:$boot_log" --property="StandardError=append:$boot_log" \
   systemd-nspawn --keep-unit --directory="$root" --machine="$machine" --boot --private-network \
   --console=read-only --bind-ro="$workspace:/workspace"
+# Enter the guest namespaces directly. The package test uses the guest systemd
+# manager; it does not require host-to-guest D-Bus forwarding.
+leader=''
 ready=false
+probe_log="$RUNNER_TEMP/$machine-probe.log"
 for _ in {1..12}; do
-  if sudo timeout 5s systemd-run --machine="$machine" --wait --pipe --quiet /bin/true 2>/dev/null; then
-    ready=true
-    break
+  leader=$(sudo timeout 5s machinectl show "$machine" --property=Leader --value 2>"$probe_log") || leader=''
+  if [[ "$leader" =~ ^[0-9]+$ && "$leader" -gt 1 ]]; then
+    if { sudo timeout 5s nsenter --target "$leader" --mount --uts --ipc --net --pid --root --wdns=/ \
+        systemctl show --property=Version --value; } >"$probe_log" 2>&1; then
+      ready=true
+      break
+    fi
   fi
   sleep 1
 done
 if [[ "$ready" != true ]]; then
   echo 'Debian systemd did not become ready within the bounded wait' >&2
+  cat "$probe_log" >&2
   exit 1
 fi
 printf 'Running candidate package lifecycle inside Debian 12\n'
-sudo timeout 5m systemd-run --machine="$machine" --wait --pipe --collect --quiet \
-  --working-directory=/workspace --setenv=PYTHONDONTWRITEBYTECODE=1 \
-  /usr/bin/python3 tools/test-debian-lifecycle.py --disposable-host \
+sudo timeout 5m nsenter --target "$leader" --mount --uts --ipc --net --pid --root --wdns=/workspace \
+  /usr/bin/env PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 tools/test-debian-lifecycle.py --disposable-host \
   --runner "/workspace/${runner#"$workspace/"}" --packages "/workspace/${packages#"$workspace/"}"
