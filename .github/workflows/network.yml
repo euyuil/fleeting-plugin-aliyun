@@ -6,6 +6,9 @@ permissions:
 concurrency:
   group: aliyun-network-connectivity
   cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
 jobs:
   probe:
     if: github.ref == 'refs/heads/main'

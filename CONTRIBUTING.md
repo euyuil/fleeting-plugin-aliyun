@@ -5,8 +5,9 @@ requirements. Use the [compatibility matrix](docs/upstream-parity.md) for upstre
 capabilities and the [testing guide](docs/testing.md) for reproducible acceptance
 scenarios and their limits.
 
-Use Go 1.27.3, GNU Make, Python 3.11+, and Git. Exact upstream versions are pinned in
-`upstream.lock.json`; Go dependencies are locked by `go.mod` and `go.sum`.
+Use the exact Go toolchain from `go.mod`, GNU Make, Python 3.11+, and Git.
+Other upstream versions are pinned in `upstream.lock.json`; Go dependencies
+are locked by `go.mod` and `go.sum`.
 No cloud credentials are needed for local development. Fixture safety tests
 use an OpenSSH client for public-key validation and OpenSSL for a synthetic
 loopback TLS server. CI also exercises the pinned CLI against that server using
@@ -14,15 +15,34 @@ synthetic STS credentials; real fixture creation requires
 the separately pinned Alibaba CLI documented in [infrastructure](infra/README.md).
 
 ```sh
-make deps
-make build
-make test
-make test-component
-make lint
-go test -race ./...
+make verify
 make dist
-make test-oci
 ```
+
+`make verify` runs the shared code checks and security scans. PR CI and release
+candidate builds call `make verify-code` plus the same reusable security job.
+Code checks include an early toolchain check, metadata/documentation consistency,
+`go mod tidy -diff`, checksum verification, normal/race/responsegate tests,
+read-only formatting, vet/actionlint, Runner example parsing, and a deliberately
+disabled live-tag entry. No live SDK or credentials are enabled by this target.
+The live-tag diagnostics execute; the cloud scenario explicitly reports NOT_RUN.
+For focused work, the `test`, `test-component`, `test-race`, `test-responsegate`,
+`test-live-offline`, `test-configs`, `lint`, and `security` targets remain available.
+
+`make dist` builds archives and calls `make verify-dist`. The platform workflow
+uses `make verify-dist DIST_DIR=PATH` to check existing candidate checksums and
+load the exact native OCI payload without rebuilding the plugin. Use
+`make test-debian-lifecycle DISPOSABLE_HOST=true RUNNER_BINARY=PATH DIST_DIR=PATH`
+only on a disposable Linux systemd host. This target installs/removes packages.
+
+`make lint` reports unformatted Go files without editing them. Apply `gofmt -w`
+explicitly when needed. Module checks use the tidy graph: `make deps` downloads
+selected dependencies without adding unrelated full-graph zip checksums.
+`check-metadata` verifies locked module/Action/tool references, published receipt
+identities, capability status structure, and local Markdown file links. It does
+not treat historical acceptance evidence as evidence for the current commit.
+When upgrading dependencies or Actions, update their authoritative pins together;
+Go has one version in `go.mod`, and every setup-go action reads that file.
 
 Tests replace the API boundary, sign loopback HTTP requests, or load the real
 plugin process and execute authenticated SSH commands on a loopback server.
@@ -47,8 +67,8 @@ It uses real dpkg, systemd and pinned Runner parsing; a local fake busy job test
 SIGQUIT draining. It never calls GitLab or Alibaba Cloud, and needs no credentials.
 Do not run it on a shared manager. Normal Go tests exercise configuration rejection,
 retry, private file handling and preservation without root or systemd.
-Do not disable Go checksum verification. `make lint` installs pinned actionlint
-1.7.12 and validates the configuration examples. CI also parses them using the
+Do not disable Go checksum verification. `make lint` installs actionlint at the
+version in `upstream.lock.json` and validates the configuration examples. CI also parses them using the
 pinned, checksum-verified Runner binary.
 
 Before committing, review `git diff`, stage only intended files, review the

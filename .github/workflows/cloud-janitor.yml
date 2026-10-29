@@ -18,6 +18,9 @@ permissions:
 concurrency:
   group: aliyun-pre-release-acceptance
   cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
 jobs:
   cleanup:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.head_branch == 'main'
