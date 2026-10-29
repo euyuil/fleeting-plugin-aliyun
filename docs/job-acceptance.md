@@ -15,7 +15,7 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors and all seven scenarios serially on
+The `Release job acceptance` reusable workflow runs both executors and all eight scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
@@ -31,7 +31,7 @@ establish future Spot availability or universal success on other user images.
 
 ## Expected failures and continued service
 
-Every executor runs seven independently bounded scenarios:
+Every executor runs eight independently bounded scenarios:
 
 | Scenario | First job | Follow-up job | Cumulative worker budget |
 | --- | --- | --- | --- |
@@ -42,6 +42,7 @@ Every executor runs seven independently bounded scenarios:
 | `capacity` | Two concurrent successful jobs, with a third queued | Third job succeeds on a fresh worker while the retained job continues | 3 |
 | `drain` | Running job completes while `manager stop` drains the service | Success after an explicit Manager restart | 2 |
 | `worker-loss` | Abruptly delete the checkpointed worker; require a proven loss outcome | Success on a fresh worker using the same Manager | 2 |
+| `manager-crash` | Kill the owned Manager unit; require automatic restart and GitLab server-side job failure | Success on a fresh worker with the original Runner identity | 2 |
 
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
 Cancellation is requested only after that worker has complete independent Spot
@@ -59,11 +60,12 @@ The second job must use a fresh nonce, pipeline, job and worker, return the norm
 success artifact, and then release normally. Emergency cleanup remains separate
 and cannot make failed recovery pass.
 
-Each recovery driver has a 40-minute execution deadline, bounded shutdown and
-cleanup, and a 60-minute hosted job deadline. Smoke retains its 20-minute driver
-deadline. The serial fourteen-case phase permits twenty-eight cumulative workers,
+Recovery drivers have a 40-minute execution deadline and a 60-minute hosted job
+deadline, except `manager-crash`, which allows 50 and 80 minutes respectively for
+GitLab's server-side job timeout and bounded shutdown/cleanup. Smoke retains its
+20-minute driver deadline. The serial sixteen-case phase permits thirty-two cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
-require all fourteen schema-v2 receipts; a smoke receipt cannot substitute for a
+require all sixteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
@@ -110,8 +112,8 @@ its own three-minute timeout that survives a lost driver.
 
 The driver then observes normal worker, disk and ENI release before explicitly
 starting the Manager again. A distinct PID must complete a fresh successful job
-and normal release using the same configured Runner identity. Only this deliberate
-transition permits different Manager PIDs in the receipt. It does not claim
+and normal release using the same configured Runner identity. Only a verified
+lifecycle transition permits different Manager PIDs in the receipt. It does not claim
 recovery or resumption after a crash; those are separate failure cases.
 
 ## Abrupt worker loss during a real job
@@ -138,6 +140,37 @@ false for both that job and the whole sequence; `worker_loss_verified` records t
 subsequent reconciliation proof. The follow-up job still requires normal release.
 Emergency cleanup cannot satisfy this proof. This tests abrupt instance loss,
 not the timing or advance notification of a real Spot preemption.
+
+## Manager crash during a real job
+
+The `manager-crash` case holds a real job at its checkpoint, revalidates service
+ownership/configuration and the original PID/invocation, then sends SIGKILL to
+the entire owned systemd unit, including plugin subprocesses. It never invokes
+`manager start` during recovery. Within two minutes, the shipped
+`Restart=on-failure` policy must produce a distinct PID and invocation, exactly
+one additional automatic restart, no original Manager process, and the same
+Runner system ID and configuration. A restart loop or any later restart fails.
+
+The killed Runner cannot report the first job's final result. This fixture uses
+a fifteen-minute job timeout and waits for GitLab to fail it with
+`server_timeout_running` or `no_updates_running`; cancellation, script timeout
+and apparent success are rejected. GitLab documents these
+[server-side failure thresholds](https://docs.gitlab.com/ci/jobs/job_troubleshooting/#job-dropped-after-being-stuck-or-exceeding-its-timeout).
+The driver remains bounded to fifty minutes and retains the one-hour fixture
+expiry and worker auto-release protections.
+
+The one-hour STS session starts before setup. Slow setup or an execution deadline
+can exhaust credentials during inline cleanup; that cleanup fails closed and
+cannot produce a passing receipt. In that case, verify the independent janitor's
+final zero-resource result using its fresh credentials. The service startup fence
+and worker expiry remain in force while recovery runs.
+
+Before submitting the second pipeline, the driver must observe the orphaned
+worker and its resources removed, zero group demand/capacity and quiet activity
+history, without making cleanup mutations. The automatically restarted Manager
+must then complete a fresh successful job and normal release within the exact
+two-worker budget. This verifies recovery with the shipped state-storage-disabled
+configuration; it does not promise resumption of interrupted jobs.
 
 ## Dedicated configuration
 
@@ -225,7 +258,7 @@ no on-demand fallback. Smoke permits one cumulative worker; each recovery
 scenario permits exactly two successive workers; capacity permits three.
 Pre- and post-publication executor/scenario modes have
 distinct fixture names and ownership tags. Existing janitor discovery covers
-all twenty-eight modes even if local evidence is lost.
+all thirty-two modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
 disabled until the paid run is approved and the official base image is configured.

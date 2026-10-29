@@ -50,7 +50,7 @@ jobs:
   scenario:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.scenario == 'manager-crash' && 80 || 60 }}
     environment: aliyun-pre-release
     permissions:
       contents: read
@@ -60,7 +60,7 @@ jobs:
       fail-fast: true
       matrix:
         executor: [instance, docker-autoscaler]
-        scenario: [smoke, failure, cancel, timeout, capacity, drain, worker-loss]
+        scenario: [smoke, failure, cancel, timeout, capacity, drain, worker-loss, manager-crash]
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
