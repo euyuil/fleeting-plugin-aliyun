@@ -39,7 +39,7 @@ def manifest():
 
 def receipt(executor="instance", phase="candidate", scenario="smoke"):
     m = manifest()
-    return {"schema_version": 2, "job_scenario": scenario, "job_count": 1 if scenario == "smoke" else 2, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+    return {"schema_version": 2, "job_scenario": scenario, "job_count": len(job.job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
             "candidate_sha": m["candidate_sha"], "version": m["version"], "manifest_sha256": "a" * 64,
             "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": "10", "run_attempt": "1",
             "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -100,7 +100,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_job_modes_have_distinct_recoverable_fixture_names(self):
         tags = [labels("example/project", "a" * 40, "123456789012345678", "1", mode, "2030-01-01T00:00:00Z") for mode in JOB_MODES]
         names = {name_for(value) for value in tags}
-        self.assertEqual(len(names), 16)
+        self.assertEqual(len(names), 20)
         self.assertTrue(all(len(name) <= 64 for name in names))
         self.assertEqual(names, {name_for(json.loads(json.dumps(value))) for value in tags})
 
@@ -150,6 +150,20 @@ class JobAcceptanceTests(unittest.TestCase):
                 with self.subTest(scenario=scenario, key=key), self.assertRaises(ValueError):
                     job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", scenario)
 
+        capacity = copy.deepcopy(result)
+        capacity.update(job_scenario="capacity", instance_limit=2, creation_budget=3, capacity_verified=True)
+        capacity["jobs"] = [{**result["jobs"][0], "scenario": "capacity", "pipeline_id": i + 1, "job_id": i + 2,
+                             "nonce": str(i) * 48, "instance_id": f"i-worker{i}", "checkpoint": True, "control_released": True}
+                            for i in range(3)]
+        capacity["instances"] = [{**result["instances"][0], "instance_id": f"i-worker{i}"} for i in range(3)]
+        job.check_result(capacity, manifest(), gitlab, "instance", lock, "10", "1", "capacity")
+        for key, value in (("capacity_verified", False), ("instance_limit", 3), ("creation_budget", 4)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                job.check_result({**capacity, key: value}, manifest(), gitlab, "instance", lock, "10", "1", "capacity")
+        capacity["jobs"][0]["control_released"] = False
+        with self.assertRaises(ValueError):
+            job.check_result(capacity, manifest(), gitlab, "instance", lock, "10", "1", "capacity")
+
     def test_gate_requires_every_scenario_and_same_fixture(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"GITHUB_RUN_ID": "10", "GITHUB_RUN_ATTEMPT": "1"}), patch.object(job, "verify", return_value=manifest()):
             root = Path(temp)
@@ -167,7 +181,7 @@ class JobAcceptanceTests(unittest.TestCase):
                 job.gate(args)
 
     def test_recovery_receipt_cannot_reuse_smoke_or_wrong_case(self):
-        for scenario in ("failure", "cancel", "timeout"):
+        for scenario in ("failure", "cancel", "timeout", "capacity"):
             good = receipt(scenario=scenario)
             job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
             for key, value in (("schema_version", 1), ("job_count", 1), ("job_count", True), ("job_scenario", "smoke")):

@@ -38,6 +38,19 @@ func TestPackagedAcceptanceUsesShippedExamples(t *testing.T) {
 		if _, err := packagedRunnerConfig([]byte(strings.Replace(string(input), "max_instances = 1", "max_instances = 2", 1)), "", "", "", "", "", o); err == nil {
 			t.Fatal("unbounded package example accepted")
 		}
+		o.scenario = "capacity"
+		config, err = packagedRunnerConfig(input, "https://gitlab.example.test", "synthetic-token", "test-region", "test-group", "root", o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var capacity map[string]any
+		if _, err := toml.Decode(string(config), &capacity); err != nil {
+			t.Fatal(err)
+		}
+		autoscaler = capacity["runners"].([]map[string]any)[0]["autoscaler"].(map[string]any)
+		if capacity["concurrent"] != int64(2) || autoscaler["max_instances"] != int64(2) || autoscaler["capacity_per_instance"] != int64(1) || autoscaler["max_use_count"] != int64(1) {
+			t.Fatal("capacity scenario did not retain one isolated use per worker")
+		}
 	}
 }
 

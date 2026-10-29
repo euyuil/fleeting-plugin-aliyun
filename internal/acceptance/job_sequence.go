@@ -28,6 +28,7 @@ type JobEvidence struct {
 	FailureReason   string `json:"failure_reason"`
 	Checkpoint      bool   `json:"checkpoint"`
 	CancelRequested bool   `json:"cancel_requested"`
+	ControlReleased bool   `json:"control_released"`
 	NormalRelease   bool   `json:"normal_release"`
 }
 
@@ -40,6 +41,9 @@ func jobNonce() (string, error) {
 }
 
 func jobCases(scenario string) []string {
+	if scenario == "capacity" {
+		return []string{"capacity", "capacity", "capacity"}
+	}
 	if scenario == "smoke" {
 		return []string{"smoke"}
 	}
@@ -48,6 +52,8 @@ func jobCases(scenario string) []string {
 
 func expectedJobOutcome(e JobEvidence) bool {
 	switch e.Scenario {
+	case "capacity":
+		return e.Checkpoint && e.ControlReleased && e.Status == "success" && e.FailureReason == "" && !e.CancelRequested
 	case "smoke":
 		return e.Status == "success" && e.FailureReason == "" && !e.CancelRequested
 	case "failure":
@@ -62,6 +68,9 @@ func expectedJobOutcome(e JobEvidence) bool {
 }
 
 func verifyJobSequence(r *Result) error {
+	if r.JobScenario == "capacity" && (!r.CapacityVerified || r.InstanceLimit != 2) {
+		return errors.New("capacity scenario lacks queue, retained-job and replacement proof")
+	}
 	cases := jobCases(r.JobScenario)
 	if len(r.Jobs) != len(cases) || len(r.Instances) != len(cases) || r.CreationBudget != len(cases) || r.ManagerPID <= 0 {
 		return errors.New("job sequence lacks its exact job and worker budget")

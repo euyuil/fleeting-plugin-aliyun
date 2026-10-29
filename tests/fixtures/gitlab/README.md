@@ -39,3 +39,9 @@ checkpoint. The API token must permit reading job traces as well as job metadata
 and canceling pipelines. Keep logs and IDs private. See the authoritative
 [scenario contract](../../../docs/job-acceptance.md#expected-failures-and-continued-service)
 for outcome, identity, release and follow-up-job requirements.
+
+The `capacity` scenario uses the same files with a 40-minute job timeout and a
+nonce-bound barrier. Its checkout and `/tmp` sentinels prove isolation; the driver
+releases the barrier only after its concurrent-job and queue checks. See
+[capacity acceptance](../../../docs/job-acceptance.md#capacity-queueing-and-job-isolation)
+for the three-job/two-worker limits and normal release requirements.
