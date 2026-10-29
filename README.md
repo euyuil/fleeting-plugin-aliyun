@@ -12,9 +12,10 @@ Your jobs run on separate ECS **workers**.
 This is a community project under active development. Real cloud scaling and SSH
 tests have passed. Full Linux amd64 VM and Docker job cycles have also passed
 with Runner 19.5.1; see the [acceptance report](docs/acceptance-report.md#released-plugin-vm-and-docker-jobs).
-[`0.1.0-rc.2`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.2)
-is available through OCI. The new `.deb` package and `manager` commands are
-available in main CI builds for evaluation; they are not in `0.1.0-rc.2`.
+For evaluation, use
+[`0.1.0-rc.3`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3).
+It includes `.deb` packages with local `manager` commands, native archives,
+checksums, and the OCI plugin for Linux amd64 and arm64.
 
 ## Choose how jobs run
 
@@ -58,12 +59,13 @@ Install or reuse **GitLab Runner 19.5.1**. Follow the
 for that exact version, including the matching helper images package.
 GitLab Runner is installed separately from this plugin.
 
+Download the package for your host and `SHA256SUMS` from the
+[0.1.0-rc.3 Release](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3).
 Follow [Download and install](docs/debian-installation.md#download-and-install)
-to get and verify the `release-candidate` artifact from a successful main CI run.
-In the extracted directory, install the package for your host:
+for direct download and checksum commands. In the download directory, install it:
 
 ```sh
-sudo apt install "./fleeting-plugin-aliyun_0.1.0~dev_$(dpkg --print-architecture).deb"
+sudo apt install "./fleeting-plugin-aliyun_0.1.0~rc.3_$(dpkg --print-architecture).deb"
 gitlab-runner --version
 fleeting-plugin-aliyun version
 ```
