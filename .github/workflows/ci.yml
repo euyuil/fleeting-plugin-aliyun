@@ -59,7 +59,8 @@ jobs:
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
           dist/packages/linux/amd64/plugin version
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: release_candidate
         with:
           name: release-candidate
           path: |
@@ -68,3 +69,14 @@ jobs:
             dist/SHA256SUMS
             dist/dependencies.json
           retention-days: 7
+      - name: Download the uploaded candidate by ID
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ steps.release_candidate.outputs.artifact-id }}
+          path: .cache/downloaded-release-candidate
+          merge-multiple: true
+      - name: Verify artifact transfer preserves every published file
+        run: |
+          for asset in dist/*.tar.gz dist/*.deb dist/SHA256SUMS dist/dependencies.json; do
+            cmp "$asset" ".cache/downloaded-release-candidate/$(basename "$asset")"
+          done

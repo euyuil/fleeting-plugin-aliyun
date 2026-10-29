@@ -112,7 +112,7 @@ jobs:
           digest=$(python3 tools/release_candidate.py create --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION")
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
           tar -cf .cache/candidate.tar -C .cache/candidate .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         id: upload
         with:
           name: cloud-candidate-${{ github.run_id }}-${{ github.run_attempt }}
@@ -153,7 +153,7 @@ jobs:
         with:
           go-version: '1.27.2'
           cache: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: .cache/download
@@ -179,7 +179,7 @@ jobs:
       - name: Run the scenario and verify full fixture teardown
         run: |
           python3 tools/cloud_fixture.py run --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256" --mode "$MODE" --directory ".live/$MODE" --receipt ".cache/receipts/$MODE.json"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: cloud-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.mode }}
@@ -210,12 +210,12 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.27.2'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: .cache/download
           merge-multiple: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: cloud-receipt-${{ github.run_id }}-${{ github.run_attempt }}-*
           path: .cache/receipts

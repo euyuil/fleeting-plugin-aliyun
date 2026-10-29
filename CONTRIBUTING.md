@@ -56,6 +56,9 @@ SHAs. The three-dot range checks changes since their merge base, including when
 the target branch has advanced. For pushes to `main`, CI checks the event's
 before and after SHAs with `git diff --check "$BASE_SHA" "$HEAD_SHA" --`.
 The `main` ruleset requires the `offline` check from GitHub Actions before merging.
+That check also uploads the candidate, downloads it by artifact ID, and compares
+every archive, Debian package, checksum file, and dependency inventory byte for
+byte. This exercises the pinned Node.js 24 artifact Actions without cloud access.
 This repository has no configured commit hooks or security scanner.
 Do not claim that an unconfigured check ran.
 

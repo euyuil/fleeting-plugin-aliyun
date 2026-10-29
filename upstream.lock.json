@@ -34,8 +34,8 @@
     "checkout": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
     "setup_go": "924ae3a1cded613372ab5595356fb5720e22ba16",
     "aliyun_credentials": "1e5248c8d5d93a8781ac344a68e19a43341e79e6",
-    "upload_artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
-    "download_artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093"
+    "upload_artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+    "download_artifact": "9000827ccba6bdab643e8b6fd33ac0654aef8333"
   },
   "aliyun_cli": "3.5.2",
   "aliyun_cli_sha256": {

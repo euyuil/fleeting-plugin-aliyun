@@ -67,7 +67,7 @@ jobs:
           if [ "$REQUIRE_RECOVERY" = true ]; then args+=(--require-recovery); fi
           python3 tools/cloud_fixture.py janitor --completed-run "$COMPLETED_RUN" --completed-attempt "$COMPLETED_ATTEMPT" \
             --receipt .cache/cleanup/result.json "${args[@]}"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always() && env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
         with:
           name: cloud-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
