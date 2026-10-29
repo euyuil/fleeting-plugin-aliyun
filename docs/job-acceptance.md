@@ -15,7 +15,7 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors and all five scenarios serially on
+The `Release job acceptance` reusable workflow runs both executors and all six scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
@@ -31,7 +31,7 @@ establish future Spot availability or universal success on other user images.
 
 ## Expected failures and continued service
 
-Every executor runs five independently bounded scenarios:
+Every executor runs six independently bounded scenarios:
 
 | Scenario | First job | Follow-up job | Cumulative worker budget |
 | --- | --- | --- | --- |
@@ -40,6 +40,7 @@ Every executor runs five independently bounded scenarios:
 | `cancel` | Driver cancels the pipeline after the script checkpoint | Success | 2 |
 | `timeout` | Runner's fixed three-minute `RUNNER_SCRIPT_TIMEOUT`, reported as `job_execution_timeout` | Success | 2 |
 | `capacity` | Two concurrent successful jobs, with a third queued | Third job succeeds on a fresh worker while the retained job continues | 3 |
+| `drain` | Running job completes while `manager stop` drains the service | Success after an explicit Manager restart | 2 |
 
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
 Cancellation is requested only after that worker has complete independent Spot
@@ -48,7 +49,8 @@ wrong failure reason, unexpected retry or different worker cannot satisfy an
 expected-failure scenario. The timeout covers the actual script stage after
 worker acquisition and preparation; it does not simulate a timeout with `exit`.
 
-The same systemd Manager PID must survive both jobs and both normal releases.
+For `failure`, `cancel` and `timeout`, the same systemd Manager PID must survive
+both jobs and both normal releases.
 Before submitting the second pipeline, the driver observes zero desired/total/
 pending/removing capacity, an idle activity history, and the absence of the first
 worker and its disks/ENIs. It performs no cleanup mutation during this check.
@@ -58,9 +60,9 @@ and cannot make failed recovery pass.
 
 Each recovery driver has a 40-minute execution deadline, bounded shutdown and
 cleanup, and a 60-minute hosted job deadline. Smoke retains its 20-minute driver
-deadline. The serial ten-case phase permits twenty cumulative workers,
+deadline. The serial twelve-case phase permits twenty-four cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
-require all ten schema-v2 receipts; a smoke receipt cannot substitute for a
+require all twelve schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
@@ -92,6 +94,24 @@ Barrier waits have a 30-minute fallback that fails the job. The capacity job's
 GitLab timeout and the driver deadline are 40 minutes, with the same 60-minute
 hosted job deadline and cleanup path. Configure the dedicated Runner's maximum
 job timeout to permit this case. Recovery and smoke keep their existing bounds.
+
+## Graceful stop during a real job
+
+The `drain` case starts a held real job on one worker, observes its nonce-bound
+checkpoint, and invokes the installed `fleeting-plugin-aliyun manager stop`
+command. Before releasing the job barrier, the driver must observe systemd's
+`deactivating` state with the original MainPID and a live unit control group.
+An immediate stop, aborted job, changed invocation or failed stop command fails
+acceptance. The job must succeed, the stop command must return successfully,
+and the same invocation must reach `inactive`, MainPID zero and an empty control
+group. Stop observation is bounded to four minutes; the privileged command has
+its own three-minute timeout that survives a lost driver.
+
+The driver then observes normal worker, disk and ENI release before explicitly
+starting the Manager again. A distinct PID must complete a fresh successful job
+and normal release using the same configured Runner identity. Only this deliberate
+transition permits different Manager PIDs in the receipt. It does not claim
+recovery or resumption after a crash; those are separate failure cases.
 
 ## Dedicated configuration
 
@@ -179,7 +199,7 @@ no on-demand fallback. Smoke permits one cumulative worker; each recovery
 scenario permits exactly two successive workers; capacity permits three.
 Pre- and post-publication executor/scenario modes have
 distinct fixture names and ownership tags. Existing janitor discovery covers
-all twenty modes even if local evidence is lost.
+all twenty-four modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
 disabled until the paid run is approved and the official base image is configured.

@@ -32,22 +32,79 @@ type serviceOwner struct {
 // The root-owned marker binds this disposable service to one acceptance run.
 // A local cleanup command may never adopt an unrelated existing Manager.
 type packagedManager struct {
-	owner   serviceOwner
-	command func(context.Context, ...string) ([]byte, error)
-	started bool
-	pid     int
+	owner        serviceOwner
+	command      func(context.Context, ...string) ([]byte, error)
+	drainCommand func(context.Context, ...string) ([]byte, error)
+	started      bool
+	pid          int
 }
 
 func serviceCommand(ctx context.Context, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	return boundedServiceCommand(ctx, 25*time.Second, args...)
+}
+
+func boundedServiceCommand(ctx context.Context, limit time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, limit+10*time.Second)
 	defer cancel()
 	// The privileged timeout remains effective even if the unprivileged driver
 	// dies and sudo's child survives it. The outer deadline includes kill grace.
-	output, err := exec.CommandContext(ctx, "sudo", append([]string{"-n", "timeout", "--signal=TERM", "--kill-after=5s", "25s"}, args...)...).Output()
+	output, err := exec.CommandContext(ctx, "sudo", append([]string{"-n", "timeout", "--signal=TERM", "--kill-after=5s", strconv.Itoa(int(limit/time.Second)) + "s"}, args...)...).Output()
 	if err != nil {
 		return nil, errors.New("packaged Manager operation failed; inspect private diagnostics on the disposable host")
 	}
 	return output, nil
+}
+
+func (m *packagedManager) beginDrain(ctx context.Context) (<-chan error, error) {
+	if err := m.owned(ctx); err != nil {
+		return nil, err
+	}
+	if pid, err := m.running(ctx); err != nil || pid != m.pid {
+		return nil, errors.New("drain requires the original active Manager")
+	}
+	run := m.drainCommand
+	if run == nil {
+		run = func(ctx context.Context, args ...string) ([]byte, error) {
+			return boundedServiceCommand(ctx, 3*time.Minute, args...)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { _, err := run(ctx, packagedPlugin, "manager", "stop"); done <- err }()
+	return done, nil
+}
+
+func (m *packagedManager) drainState(ctx context.Context) (string, error) {
+	if err := m.owned(ctx); err != nil {
+		return "", err
+	}
+	raw, err := m.command(ctx, "systemctl", "show", packagedService, "--property=ActiveState", "--property=MainPID", "--property=ExecMainPID", "--property=ControlGroup")
+	if err != nil {
+		return "", err
+	}
+	fields := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if key, value, ok := strings.Cut(line, "="); ok {
+			fields[key] = value
+		}
+	}
+	pid := strconv.Itoa(m.pid)
+	if m.pid <= 0 || fields["ExecMainPID"] != pid {
+		return "", errors.New("draining service invocation changed")
+	}
+	switch fields["ActiveState"] {
+	case "active", "deactivating":
+		if fields["MainPID"] == pid && fields["ControlGroup"] != "" {
+			if fields["ActiveState"] == "active" {
+				return "active", nil
+			}
+			return "draining", nil
+		}
+	case "inactive":
+		if fields["MainPID"] == "0" && fields["ControlGroup"] == "" {
+			return "stopped", nil
+		}
+	}
+	return "", errors.New("Manager drain did not retain its original invocation or reach a clean stop")
 }
 
 func credentialEnvironment(get func(string) string) ([]byte, error) {

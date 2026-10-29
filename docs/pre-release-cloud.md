@@ -184,7 +184,7 @@ Publication downloads the accepted artifact and never rebuilds the distribution.
 The test-only responsegate binary is outside `dist/` and is never published.
 
 Mode `all` requires all six scenarios followed by all real executor/scenario checks. Mode
-`jobs` runs the ten executor/scenario checks against a sealed candidate, without
+`jobs` runs the twelve executor/scenario checks against a sealed candidate, without
 publication. A selected single plugin scenario remains available independently.
 Only a complete `all` run can return `release_ready=true`; missing job
 configuration or disabled job acceptance fails the full release gate.

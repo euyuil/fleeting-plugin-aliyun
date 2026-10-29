@@ -54,6 +54,74 @@ func TestPackagedAcceptanceUsesShippedExamples(t *testing.T) {
 	}
 }
 
+func TestDrainStateBindsTheOriginalInvocation(t *testing.T) {
+	config := []byte("synthetic config")
+	hash := sha256.Sum256(config)
+	m := &packagedManager{owner: serviceOwner{ConfigSHA256: hex.EncodeToString(hash[:])}, pid: 123, started: true}
+	owner, _ := json.Marshal(m.owner)
+	for _, tc := range []struct{ state, pid, last, group, want string }{
+		{"active", "123", "123", "/synthetic", "active"},
+		{"deactivating", "123", "123", "/synthetic", "draining"},
+		{"inactive", "0", "123", "", "stopped"},
+		{"deactivating", "124", "124", "/synthetic", ""},
+		{"failed", "0", "123", "", ""},
+		{"inactive", "0", "123", "/remaining-processes", ""},
+	} {
+		m.command = func(_ context.Context, args ...string) ([]byte, error) {
+			if len(args) == 2 && args[1] == serviceOwnerPath {
+				return owner, nil
+			}
+			if len(args) == 2 && args[1] == packagedConfig {
+				return config, nil
+			}
+			return []byte("ActiveState=" + tc.state + "\nMainPID=" + tc.pid + "\nExecMainPID=" + tc.last + "\nControlGroup=" + tc.group + "\n"), nil
+		}
+		got, err := m.drainState(context.Background())
+		if tc.want == "" {
+			if err == nil {
+				t.Fatal("foreign or incomplete stop accepted")
+			}
+		} else if err != nil || got != tc.want {
+			t.Fatal("valid drain state rejected", got, err)
+		}
+	}
+}
+
+func TestBeginDrainUsesTheOwnedPackageStopCommand(t *testing.T) {
+	config := []byte("synthetic config")
+	hash := sha256.Sum256(config)
+	m := &packagedManager{owner: serviceOwner{ConfigSHA256: hex.EncodeToString(hash[:])}, pid: 123, started: true}
+	owner, _ := json.Marshal(m.owner)
+	m.command = func(_ context.Context, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[1] == serviceOwnerPath {
+			return owner, nil
+		}
+		if len(args) == 2 && args[1] == packagedConfig {
+			return config, nil
+		}
+		if strings.Contains(strings.Join(args, " "), "ActiveState") {
+			return []byte("active\n"), nil
+		}
+		return []byte("123\n"), nil
+	}
+	var invocation string
+	m.drainCommand = func(_ context.Context, args ...string) ([]byte, error) {
+		invocation = strings.Join(args, " ")
+		return nil, nil
+	}
+	done, err := m.beginDrain(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil || invocation != packagedPlugin+" manager stop" {
+		t.Fatal("drain did not use the package CLI", err)
+	}
+	m.owner.Run = "another-run"
+	if _, err := m.beginDrain(context.Background()); err == nil {
+		t.Fatal("unowned service accepted for drain")
+	}
+}
+
 func TestServiceCleanupRequiresExactOwnerAndNoUnitProcesses(t *testing.T) {
 	for _, scenario := range []string{"graceful", "forced", "different-owner", "changed-config", "remaining-process", "failed-kill", "mask-failure"} {
 		t.Run(scenario, func(t *testing.T) {

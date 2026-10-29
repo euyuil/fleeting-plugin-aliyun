@@ -109,6 +109,8 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
                 "creation_budget": len(cases), "evidence_incomplete": False}
     if scenario == "capacity":
         expected["capacity_verified"] = True
+    if scenario == "drain":
+        expected["drain_verified"] = True
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
@@ -121,14 +123,16 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
     if not isinstance(steps, list) or len(steps) != len(cases) or type(result.get("manager_pid")) is not int or result["manager_pid"] <= 0:
         raise ValueError("job sequence or persistent Manager identity is missing")
     seen = {k: set() for k in ("pipeline_id", "job_id", "nonce", "instance_id")}
-    for step, case in zip(steps, cases):
-        status, reason = {"smoke": ("success", ""), "capacity": ("success", ""), "failure": ("failed", "script_failure"),
+    for index, (step, case) in enumerate(zip(steps, cases)):
+        pid = step.get("manager_pid") if isinstance(step, dict) else None
+        manager_matches = type(pid) is int and pid > 0 and (pid != result["manager_pid"] if scenario == "drain" and index == 0 else pid == result["manager_pid"])
+        status, reason = {"smoke": ("success", ""), "capacity": ("success", ""), "drain": ("success", ""), "failure": ("failed", "script_failure"),
                           "cancel": ("canceled", None), "timeout": ("failed", "job_execution_timeout")}[case]
         if (not isinstance(step, dict) or step.get("scenario") != case or step.get("status") != status or
                 (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not True or
-                type(step.get("manager_pid")) is not int or step["manager_pid"] != result["manager_pid"] or
+                not manager_matches or
                 step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True) or
-                (case == "capacity" and step.get("control_released") is not True)):
+                (case in ("capacity", "drain") and step.get("control_released") is not True)):
             raise ValueError("unexpected job outcome, restart or incomplete normal release")
         for key in seen:
             value = step.get(key)
