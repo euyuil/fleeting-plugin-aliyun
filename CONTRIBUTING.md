@@ -1,6 +1,6 @@
 # Contributing
 
-Use Go 1.27.2, GNU Make, Python 3.11+, and Git. Exact upstream versions are pinned in
+Use Go 1.27.3, GNU Make, Python 3.11+, and Git. Exact upstream versions are pinned in
 `upstream.lock.json`; Go dependencies are locked by `go.mod` and `go.sum`.
 No cloud credentials are needed for local development. Fixture safety tests
 use an OpenSSH client for public-key validation and OpenSSL for a synthetic

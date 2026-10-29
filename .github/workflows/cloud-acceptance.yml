@@ -89,7 +89,7 @@ jobs:
           PY
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
           cache: true
       - name: Validate and build the unpublished distribution
         run: |
@@ -151,7 +151,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
           cache: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -209,7 +209,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}

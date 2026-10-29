@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "reviewed_on": "2026-10-27",
-  "go": "1.27.2",
+  "go": "1.27.3",
   "runner": {
     "version": "19.5.1",
     "commit": "f411f264f80a4870995a7c49482d02765e86c86e",
