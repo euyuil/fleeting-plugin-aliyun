@@ -171,13 +171,15 @@ validate the real-job suite without publishing:
 
 ```sh
 gh workflow run cloud-acceptance.yml --ref main \
-  -f version=0.1.0-dev -f candidate_sha=FULL_MAIN_COMMIT_SHA -f mode=jobs
+  -f version=0.1.0-rc.4 -f candidate_sha=FULL_MAIN_COMMIT_SHA -f mode=jobs
 ```
 
 This builds and verifies a sealed candidate, then runs `instance` and
 `docker-autoscaler` serially through its installed `.deb` and real systemd
 Manager. It cannot authorize publication without the six plugin scenarios.
-Inspect all sixteen sanitized scenario receipts and the final gate. Do not upload private
+The candidate version must be newer than the published upgrade baseline; see
+[previous-release upgrade coverage](docs/job-acceptance.md#upgrade-from-a-published-debian-package).
+Inspect all eighteen sanitized scenario receipts and the final gate. Do not upload private
 driver logs, GitLab job artifacts or fixture configuration.
 
 To exercise independent cleanup after a deliberate process loss, separately

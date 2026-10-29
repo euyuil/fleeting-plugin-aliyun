@@ -144,6 +144,9 @@ To roll back, stop and check cleanup, install the saved older package with
 private configuration if needed, then run `doctor` and `start`. There is no
 promise of resuming a job that was interrupted outside a graceful stop.
 
+Release acceptance exercises the [pinned previous-release upgrade and rollback](job-acceptance.md#upgrade-from-a-published-debian-package)
+with preserved private state and a real job on the final candidate installation.
+
 ## Remove
 
 ```sh

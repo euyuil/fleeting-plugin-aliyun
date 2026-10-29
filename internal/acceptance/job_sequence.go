@@ -47,7 +47,7 @@ func jobCases(scenario string) []string {
 	if scenario == "capacity" {
 		return []string{"capacity", "capacity", "capacity"}
 	}
-	if scenario == "smoke" {
+	if scenario == "smoke" || scenario == "upgrade" {
 		return []string{"smoke"}
 	}
 	return []string{scenario, "smoke"}
@@ -77,6 +77,13 @@ func expectedJobOutcome(e JobEvidence) bool {
 }
 
 func verifyJobSequence(r *Result) error {
+	if r.JobScenario == "upgrade" {
+		version, hash, _, err := upgradeBaseline()
+		if err != nil || r.Upgrade == nil || r.Upgrade.Version != version || r.Upgrade.PackageSHA256 != hash ||
+			!r.Upgrade.StatePreserved || !r.Upgrade.RollbackVerified || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(r.Upgrade.CandidatePackageSHA256) {
+			return errors.New("job sequence lacks the real previous-release upgrade proof")
+		}
+	}
 	if r.JobScenario == "worker-loss" && !r.WorkerLossVerified {
 		return errors.New("worker loss lacks reconciliation proof")
 	}

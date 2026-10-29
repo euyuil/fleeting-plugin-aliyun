@@ -15,7 +15,7 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors and all eight scenarios serially on
+The `Release job acceptance` reusable workflow runs both executors and all nine scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
@@ -31,7 +31,7 @@ establish future Spot availability or universal success on other user images.
 
 ## Expected failures and continued service
 
-Every executor runs eight independently bounded scenarios:
+Every executor runs nine independently bounded scenarios:
 
 | Scenario | First job | Follow-up job | Cumulative worker budget |
 | --- | --- | --- | --- |
@@ -43,6 +43,7 @@ Every executor runs eight independently bounded scenarios:
 | `drain` | Running job completes while `manager stop` drains the service | Success after an explicit Manager restart | 2 |
 | `worker-loss` | Abruptly delete the checkpointed worker; require a proven loss outcome | Success on a fresh worker using the same Manager | 2 |
 | `manager-crash` | Kill the owned Manager unit; require automatic restart and GitLab server-side job failure | Success on a fresh worker with the original Runner identity | 2 |
+| `upgrade` | Install and configure the pinned published package, upgrade, roll back, and upgrade again; run a successful job | None | 1 |
 
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
 Cancellation is requested only after that worker has complete independent Spot
@@ -62,12 +63,47 @@ and cannot make failed recovery pass.
 
 Recovery drivers have a 40-minute execution deadline and a 60-minute hosted job
 deadline, except `manager-crash`, which allows 50 and 80 minutes respectively for
-GitLab's server-side job timeout and bounded shutdown/cleanup. Smoke retains its
-20-minute driver deadline. The serial sixteen-case phase permits thirty-two cumulative workers,
+GitLab's server-side job timeout and bounded shutdown/cleanup. Smoke and upgrade use a
+20-minute driver deadline. The serial eighteen-case phase permits thirty-four cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
-require all sixteen schema-v2 receipts; a smoke receipt cannot substitute for a
+require all eighteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
+
+## Upgrade from a published Debian package
+
+The `upgrade` case downloads the actual `v0.1.0-rc.3` Debian release, with its
+release commit, checksum inventory, package and installed binary hashes pinned in
+[`tests/fixtures/debian-upgrade.json`](../tests/fixtures/debian-upgrade.json).
+There is no candidate repackaging or download fallback. The installed old CLI
+creates the Manager state using its own shipped example, then runs `manager doctor`.
+
+While the service remains inactive with no unit processes, the test installs the
+sealed candidate, reinstalls the saved old package, and installs the candidate
+again. Each transition must preserve every private state file's bytes, owner and
+mode, directory owners/modes, the service account's UID/GID/home/shell, and Runner
+system identity. Each installed binary and Debian version must match the selected
+artifact, and each installed CLI must pass `manager doctor`. The helper rejects
+symlinks and other nonregular managed state. Package installation must never start
+the service implicitly.
+
+Only then does the candidate Manager start, complete a real GitLab job and release
+its worker normally. Both executors run this case. The public phase upgrades to
+the anonymously downloaded public candidate package. The rollback step validates
+installation, preserved state and `doctor`; it does not execute a job on the old
+version or promise compatibility with arbitrary older configurations.
+
+The version must compare greater than the pinned baseline under Debian ordering.
+Job preflight rejects `0.1.0-dev` and the baseline version before creating job
+fixtures. Use an unpublished higher version such as `0.1.0-rc.4` for a manual run;
+this does not publish a release. When advancing the baseline, review the actual
+published assets and update every pinned hash and the manual default together.
+Ordinary native package lifecycle CI separately repacks the current payload to
+exercise package hooks; that test alone is not previous-release compatibility.
+
+Public upgrade receipts bind the old version and package hash in addition to the
+candidate identity. Private configuration and state fingerprints are not published.
+For the operator procedure, see [upgrade and roll back](debian-installation.md#upgrade-and-roll-back).
 
 ## Capacity, queueing and job isolation
 
@@ -254,11 +290,11 @@ in the [ECS bandwidth documentation](https://www.alibabacloud.com/help/en/ecs/us
 Use an instance type suitable for full jobs. The initial target is 2 vCPU and
 2 GiB, for example `ecs.e-c1m1.large`, subject to regional Spot availability.
 Smoke and recovery use MaxSize 1 and concurrency 1; capacity uses two. There is
-no on-demand fallback. Smoke permits one cumulative worker; each recovery
+no on-demand fallback. Smoke and upgrade permit one cumulative worker; each recovery
 scenario permits exactly two successive workers; capacity permits three.
 Pre- and post-publication executor/scenario modes have
 distinct fixture names and ownership tags. Existing janitor discovery covers
-all thirty-two modes even if local evidence is lost.
+all thirty-six modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
 disabled until the paid run is approved and the official base image is configured.
