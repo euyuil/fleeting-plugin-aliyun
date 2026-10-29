@@ -18,7 +18,7 @@ spot-smoke:
   extends: .spot-common
   timeout: 20m
   rules:
-    - if: '$FLEETING_JOB_SCENARIO =~ /^(capacity|drain)$/'
+    - if: '$FLEETING_JOB_SCENARIO =~ /^(capacity|drain|worker-loss)$/'
       when: never
     - if: '$FLEETING_JOB_SCENARIO == "timeout"'
       variables:
@@ -29,4 +29,4 @@ spot-controlled:
   extends: .spot-common
   timeout: 40m
   rules:
-    - if: '$FLEETING_JOB_SCENARIO =~ /^(capacity|drain)$/'
+    - if: '$FLEETING_JOB_SCENARIO =~ /^(capacity|drain|worker-loss)$/'

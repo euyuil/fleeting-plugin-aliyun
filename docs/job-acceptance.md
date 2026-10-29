@@ -15,7 +15,7 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors and all six scenarios serially on
+The `Release job acceptance` reusable workflow runs both executors and all seven scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
@@ -31,7 +31,7 @@ establish future Spot availability or universal success on other user images.
 
 ## Expected failures and continued service
 
-Every executor runs six independently bounded scenarios:
+Every executor runs seven independently bounded scenarios:
 
 | Scenario | First job | Follow-up job | Cumulative worker budget |
 | --- | --- | --- | --- |
@@ -41,6 +41,7 @@ Every executor runs six independently bounded scenarios:
 | `timeout` | Runner's fixed three-minute `RUNNER_SCRIPT_TIMEOUT`, reported as `job_execution_timeout` | Success | 2 |
 | `capacity` | Two concurrent successful jobs, with a third queued | Third job succeeds on a fresh worker while the retained job continues | 3 |
 | `drain` | Running job completes while `manager stop` drains the service | Success after an explicit Manager restart | 2 |
+| `worker-loss` | Abruptly delete the checkpointed worker; require a proven loss outcome | Success on a fresh worker using the same Manager | 2 |
 
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
 Cancellation is requested only after that worker has complete independent Spot
@@ -60,9 +61,9 @@ and cannot make failed recovery pass.
 
 Each recovery driver has a 40-minute execution deadline, bounded shutdown and
 cleanup, and a 60-minute hosted job deadline. Smoke retains its 20-minute driver
-deadline. The serial twelve-case phase permits twenty-four cumulative workers,
+deadline. The serial fourteen-case phase permits twenty-eight cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
-require all twelve schema-v2 receipts; a smoke receipt cannot substitute for a
+require all fourteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
@@ -112,6 +113,31 @@ starting the Manager again. A distinct PID must complete a fresh successful job
 and normal release using the same configured Runner identity. Only this deliberate
 transition permits different Manager PIDs in the receipt. It does not claim
 recovery or resumption after a crash; those are separate failure cases.
+
+## Abrupt worker loss during a real job
+
+The `worker-loss` case holds a job at its verified script checkpoint, then calls
+ECS `DeleteInstance` with `Force=true` and `ForceStop=true` for that exact worker.
+Immediately before the call, the driver rechecks the run's exclusive group
+ownership, sole automatically created member, complete disk/ENI inventory and
+running Spot status. This injects loss outside the plugin's scale-in path.
+
+The original Manager must remain alive, and GitLab must report the original job
+as failed with `runner_system_failure`, without cancellation, retries or opening
+the job barrier. For `instance` only, the pinned Runner can classify missing SSH
+exit status as `script_failure`. That variant additionally requires the exact
+terminal Runner error line proving missing remote exit status/signal; an ordinary
+script failure, an echoed command, or a continued trace fragment cannot pass.
+Before a follow-up pipeline is submitted, read-only observation
+must prove zero group demand/capacity, quiet activities and absence of the worker
+and its associated resources. Any unrequested replacement fails the case. The
+second job must succeed on a distinct worker and finish through normal release.
+
+Private evidence marks the first deletion as injected, with `normal_release`
+false for both that job and the whole sequence; `worker_loss_verified` records the
+subsequent reconciliation proof. The follow-up job still requires normal release.
+Emergency cleanup cannot satisfy this proof. This tests abrupt instance loss,
+not the timing or advance notification of a real Spot preemption.
 
 ## Dedicated configuration
 
@@ -199,7 +225,7 @@ no on-demand fallback. Smoke permits one cumulative worker; each recovery
 scenario permits exactly two successive workers; capacity permits three.
 Pre- and post-publication executor/scenario modes have
 distinct fixture names and ownership tags. Existing janitor discovery covers
-all twenty-four modes even if local evidence is lost.
+all twenty-eight modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
 disabled until the paid run is approved and the official base image is configured.

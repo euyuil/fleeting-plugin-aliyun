@@ -100,7 +100,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_job_modes_have_distinct_recoverable_fixture_names(self):
         tags = [labels("example/project", "a" * 40, "123456789012345678", "1", mode, "2030-01-01T00:00:00Z") for mode in JOB_MODES]
         names = {name_for(value) for value in tags}
-        self.assertEqual(len(names), 24)
+        self.assertEqual(len(names), 28)
         self.assertTrue(all(len(name) <= 64 for name in names))
         self.assertEqual(names, {name_for(json.loads(json.dumps(value))) for value in tags})
 
@@ -164,6 +164,31 @@ class JobAcceptanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             job.check_result(capacity, manifest(), gitlab, "instance", lock, "10", "1", "capacity")
 
+        loss = copy.deepcopy(result)
+        loss.update(job_scenario="worker-loss", creation_budget=2, normal_release=False, worker_loss_verified=True)
+        loss["jobs"].insert(0, {**result["jobs"][0], "scenario": "worker-loss", "status": "failed", "failure_reason": "runner_system_failure",
+                                "pipeline_id": 1, "job_id": 2, "nonce": "0" * 48, "instance_id": "i-worker0", "checkpoint": True,
+                                "loss_injected": True, "normal_release": False, "control_released": False})
+        loss["instances"].insert(0, {**result["instances"][0], "instance_id": "i-worker0"})
+        job.check_result(loss, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
+        ssh_loss = copy.deepcopy(loss)
+        ssh_loss["jobs"][0].update(ssh_transport_loss=True, failure_reason="script_failure")
+        job.check_result(ssh_loss, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
+        ssh_loss["executor"] = "docker-autoscaler"
+        with self.assertRaises(ValueError):
+            job.check_result(ssh_loss, manifest(), gitlab, "docker-autoscaler", lock, "10", "1", "worker-loss")
+        for change in (lambda value: value.update(worker_loss_verified=False),
+                       lambda value: value.update(normal_release=True),
+                       lambda value: value["jobs"][0].update(loss_injected=False),
+                       lambda value: value["jobs"][0].update(normal_release=True),
+                       lambda value: value["jobs"][0].update(control_released=True),
+                       lambda value: value["jobs"][0].update(failure_reason="script_failure"),
+                       lambda value: value["jobs"][1].update(loss_injected=True)):
+            broken = copy.deepcopy(loss)
+            change(broken)
+            with self.assertRaises(ValueError):
+                job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
+
         drain = copy.deepcopy(result)
         drain.update(job_scenario="drain", creation_budget=2, manager_pid=124, drain_verified=True)
         drain["jobs"][0]["manager_pid"] = 124
@@ -197,7 +222,7 @@ class JobAcceptanceTests(unittest.TestCase):
                 job.gate(args)
 
     def test_recovery_receipt_cannot_reuse_smoke_or_wrong_case(self):
-        for scenario in ("failure", "cancel", "timeout", "capacity", "drain"):
+        for scenario in ("failure", "cancel", "timeout", "capacity", "drain", "worker-loss"):
             good = receipt(scenario=scenario)
             job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
             for key, value in (("schema_version", 1), ("job_count", 1), ("job_count", True), ("job_scenario", "smoke")):
