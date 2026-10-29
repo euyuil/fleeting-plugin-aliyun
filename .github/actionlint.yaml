@@ -1,0 +1,8 @@
+# GitHub-hosted GA labels missing from actionlint v1.7.12's built-in catalog:
+# https://github.blog/changelog/2026-09-17-ubuntu-26-generally-available-and-latest-migration/
+# This label extension does not select self-hosted runners. Remove it once the
+# pinned actionlint release recognizes these labels. Keep exact names, no globs.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

@@ -173,14 +173,17 @@ distribution binary. Run the offline regression tests with `make test`.
 
 PR CI and the pre-release cloud workflow call the same credential-free platform
 verifier with the artifact ID, manifest digest, source SHA and version. Native
-Ubuntu amd64 and arm64 hosts verify the downloaded manifest and build metadata,
-then install the complete OCI payload and run the real package lifecycle against
-the exact candidate bytes. The amd64 host also boots an isolated Debian 12
-userspace with systemd for the package lifecycle. It has no network during the
-test. No candidate is rebuilt by these checks, and no registry is published.
+Ubuntu 24.04 and 26.04 hosts, each on amd64 and arm64, verify the downloaded
+manifest and build metadata, then install the complete OCI payload and run the
+real package lifecycle against the exact candidate bytes. The Ubuntu 26.04 amd64
+host also boots an isolated Debian 12 userspace with systemd for the package
+lifecycle. It has no network during the test. No candidate is rebuilt by these
+checks, and no registry is published.
 A failed, canceled or skipped platform job blocks both the PR aggregate check
 and the start of cloud scenarios. Public download checks remain a separate
-post-publication requirement.
+post-publication requirement. The public verifier uses the same four Ubuntu
+combinations; receipt filenames and artifact names include the runner image and
+architecture so results cannot overwrite each other.
 
 ### Publication
 

@@ -86,9 +86,11 @@ CI uploads the candidate, downloads it by artifact ID, and compares
 every archive, Debian package, checksum file, and dependency inventory byte for
 byte. This exercises the pinned Node.js 24 artifact Actions without cloud access.
 The same sealed candidate also runs through `verify-candidate.yml` in PR CI and
-before cloud acceptance. Native Ubuntu amd64/arm64 jobs verify its source and
-manifest, install the full OCI payload, parse examples with the pinned Runner,
-and exercise the Debian package lifecycle. The amd64 job additionally boots an
+before cloud acceptance. General CI jobs use explicitly pinned Ubuntu 26.04
+hosts. The platform matrix retains Ubuntu 24.04 and adds Ubuntu 26.04, each on
+native amd64 and arm64. All four jobs verify the candidate source and manifest,
+install the full OCI payload, parse examples with the pinned Runner, and exercise
+the Debian package lifecycle. The Ubuntu 26.04 amd64 job additionally boots an
 isolated Debian 12 userspace with systemd and no network, then runs the lifecycle
 test on the same package. `tools/test-debian-system.sh` requires a disposable
 GitHub-hosted amd64 runner; debootstrap downloads authenticated Debian packages
