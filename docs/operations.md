@@ -1,5 +1,34 @@
 # Operating the provider
 
+## Worker and cloud prerequisites
+
+Prepare these resources before starting Runner:
+
+- A worker image with SSH, Git, a writable job directory, the matching Runner
+  binary, `timeout`, and the tools needed by your jobs. The examples wait for
+  `/var/lib/fleeting-worker/ready`; create that marker after preparing the image,
+  or replace `instance_ready_command` with a check suitable for your image.
+- For Docker jobs, a working Docker Engine on the worker, access to it for the
+  SSH user, and a pinned job image. See the [Docker example](../examples/docker-autoscaler/config.toml).
+- A launch template with the image, instance type, disk, network, and desired
+  Spot policy. Pin its version. CPU and memory come from the instance type.
+- A dedicated, active ESS group with desired capacity enabled, minimum `0`, a
+  finite maximum, and unit instance weights. For the first job, use desired `0`
+  and maximum `1`. Follow the [group compatibility rules](#dedicated-ess-group).
+- A cloud identity with the [required permissions](#authentication-and-permissions).
+  Give it to the Manager, not to job workers.
+- A route from the Manager to workers over SSH, and HTTPS access from both to
+  GitLab. Workers also need access to job dependencies and image registries.
+
+Use existing resources if they meet these requirements. The
+[infrastructure guide](../infra/README.md) describes image preparation and a
+separate test-fixture creation procedure. Its test markers and GitHub workflow
+variables are for this project's acceptance tests, not for running your jobs.
+
+The pinned upstream connector does not verify SSH server host keys. Use a
+trusted, isolated network route and restrict SSH ingress to the Manager. See
+[connection limits](adr/0003-state-and-connections.md).
+
 ## Dedicated ESS group
 
 Prepare an existing Active ECS group with desired capacity, MinSize=0, finite
@@ -54,18 +83,58 @@ ready; Runner owns connection and readiness timeouts.
 ## Other prepared workers
 
 [`examples/docker-autoscaler/config.toml`](../examples/docker-autoscaler/config.toml)
-uses the same provider with the official Docker Autoscaler executor. It requires
-a separately prepared compatible Docker worker image and an explicitly pinned
-job image. The default Instance example does not depend on Docker.
+uses the same provider with the official Docker Autoscaler executor. Follow the
+Quick Start, but copy
+`/usr/share/doc/fleeting-plugin-aliyun/examples/docker-autoscaler/config.toml`
+instead of the packaged VM example. Prepare a worker image with Docker Engine,
+allow the SSH user to access Docker, and set `runners.docker.image` to a job image
+pinned by digest. Use a dedicated ESS group for this pool. `manager setup` selects
+the installed native plugin for either example. Jobs can use the Docker executor's
+`image` and `services` features.
+
+The packaged service manages one pool per host. Use a separate Manager host for
+an additional pool, or manage multiple pools through a manual Runner setup.
+Hosting the Manager itself in Docker is a separate deployment choice; it does
+not select the job executor. Both job modes create ECS machines and require no
+Kubernetes or ACK. The default Instance example does not depend on Docker.
+
+To limit the job container, add `cpus` and `memory` to the existing
+`[runners.docker]` section, keeping your pinned image:
+
+```toml
+[runners.docker]
+  image = "REPLACE_WITH_PINNED_JOB_IMAGE_DIGEST"
+  cpus = "2"
+  memory = "4g"
+```
+
+These are container limits. The ECS size still comes from the launch template.
+Leave enough memory for the host and any helper or service containers. See the
+[Runner Docker settings](https://docs.gitlab.com/runner/configuration/advanced-configuration/#the-runnersdocker-section).
 
 [`examples/windows/config.toml`](../examples/windows/config.toml) uses static
-Windows amd64 WinRM HTTPS credentials and a prepared listener/certificate.
+Windows amd64 WinRM HTTPS credentials, PowerShell, and a prepared listener/certificate.
 The pinned upstream Fleeting connector skips server certificate verification,
 and its provider protocol exposes no CA-verification setting. HTTPS encrypts
 the connection but does not authenticate the server certificate. Use an isolated
 authenticated network and treat verified TLS server identity as an upstream
 limitation. Offline tests cover connection information; a real Windows session
 has not run. See [ADR 0003](adr/0003-state-and-connections.md).
+
+## Choose CPU and memory
+
+Choose the VM size before jobs run. Set an ECS `InstanceType` in the launch
+template used by the ESS group. The infrastructure script takes this value from
+`INSTANCE_TYPE`. The plugin does not accept `cpu` or `memory` settings.
+
+For different job sizes, create separate Runner pools, each with its own ESS
+group and launch template. For example, give a 2 vCPU / 4 GiB pool the tag
+`aliyun-vm-2c4g` and an 8 vCPU / 16 GiB pool the tag `aliyun-vm-8c16g`. A job picks
+one with `tags: [aliyun-vm-8c16g]`. Tags select pools; they do not set machine size.
+
+`capacity_per_instance` means concurrent job slots per VM. `max_instances` means
+the maximum number of VMs. Neither setting controls CPU or memory. The examples
+use one slot per VM and release each VM after one job.
 
 ## Authentication and permissions
 
