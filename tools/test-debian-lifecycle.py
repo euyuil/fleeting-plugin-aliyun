@@ -72,7 +72,8 @@ def main():
             assert (docs / "LICENSE").is_file() and (docs / "dependencies.json").is_file()
             assert any((docs / "_licenses").iterdir())
     reserved = [Path(CLI), Path("/usr/bin/gitlab-runner"), CONFIG, HOME, RECEIPT, FIXTURE,
-                Path("/usr/lib/systemd/system") / SERVICE, Path("/etc/systemd/system") / SERVICE]
+                Path("/usr/lib/systemd/system") / SERVICE, Path("/etc/systemd/system") / SERVICE,
+                Path("/run/systemd/system") / SERVICE]
     if any(p.exists() or p.is_symlink() for p in reserved) or subprocess.run(
             ["getent", "passwd", "gitlab-runner-aliyun"], stdout=subprocess.DEVNULL).returncode == 0:
         raise SystemExit("refusing a host with an existing installation or test fixture")
@@ -190,6 +191,7 @@ while True:
             run("dpkg", "-i", package, ok=False)
             run("dpkg", "--remove", "fleeting-plugin-aliyun", ok=False)
             assert run("systemctl", "show", SERVICE, "--property=ActiveState", "--value") == "active"
+            manager_pid = run("systemctl", "show", SERVICE, "--property=MainPID", "--value")
             stop = subprocess.Popen([CLI, "manager", "stop"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             wait_for(lambda: (FIXTURE / "work/draining").exists(), "SIGQUIT drain")
             assert "deactivating" in run(CLI, "manager", "status")
@@ -198,6 +200,17 @@ while True:
             (FIXTURE / "work/finish").touch()
             stdout, stderr = stop.communicate(timeout=30)
             assert stop.returncode == 0, stderr
+            assert run("systemctl", "show", SERVICE, "--property=ExecMainPID", "--value") == manager_pid
+            # Acceptance recovery fences orphaned startup helpers after draining.
+            run("systemctl", "mask", "--runtime", SERVICE)
+            run("systemctl", "stop", SERVICE)
+            run(CLI, "manager", "start", ok=False)
+            run("systemctl", "enable", "--now", SERVICE, ok=False)
+            assert run("systemctl", "show", SERVICE, "--property=LoadState", "--value") == "masked"
+            assert run("systemctl", "show", SERVICE, "--property=MainPID", "--value") == "0"
+            assert run("systemctl", "show", SERVICE, "--property=ControlGroup", "--value") == ""
+            # This offline lifecycle test continues with upgrade/remove checks.
+            run("systemctl", "unmask", "--runtime", SERVICE)
             before = snapshot()
             # Repack the same tested payload at a newer test-only package version.
             unpacked = temporary / "upgrade"
@@ -234,6 +247,7 @@ while True:
     finally:
         (FIXTURE / "work/finish").touch()
         # Only paths reserved and verified absent by this test are cleaned up.
+        subprocess.run(["systemctl", "unmask", "--runtime", SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["systemctl", "stop", SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
         subprocess.run(["dpkg", "--purge", "fleeting-plugin-aliyun"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wrapper.unlink(missing_ok=True)

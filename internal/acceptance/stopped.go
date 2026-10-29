@@ -67,6 +67,9 @@ func ConfirmStoppedRun(ctx context.Context, l *Ledger, token string) error {
 // StopLocalManager only signals a PID whose /proc command line names this run's
 // private config. Arbitrary PIDs from an artifact are never trusted.
 func StopLocalManager(ctx context.Context, l *Ledger, outputDir string) error {
+	if l.ManagerMode == "systemd" {
+		return stopPackagedManager(ctx, l)
+	}
 	if _, err := os.Stat("/proc/self"); err != nil {
 		return errors.New("local process termination requires Linux procfs; use janitor after run completion")
 	}

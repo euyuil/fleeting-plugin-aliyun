@@ -46,8 +46,10 @@ statuses and timings without the target address.
 
 The [pre-release cloud gate](pre-release-cloud.md) automates the six modes below
 with fresh fixtures, a separate account and exact candidate-artifact binding.
-Its manual entry can also run a single mode without publication. The older
-`Live acceptance` workflow and one-time setup below remain the GitLab path.
+Its manual entry can also run a single mode without publication. The
+[release job gate](job-acceptance.md) bootstraps fresh official-image workers for
+real GitLab jobs. The older `Live acceptance` workflow and one-time setup below
+remain available for explicit checks of a reusable pool.
 
 `LIVE_EXTENDED_MODE=cloud-smoke` runs one real release-plugin process through
 the pinned Fleeting gRPC host. It requires a separately authorized, dedicated
@@ -315,6 +317,40 @@ The controller rejects a missing or different execution environment. The result
 records executor, OCI reference/version, job image and normal-release outcome.
 `manager.log` is private diagnostic output under the run evidence directory;
 review and redact it before sharing. It is not uploaded by the live workflow.
+
+### Packaged systemd Manager acceptance
+
+On a disposable GitHub-hosted Linux systemd host running a protected-main
+workflow, install the candidate `.deb` and the pinned
+official Runner at `/usr/bin/gitlab-runner`. Set
+`ACCEPTANCE_MANAGER_MODE=systemd`, `ACCEPTANCE_DISPOSABLE_HOST=true`, and the exact
+`PLUGIN_VERSION`; leave `PLUGIN_REFERENCE` unset. Supply fresh STS credentials
+in the standard three `ALIBABA_CLOUD_*` variables. All existing GitLab, worker,
+candidate and budget checks still apply. This mode requires passwordless `sudo`
+and refuses existing Manager configuration, home or ownership state. Local and
+self-hosted machines are excluded: the independent janitor relies on GitHub
+disposing of the hosted VM when the owning workflow ends.
+
+The driver reads the executor's example from the installed package, fills its
+fixture values, and invokes the installed `manager setup` and `manager start`.
+The package creates the service identity, permissions, environment and systemd
+unit; no fake Runner or local daemon wrapper is used. The installed plugin must
+match `PLUGIN_BINARY` byte for byte and the installed Runner must match its
+pinned checksum. GitLab validates the package-created Runner system ID before
+the service starts. A stopped or restarted Manager fails the job check.
+
+Cleanup binds service operations to a root-owned marker containing this run's
+identity and configuration checksum. It stops the complete owned systemd unit
+before cloud cleanup and proves that its Manager PID and control group are gone.
+External local cleanup also requires the original driver process to have exited,
+so it cannot race with a driver that is about to start the service.
+Final cleanup also runtime-masks the owned service before its last stop check;
+an orphaned privileged startup helper cannot reactivate it after cleanup.
+A forced stop cannot certify a passing acceptance result. If writer termination
+cannot be proved, cloud cleanup is deferred to the independent janitor after the
+owning workflow has completed. The systemd journal and service configuration
+remain private on the disposable host. Offline tests cover ownership rejection,
+budget checks and stop failures; a passing offline test is not a real job receipt.
 
 ## Smoke evidence and budgets
 

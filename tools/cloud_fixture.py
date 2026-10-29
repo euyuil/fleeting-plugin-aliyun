@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
 DRILL_MODE = "cleanup-drill"
+JOB_MODES = tuple(f"job-{phase}-{executor}" for phase in ("candidate", "public") for executor in ("instance", "docker-autoscaler"))
 SPECS = {
     "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
     "vswitch": ("vpc", "DescribeVSwitches", "VSwitches", "VSwitch", "VSwitchId", "VSwitchName"),
@@ -65,7 +67,7 @@ def labels(project, sha, run, attempt, mode, expires):
     revision(sha)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", project):
         raise ValueError("an exact owner/repository is required")
-    if mode not in (*MODES, DRILL_MODE) or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
+    if mode not in (*MODES, *JOB_MODES, DRILL_MODE) or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
         raise ValueError("invalid scenario or run identity")
     return {"fleeting-purpose": PURPOSE, "fleeting-project": project, "fleeting-candidate": sha,
             "fleeting-ci-run": run, "fleeting-ci-attempt": attempt, "fleeting-scenario": mode,
@@ -75,6 +77,7 @@ def labels(project, sha, run, attempt, mode, expires):
 def name_for(tags):
     aliases = dict(zip(MODES, ("smoke", "scale", "restart", "creating", "removing", "lost-reply")))
     aliases[DRILL_MODE] = "cleanup"
+    aliases.update(zip(JOB_MODES, ("job-pre-vm", "job-pre-docker", "job-post-vm", "job-post-docker")))
     identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
     return f"fleeting-pre-release-{aliases[tags['fleeting-scenario']]}-{tags['fleeting-ci-run'][-12:]}-{token}"
@@ -290,9 +293,11 @@ class Fixture:
             time.sleep(3)
         raise RuntimeError("fixture observation deadline: " + kind)
 
-    def prepare(self, cidr, config):
+    def prepare(self, cidr, config, *, worker_script=None):
         if config["region"] != self.cloud.region:
             raise ValueError("fixture region differs from the authenticated client")
+        if worker_script is not None and (self.tags["fleeting-scenario"] not in JOB_MODES or not isinstance(worker_script, str) or not worker_script):
+            raise ValueError("worker bootstrap is restricted to job acceptance")
         if self.state["operations"]:
             raise ValueError("existing fixture state is preserved; clean up before retrying")
         for name, kind, extra in (("worker-key", "rsa", ["-b", "3072"]), ("host-key", "ed25519", [])):
@@ -311,6 +316,10 @@ class Fixture:
         user_data = "#cloud-config\ndisable_root: false\nssh_pwauth: false\nssh_genkeytypes: [ed25519]\nssh_keys:\n  ed25519_private: |\n"
         user_data += "".join("    " + line + "\n" for line in private.splitlines())
         user_data += "  ed25519_public: " + public + "\nswap:\n  filename: /swapfile\n  size: " + str(config["swap_mib"] * 1024 * 1024) + "\n"
+        if worker_script is not None:
+            worker_key = (self.directory / "worker-key.pub").read_text().strip()
+            script = "export WORKER_PUBLIC_KEY=" + shlex.quote(worker_key) + "\n" + worker_script
+            user_data += "runcmd:\n  - " + json.dumps(["sh", "-c", script]) + "\n"
         self.create("template", "CreateLaunchTemplate", {
             "LaunchTemplateName": self.name, "VersionDescription": PURPOSE, "ImageId": config["image"],
             "InstanceType": config["instance_type"], "ZoneId": config["zone"], "VSwitchId": ids["vswitch"], "SecurityGroupId": ids["sg"],

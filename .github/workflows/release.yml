@@ -42,6 +42,10 @@ jobs:
       RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
       RELEASE_ALIYUN_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_FIXTURE_CONFIG }}
       RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS }}
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
+      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+      RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
     with:
       version: ${{ inputs.version }}
       candidate_sha: ${{ github.sha }}
@@ -102,3 +106,28 @@ jobs:
     with:
       version: ${{ inputs.version }}
       expected_revision: ${{ needs.acceptance.outputs.candidate_sha }}
+  public_jobs:
+    needs: [acceptance, publish, verify]
+    concurrency:
+      group: aliyun-pre-release-acceptance
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance.yml
+    secrets:
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS }}
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
+      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+      RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
+    with:
+      artifact_id: ${{ needs.acceptance.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.acceptance.outputs.manifest_sha256 }}
+      candidate_sha: ${{ needs.acceptance.outputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: public

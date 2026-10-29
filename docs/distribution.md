@@ -169,6 +169,14 @@ and receipts from another candidate. The response-loss scenario must identify it
 instrumented binary; the other five must identify the ordinary Linux amd64
 distribution binary. Run the offline regression tests with `make test`.
 
+The full workflow also requires `tools/job_acceptance.py` to certify both real
+executor jobs through the candidate `.deb`, installed examples and systemd
+Manager. Those receipts bind the package checksum, private fixture configuration
+digests and exact workflow attempt. Both normal scale-in and complete fixture
+cleanup must pass. See [release job acceptance](job-acceptance.md) for its
+separate base-image and GitLab configuration. A selected single scenario or
+jobs-only run cannot mark a candidate ready for publication.
+
 ### Candidate platform checks
 
 PR CI and the pre-release cloud workflow call the same credential-free platform
@@ -192,7 +200,7 @@ version, and invoke Release explicitly. Preflight requires the first line of
 `docs/release-notes.md` to be `# VERSION`, matching the requested version, before
 querying remote state. It also refuses existing Releases and source tags.
 The [pre-release cloud gate](pre-release-cloud.md) must then pass all
-six plugin-only scenarios and complete fixture cleanup in the separately
+six plugin-only scenarios, both real executor jobs and complete fixture cleanup in the separately
 configured test account. Missing configuration blocks publication. The workflow
 reuses the exact accepted artifacts without rebuilding, creates the candidate's
 source tag before OCI publication and requires that tag when creating the Release. Prerelease

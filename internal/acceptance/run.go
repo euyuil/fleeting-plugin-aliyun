@@ -115,6 +115,10 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	result.Executor, result.PluginReference = options.executor, options.reference
 	result.PluginVersion, result.JobImage = options.version, options.image
+	result.ManagerMode = options.manager
+	if options.manager == "systemd" {
+		result.DriverPID = os.Getpid()
+	}
 	gitlabURL := get("GITLAB_URL")
 	if gitlabURL == "" {
 		gitlabURL = "https://gitlab.com"
@@ -153,6 +157,10 @@ func Run(ctx context.Context, dir string) (result Result) {
 	runnerPath, err := filepath.Abs(get("RUNNER_BINARY"))
 	if err != nil {
 		fail(err)
+		return result
+	}
+	if options.manager == "systemd" && runnerPath != "/usr/bin/gitlab-runner" {
+		fail(errors.New("systemd acceptance must use the installed Runner package"))
 		return result
 	}
 	result.RunnerSHA256, err = VerifyRunnerBinary(runnerPath, "upstream.lock.json")
@@ -258,7 +266,21 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	var manager *exec.Cmd
 	var managerDone chan error
-	stopManager := func() {
+	var service *packagedManager
+	stopManager := func() error {
+		if service != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			forced, err := service.stop(stopCtx)
+			if err != nil {
+				return err
+			}
+			service = nil
+			if forced {
+				result.Result = "FAIL_PRODUCT"
+				fail(errors.New("packaged Manager did not complete a healthy graceful shutdown"))
+			}
+		}
 		if manager != nil && manager.Process != nil {
 			_ = manager.Process.Signal(syscall.SIGQUIT)
 			select {
@@ -269,9 +291,14 @@ func Run(ctx context.Context, dir string) (result Result) {
 			}
 			manager = nil
 		}
+		return nil
 	}
 	defer func() {
-		stopManager()
+		if err := stopManager(); err != nil {
+			result.Result = "CLEANUP_FAILED"
+			fail(err)
+			return // Never delete workers while the service may still write capacity.
+		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer cancel()
 		if result.PipelineID != 0 && result.Result != "PASS" {
@@ -295,7 +322,11 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(err)
 		return result
 	}
-	defer func() { stopManager(); _ = os.RemoveAll(privateDir) }()
+	defer func() {
+		if stopManager() == nil {
+			_ = os.RemoveAll(privateDir)
+		}
+	}()
 	if err = os.WriteFile(filepath.Join(privateDir, "fleeting-plugin-aliyun"), binary, 0700); err != nil {
 		fail(err)
 		return result
@@ -314,41 +345,68 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(errors.New("cannot persist Manager system identity"))
 		return result
 	}
-	cfg := RunnerConfig(gitlabURL, get("GITLAB_RUNNER_TOKEN"), result.Region, result.GroupID, get("WORKER_USER"), keyPath, options)
-	configPath := filepath.Join(privateDir, "config.toml")
-	if err = os.WriteFile(configPath, []byte(cfg), 0600); err != nil {
-		fail(err)
-		return result
-	}
-	if options.reference != "fleeting-plugin-aliyun" {
-		install := exec.CommandContext(ctx, runnerPath, "fleeting", "--config", configPath, "install")
-		if err = install.Run(); err != nil {
-			fail(errors.New("Runner OCI installation failed"))
+	if options.manager == "systemd" {
+		example, e := os.ReadFile(filepath.Join("/usr/share/doc/fleeting-plugin-aliyun/examples", options.executor, "config.toml"))
+		if e != nil {
+			fail(errors.New("installed package example is missing"))
 			return result
 		}
-		if err = verifyInstalledPlugin(options.reference, binary); err != nil {
+		config, e := packagedRunnerConfig(example, gitlabURL, get("GITLAB_RUNNER_TOKEN"), result.Region, result.GroupID, get("WORKER_USER"), options)
+		if e != nil {
+			fail(e)
+			return result
+		}
+		service, systemID, err = preparePackagedManager(ctx, privateDir, &result.Ledger, binary, keyPath, config)
+		if err != nil {
 			fail(err)
 			return result
 		}
+		if err = VerifyGitLabFixture(ctx, gl, runnerID, get("GITLAB_RUNNER_TAG"), get("GITLAB_RUNNER_TOKEN"), systemID); err != nil {
+			fail(err)
+			return result
+		}
+		result.ManagerPID, err = service.start(ctx)
+		if err != nil {
+			fail(err)
+			return result
+		}
+	} else {
+		cfg := RunnerConfig(gitlabURL, get("GITLAB_RUNNER_TOKEN"), result.Region, result.GroupID, get("WORKER_USER"), keyPath, options)
+		configPath := filepath.Join(privateDir, "config.toml")
+		if err = os.WriteFile(configPath, []byte(cfg), 0600); err != nil {
+			fail(err)
+			return result
+		}
+		if options.reference != "fleeting-plugin-aliyun" {
+			install := exec.CommandContext(ctx, runnerPath, "fleeting", "--config", configPath, "install")
+			if err = install.Run(); err != nil {
+				fail(errors.New("Runner OCI installation failed"))
+				return result
+			}
+			if err = verifyInstalledPlugin(options.reference, binary); err != nil {
+				fail(err)
+				return result
+			}
+		}
+		managerLog, err := os.OpenFile(filepath.Join(dir, "manager.log"), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+		if err != nil {
+			fail(errors.New("cannot create private Manager log"))
+			return result
+		}
+		defer func() { stopManager(); _ = managerLog.Close() }()
+		manager = exec.Command(runnerPath, "run", "--config", configPath, "--working-directory", privateDir)
+		manager.Env = append(os.Environ(), "PATH="+privateDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		manager.Stdout = managerLog
+		manager.Stderr = managerLog
+		managerDone = make(chan error, 1)
+		if err = manager.Start(); err != nil {
+			fail(errors.New("Runner Manager failed to start"))
+			return result
+		}
+		managerProcess := manager
+		go func() { managerDone <- managerProcess.Wait() }()
+		result.ManagerPID = manager.Process.Pid
 	}
-	managerLog, err := os.OpenFile(filepath.Join(dir, "manager.log"), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
-	if err != nil {
-		fail(errors.New("cannot create private Manager log"))
-		return result
-	}
-	defer func() { stopManager(); _ = managerLog.Close() }()
-	manager = exec.Command(runnerPath, "run", "--config", configPath, "--working-directory", privateDir)
-	manager.Env = append(os.Environ(), "PATH="+privateDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	manager.Stdout = managerLog
-	manager.Stderr = managerLog
-	managerDone = make(chan error, 1)
-	if err = manager.Start(); err != nil {
-		fail(errors.New("Runner Manager failed to start"))
-		return result
-	}
-	managerProcess := manager
-	go func() { managerDone <- managerProcess.Wait() }()
-	result.ManagerPID = manager.Process.Pid
 	result.ManagerDirectory = filepath.Base(privateDir)
 	if err = result.Ledger.Save(); err != nil {
 		fail(errors.New("cannot persist Manager identity"))
@@ -368,6 +426,13 @@ func Run(ctx context.Context, dir string) (result Result) {
 	stageCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 	for {
+		if service != nil {
+			pid, e := service.running(stageCtx)
+			if e != nil || pid != result.ManagerPID {
+				fail(errors.New("packaged Manager exited or restarted during the job"))
+				return result
+			}
+		}
 		select {
 		case <-managerDone:
 			manager = nil
@@ -443,6 +508,13 @@ func Run(ctx context.Context, dir string) (result Result) {
 		result.Result = liveFailure(err)
 		fail(err)
 		return result
+	}
+	if service != nil {
+		if pid, e := service.running(stageCtx); e != nil || pid != result.ManagerPID {
+			result.Result = "FAIL_PRODUCT"
+			fail(errors.New("packaged Manager exited or restarted during normal release"))
+			return result
+		}
 	}
 	result.Result = "PASS"
 	result.NormalRelease = true

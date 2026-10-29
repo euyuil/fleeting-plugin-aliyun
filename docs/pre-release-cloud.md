@@ -1,9 +1,11 @@
 # Pre-release cloud acceptance
 
-Release runs the six plugin-only cloud scenarios before creating a source tag,
+Release requires the six plugin-only cloud scenarios and both
+[packaged GitLab job checks](job-acceptance.md) before creating a source tag,
 publishing OCI packages or creating a GitHub Release. This applies to release
-candidates and stable versions. PR and main CI remain credential-free. There is
-no GitLab server, Runner Manager, GitLab token or executor job in this gate.
+candidates and stable versions. PR and main CI remain credential-free. The six
+scenarios below exercise the plugin directly; the separate job gate uses a real
+systemd Runner Manager and the dedicated GitLab.com fixture project.
 
 ## Configure a separate account
 
@@ -181,11 +183,24 @@ equality, and per-scenario receipts are checked again before publication.
 Publication downloads the accepted artifact and never rebuilds the distribution.
 The test-only responsegate binary is outside `dist/` and is never published.
 
+Mode `all` requires all six scenarios followed by both real executor jobs. Mode
+`jobs` runs only the two executor jobs against a sealed candidate, without
+publication. A selected single plugin scenario remains available independently.
+Only a complete `all` run can return `release_ready=true`; missing job
+configuration or disabled job acceptance fails the full release gate.
+
 The matrix runs serially with fail-fast enabled. Each scenario has a fresh
 fixture and private evidence directory. Ordinary scenarios execute the native
 Linux amd64 archive's binary. The response-loss case uses its separately marked
 instrumented binary. This is Linux amd64 Manager cloud evidence; arm64 native
 installation verification remains separate.
+
+The caller holds the shared cloud concurrency group through the candidate job
+checks. After publication and the anonymous installation matrix, Release
+reacquires that group for both public-package job checks. Executor jobs are
+serial and use distinct temporary fixtures. The reusable job workflow does not
+acquire its caller's group a second time. Completion-triggered janitor recovery
+includes these job fixtures through the owning Release or Cloud acceptance run.
 
 Every scenario receipt retains a restricted diagnostic summary: test source line numbers,
 fixed API/transport error categories, observed worker/check counts, boolean acceptance

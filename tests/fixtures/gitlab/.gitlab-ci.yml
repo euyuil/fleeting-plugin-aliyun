@@ -6,7 +6,7 @@ workflow:
 spot-smoke:
   tags:
     - $FLEETING_RUNNER_TAG
-  timeout: 5m
+  timeout: 20m
   retry: 0
   script:
     - test "$CI_RUNNER_ID" = "$FLEETING_EXPECTED_RUNNER_ID"
