@@ -23,6 +23,7 @@ from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
 DRILL_MODE = "cleanup-drill"
+JOB_MODES = tuple(f"job-{phase}-{executor}" for phase in ("candidate", "public") for executor in ("instance", "docker-autoscaler"))
 SPECS = {
     "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
     "vswitch": ("vpc", "DescribeVSwitches", "VSwitches", "VSwitch", "VSwitchId", "VSwitchName"),
@@ -65,7 +66,7 @@ def labels(project, sha, run, attempt, mode, expires):
     revision(sha)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", project):
         raise ValueError("an exact owner/repository is required")
-    if mode not in (*MODES, DRILL_MODE) or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
+    if mode not in (*MODES, *JOB_MODES, DRILL_MODE) or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
         raise ValueError("invalid scenario or run identity")
     return {"fleeting-purpose": PURPOSE, "fleeting-project": project, "fleeting-candidate": sha,
             "fleeting-ci-run": run, "fleeting-ci-attempt": attempt, "fleeting-scenario": mode,
@@ -75,6 +76,7 @@ def labels(project, sha, run, attempt, mode, expires):
 def name_for(tags):
     aliases = dict(zip(MODES, ("smoke", "scale", "restart", "creating", "removing", "lost-reply")))
     aliases[DRILL_MODE] = "cleanup"
+    aliases.update(zip(JOB_MODES, ("job-pre-vm", "job-pre-docker", "job-post-vm", "job-post-docker")))
     identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
     return f"fleeting-pre-release-{aliases[tags['fleeting-scenario']]}-{tags['fleeting-ci-run'][-12:]}-{token}"
