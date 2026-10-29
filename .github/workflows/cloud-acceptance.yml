@@ -51,7 +51,12 @@ concurrency:
   group: aliyun-pre-release-acceptance
   cancel-in-progress: false
 jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    with:
+      source_ref: ${{ inputs.candidate_sha || github.sha }}
   build:
+    needs: security
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25

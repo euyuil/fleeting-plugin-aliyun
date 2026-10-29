@@ -61,7 +61,7 @@ SHAs. The three-dot range checks changes since their merge base, including when
 the target branch has advanced. For pushes to `main`, CI checks the event's
 before and after SHAs with `git diff --check "$BASE_SHA" "$HEAD_SHA" --`.
 The `main` ruleset requires the aggregate `offline` check from GitHub Actions
-before merging. It rejects failed, canceled, or skipped build/platform jobs.
+before merging. It rejects failed, canceled, or skipped build/platform/security jobs.
 CI uploads the candidate, downloads it by artifact ID, and compares
 every archive, Debian package, checksum file, and dependency inventory byte for
 byte. This exercises the pinned Node.js 24 artifact Actions without cloud access.
@@ -74,8 +74,31 @@ test on the same package. `tools/test-debian-system.sh` requires a disposable
 GitHub-hosted amd64 runner; debootstrap downloads authenticated Debian packages
 before the isolated test starts. No cloud or GitLab credentials are used.
 
-This repository has no configured commit hooks or security scanner.
-Do not claim that an unconfigured check ran.
+Security checks run on every PR/main CI and before release candidate builds.
+They use checksum-pinned Gitleaks and ShellCheck, hash-locked Ruff wheels, and a
+pinned govulncheck module. A weekly/manual credential-free scan also checks main
+against newly disclosed Go vulnerabilities. PR secret scans cover commits since
+the PR base; main/manual/weekly scans cover all fetched history. Findings block
+the required aggregate check. Dependabot proposes Go, Action, and Python tooling
+updates; updates still require normal review and CI.
+
+```sh
+make security
+```
+
+This installs the exact tools into `.cache/` and runs script checks, a redacted
+history secret scan, and Go vulnerability analysis. `SCAN_RANGE=BASE..HEAD` can
+limit the history scan locally. Before committing, also scan the staged diff:
+
+```sh
+.cache/tools/gitleaks git --pre-commit --staged --redact --no-banner .
+```
+
+`.gitleaksignore` contains only a reviewed historical public Action SHA false
+positive, identified by its exact commit/file/rule/line fingerprint. Do not add
+broad exclusions for real findings. ShellCheck's local SC2016 exception preserves
+intentional expansion inside the target user's `su` shell. No commit hooks are
+configured; the commands above are explicit developer checks.
 
 ## Inspect the OIDC subject
 

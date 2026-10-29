@@ -39,3 +39,16 @@ cleanup:
 	$(GO) run -tags live ./cmd/aliyun-acceptance cleanup
 test-live-extended:
 	WORKER_SSH_KEY="$(abspath $(WORKER_SSH_KEY))" PLUGIN_BINARY="$(if $(PLUGIN_BINARY),$(abspath $(PLUGIN_BINARY)))" ACCEPTANCE_OUTPUT="$(abspath $(or $(ACCEPTANCE_OUTPUT),.live))" $(GO) test -tags live -count=1 -timeout=30m -v ./tests/live
+
+.PHONY: security-tools lint-scripts security
+security-tools:
+	$(PYTHON) tools/dev_tools.py gitleaks shellcheck
+	$(PYTHON) -m venv .cache/venv
+	.cache/venv/bin/python -m pip install --require-hashes --only-binary=:all: -r tools/requirements-dev.txt
+	GOBIN=$(CURDIR)/.cache/tools $(GO) install golang.org/x/vuln/cmd/govulncheck@$(shell $(PYTHON) -c 'import json; print(json.load(open("upstream.lock.json"))["tools"]["govulncheck"])')
+lint-scripts: security-tools
+	.cache/venv/bin/ruff check .
+	.cache/tools/shellcheck infra/*.sh infra/fleeting-authorize-key packaging/debian/preinst packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm tests/fixtures/gitlab/*.sh tools/*.sh
+security: lint-scripts
+	.cache/tools/gitleaks git --redact --no-banner --log-opts="$(or $(SCAN_RANGE),--all)" .
+	.cache/tools/govulncheck ./...
