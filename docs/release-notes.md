@@ -36,6 +36,12 @@ The OCI plugin is `ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3`.
   disposable fixtures, bounded Spot workers, per-scenario cleanup, and an
   independent janitor. Scope cleanup tokens to each fixture group and report
   sanitized diagnostics without private account or resource information.
+- Keep cleanup enabled independently of new acceptance creation. Add a manual
+  interruption drill that kills the fixture writer after one Spot worker is
+  running, then requires a fresh janitor to recover exactly that fixture.
+- Preserve the original failure phase and error category separately from cleanup
+  outcomes. Respect the ESS activity-history page limit while rejecting
+  incomplete creation evidence.
 
 ## Validation and limits
 
@@ -45,6 +51,13 @@ those accepted binaries. The scenarios cover scale-out, specified scale-in,
 ready-worker restart, restart during creation and removal, and instrumented
 loss of an expansion reply. They test the plugin on Linux amd64; they do not
 run GitLab CI jobs.
+
+The separate interruption drill passed on source `8d51b87`: the writer was killed
+before cleanup, and the independent janitor recovered one fixture, verified the
+one-worker budget, and confirmed zero leftovers. This is completion-triggered
+recovery evidence; it does not replace the exact release candidate's six-scenario
+gate or establish scheduled expiry recovery. See the
+[drill evidence](https://github.com/euyuil/fleeting-plugin-aliyun/blob/v0.1.0-rc.3/docs/acceptance-report.md#independent-cleanup-after-real-writer-interruption).
 
 Full Linux VM and Docker job cycles previously passed with `0.1.0-rc.2` and
 Runner 19.5.1. Those results are separate from this release's cloud gate and

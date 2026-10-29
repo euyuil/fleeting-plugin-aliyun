@@ -25,7 +25,7 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
    pending human approval; release initiation itself remains an explicit manual
    operation. Trust the exact repository/environment, not every repository in
    the owner account. See [GitHub OIDC guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-cloud-providers).
-4. Set the following in that **Environment**, initially leaving the enabled flag false.
+4. Set the following in that **Environment**, initially leaving both enabled flags false.
    Account identifiers and ARNs should normally be **Secrets**. The workflow also
    accepts Variables; a nonempty Secret takes precedence. Resource settings may
    be Variables or Secrets. Do not keep duplicate names in both stores. The
@@ -34,7 +34,8 @@ resource creation. Do not supply an AccessKey or a browser-login refresh token.
 
    | Name | Value |
    | --- | --- |
-   | `RELEASE_CLOUD_ACCEPTANCE_ENABLED` | `true` only after reviewing the new account and role scopes |
+   | `RELEASE_CLOUD_ACCEPTANCE_ENABLED` | Allows new paid acceptance runs; requires cleanup to be enabled too |
+   | `RELEASE_CLOUD_CLEANUP_ENABLED` | Allows independent recovery with new acceptance disabled; enable after reviewing the account, role and cleanup regions |
    | `RELEASE_ALIYUN_ACCOUNT_ID` | The new account's 16-digit account ID |
    | `RELEASE_ALIYUN_ROLE_ARN` | Acceptance role ARN in that account |
    | `RELEASE_ALIYUN_CLEANUP_ROLE_ARN` | Optional separate cleanup role ARN; omitted by default, so cleanup uses the acceptance role |
@@ -156,6 +157,11 @@ Dedicated account isolation is required even with these application checks.
    [`ess:ScaleWithAdjustment`](https://help.aliyun.com/zh/auto-scaling/developer-reference/api-ess-2022-02-22-scalewithadjustment).
    Do not grant administrator policies to solve a missing action. Enable the gate
    only when this review and separate paid-operation authorization are complete.
+   Set `RELEASE_CLOUD_CLEANUP_ENABLED=true` before enabling acceptance. Existing
+   installations must add this explicit variable; an unset value disables the
+   janitor and blocks new acceptance. Read-only configuration checks need neither
+   switch. To stop new runs, set only `RELEASE_CLOUD_ACCEPTANCE_ENABLED=false`;
+   keep cleanup enabled until all owned resources are confirmed absent.
 
 If the setup check fails, use its step to locate the boundary: local preflight
 means missing/invalid configuration; OIDC authentication means issuer/audience,
@@ -181,12 +187,32 @@ Linux amd64 archive's binary. The response-loss case uses its separately marked
 instrumented binary. This is Linux amd64 Manager cloud evidence; arm64 native
 installation verification remains separate.
 
-Driver failures print a restricted diagnostic summary: test source line numbers,
+Every scenario receipt retains a restricted diagnostic summary: test source line numbers,
 fixed API/transport error categories, observed worker/check counts, boolean acceptance
 checks, and matching error-message templates from the candidate's public Go
 source. Templates retain format placeholders instead of private runtime values.
 Raw driver logs, resource identities, API request IDs, and cloud error messages
 remain private. The summary does not replace a passing scenario/cleanup receipt.
+
+The `diagnostics` object separates fixture setup, the driver and outer fixture
+cleanup, with an outcome and elapsed milliseconds for each attempted operation.
+Driver evidence separately records the scenario outcome **before cleanup** and
+the driver's own cleanup outcome. A cleanup failure cannot overwrite the original
+scenario failure. Phase summaries identify inventory checks before SSH,
+connection-info retrieval, SSH execution, restart checks and release/cleanup.
+Repeated phase visits are aggregated; durations stop at the last received marker,
+so a killed driver's final phase can be incomplete and its outcome stays `UNKNOWN`.
+The first reported failure phase is retained even when later cleanup phases run.
+
+API summaries retain only allowlisted service/action/code values and fixed error
+categories. Unknown codes become `unknown`; request IDs, API parameters and error
+messages are excluded. API actions are available for the live harness and fixture
+CLI; plugin subprocess errors may have only a code/category. Phase attribution
+describes when a message was observed, not proof of the underlying cause. The
+driver runs with verbose output into its private log so interrupted runs retain
+phase markers. A sanitized console summary also survives receipt-write failure.
+All existing candidate, functional and zero-resource cleanup requirements still
+apply; diagnostic outcomes never make an otherwise failed gate pass.
 
 | Mode | Required outcome | Creation budget |
 | --- | --- | --- |
@@ -286,13 +312,21 @@ region, scaling group, CI run and attempt. Different scenario groups in one run
 cannot share a token, while retries for the same group retain their identity.
 Idempotency parameter conflicts have a fixed public diagnostic category.
 
-`Pre-release cloud janitor` runs independently after Release/Cloud acceptance,
+`Pre-release cloud janitor` runs independently after Release/Cloud acceptance/Cloud cleanup drill,
 hourly, and on manual dispatch. It discovers labelled fixtures without relying
 on a prior runner's files/artifacts, verifies the owning GitHub run attempt is
 completed, and uses the configured role (the acceptance role by default).
 A completed-run event can recover
 that exact run/attempt immediately; scheduled/manual scans recover expired
-fixtures. Manual cleanup can also select an exact completed run and attempt.
+fixtures. Manual cleanup can also select an exact completed run and attempt;
+this selection never includes another run's expired resources. An expiry scan
+without a selector still requires each owning attempt to be completed, and
+preserves active, foreign or ambiguously owned resources.
+The janitor uses `RELEASE_CLOUD_CLEANUP_ENABLED`, independently of the creation
+switch. Its CLI boundary allows only identity/inventory reads and deletion;
+creation, expansion and tag mutation are rejected even when using the same RAM
+role as acceptance. This local guard supplements the RAM policy and ownership
+checks; it does not grant additional permissions.
 ECS auto-release is an additional one-hour bound, not a substitute for
 fixture teardown or an account spending cap.
 
@@ -303,6 +337,73 @@ pass. Inspect failures and clean leftovers before starting a fresh complete run;
 do not automatically retry paid scenarios or reuse old successful receipts.
 Only sanitized summary receipts are uploaded. Raw CLI replies, account/resource
 identities, SSH material and driver logs remain private on the ephemeral runner.
+
+## Controlled interruption drill
+
+**Cloud cleanup drill** is a separate manual entry on main. It is not a release
+scenario and cannot satisfy the six-scenario gate. It uses the same parameterized
+fixture configuration and dedicated account, requires both cloud switches plus
+the explicit `confirm_abandon=true` input, and limits capacity to one Spot worker.
+All resources have the existing ownership tags with `fleeting-scenario=cleanup-drill`
+and names beginning `fleeting-pre-release-cleanup-`. It does not use GitLab.
+
+The supervisor starts an isolated writer, which creates the fixture and requests
+capacity one exactly once. After observing one running worker with the expected
+Spot strategy, image, zone and instance type, it verifies cumulative worker IDs,
+complete ESS activity history and group membership agree on exactly one creation.
+Replacements, failed/unknown activities and incomplete history are rejected; a
+history exceeding the single 50-row snapshot also fails closed, respecting the
+[activity API's page-size limit](https://www.alibabacloud.com/help/en/auto-scaling/developer-reference/api-ess-2014-08-28-describescalingactivities).
+The writer
+publishes an atomic checkpoint and waits. The supervisor kills that process group,
+proves termination and checks the writer's cleanup-started marker is absent.
+This proves normal resource cleanup was bypassed. It uploads a
+sanitized `INTERRUPTED` receipt and exits nonzero; the source workflow is expected
+to fail. Before the checkpoint, ordinary failures attempt guarded fallback cleanup.
+An unknown writer or failed termination proof never authorizes local deletion.
+
+The interruption receipt also includes a separate `writer` diagnostic. The writer
+atomically records its last stage and original failure before attempting cleanup;
+the supervisor retains that failure even when fallback cleanup succeeds. Stages
+separate authentication, fixture setup, the scale request, worker inventory and
+configuration, creation-history verification, checkpoint publication and waiting
+for interruption. The writer's cleanup result/error is separate from the
+supervisor's existing `cleanup_result`/`cleanup_error` fields. Cloud failures expose
+only allowlisted service/action, error code and category; validation failures may
+include a fixed reason, and unexpected response shapes have their own category.
+Raw messages, CLI replies, resource identities, configuration and writer logs are
+never uploaded. Missing or unreadable diagnostics stay explicit and do not change
+cleanup authorization, interruption proof, worker budgets or release eligibility.
+The parent bounds and filters the diagnostic again before adding it to the public
+receipt. Diagnostic file I/O failure does not suppress resource cleanup.
+
+The completed source workflow triggers **Pre-release cloud janitor** on a fresh
+runner with fresh OIDC credentials. Recovery discovers resources from cloud tags
+and verifies the exact owning attempt is completed; it never downloads the
+writer's state or artifacts. This automatic drill recovery requires **exactly one**
+recovered fixture and two complete absence inventories. An empty scan fails the
+drill proof instead of producing a misleading success. Its public cleanup receipt
+binds the source run and attempt, recovered-fixture count and zero-leftover result.
+Before deleting a drill fixture, it independently checks the complete creation
+history and current member inventory again. An over-budget or unknown history
+does not prevent safe cleanup, but sets `drill_budget_verified=false` and fails
+the recovery proof. A cleanup-only RAM role needs `ess:DescribeScalingActivities`
+for this drill evidence in addition to its normal inventory/deletion permissions.
+
+Successful evidence consists of both the failed source run's `INTERRUPTED`
+receipt (`workers_observed=1`, `writer_terminated=true`) and its independent
+janitor's `PASS` receipt (`cleaned_fixtures=1`, `leftover_resources=0`,
+`drill_budget_verified=true`). Janitor
+success never changes the source failure or permits publication. A failed or
+missing checkpoint, cleanup failure, empty scan, skipped job or absent receipt
+does not establish recovery. The initial drill covers completion-triggered
+recovery; scheduled expiry recovery still requires its own execution evidence.
+
+Do not automatically retry a paid drill. If recovery fails, keep cleanup enabled,
+inspect the sanitized evidence and invoke the existing exact-run janitor entry.
+That manual fallback may report zero after another recovery already completed;
+it does not retroactively prove the interrupted drill. ECS auto-release remains
+only an additional bound, not proof that the surrounding fixture was deleted.
 
 ## Manual use
 

@@ -16,9 +16,12 @@ import tempfile
 import time
 
 from release_candidate import MODES, digest, revision, verify, write_json
+from cloud_diagnostics import (CloudOperationError, diagnostic_error, duration_ms,
+                               driver_diagnostic, matching_error_templates, read_driver_diagnostic)
 from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
+DRILL_MODE = "cleanup-drill"
 SPECS = {
     "vpc": ("vpc", "DescribeVpcs", "Vpcs", "Vpc", "VpcId", "VpcName"),
     "vswitch": ("vpc", "DescribeVSwitches", "VSwitches", "VSwitch", "VSwitchId", "VSwitchName"),
@@ -32,10 +35,17 @@ SPECS = {
 }
 
 
-def preflight(env=os.environ, *, read_only=False):
+def preflight(env=os.environ, *, read_only=False, cleanup_only=False):
+    if read_only and cleanup_only:
+        raise ValueError("select either read-only or cleanup-only access")
     required = ("RELEASE_ALIYUN_ACCOUNT_ID", "RELEASE_ALIYUN_ROLE_ARN", "RELEASE_ALIYUN_OIDC_PROVIDER_ARN")
-    if (not read_only and env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true") or any(not env.get(k) for k in required):
-        raise ValueError("configure the dedicated pre-release account and explicitly enable cloud acceptance")
+    if any(not env.get(k) for k in required):
+        raise ValueError("configure the dedicated pre-release account")
+    if not read_only:
+        if env.get("RELEASE_CLOUD_CLEANUP_ENABLED") != "true":
+            raise ValueError("explicitly enable independent cloud cleanup before cloud writes")
+        if not cleanup_only and env.get("RELEASE_CLOUD_ACCEPTANCE_ENABLED") != "true":
+            raise ValueError("explicitly enable cloud acceptance before resource creation")
     account = env["RELEASE_ALIYUN_ACCOUNT_ID"]
     if not re.fullmatch(r"[0-9]{16}", account):
         raise ValueError("expected Alibaba account ID must have 16 digits")
@@ -54,7 +64,7 @@ def labels(project, sha, run, attempt, mode, expires):
     revision(sha)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", project):
         raise ValueError("an exact owner/repository is required")
-    if mode not in MODES or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
+    if mode not in (*MODES, DRILL_MODE) or any(not re.fullmatch(r"[1-9][0-9]*", v) for v in (run, attempt)):
         raise ValueError("invalid scenario or run identity")
     return {"fleeting-purpose": PURPOSE, "fleeting-project": project, "fleeting-candidate": sha,
             "fleeting-ci-run": run, "fleeting-ci-attempt": attempt, "fleeting-scenario": mode,
@@ -63,6 +73,7 @@ def labels(project, sha, run, attempt, mode, expires):
 
 def name_for(tags):
     aliases = dict(zip(MODES, ("smoke", "scale", "restart", "creating", "removing", "lost-reply")))
+    aliases[DRILL_MODE] = "cleanup"
     identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
     return f"fleeting-pre-release-{aliases[tags['fleeting-scenario']]}-{tags['fleeting-ci-run'][-12:]}-{token}"
@@ -106,9 +117,9 @@ def verified_members(response, group, owned):
 
 
 class Cloud:
-    def __init__(self, region, *, read_only=False):
-        self.region, self.read_only = region, read_only
-        self.account = preflight(read_only=read_only)
+    def __init__(self, region, *, read_only=False, cleanup_only=False):
+        self.region, self.read_only, self.cleanup_only = region, read_only, cleanup_only
+        self.account = preflight(read_only=read_only, cleanup_only=cleanup_only)
         if any(not os.environ.get(k) for k in ("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", "ALIBABA_CLOUD_SECURITY_TOKEN")):
             raise ValueError("fresh OIDC STS credentials are required; developer profiles and long-lived keys are not used")
         self.cli_profile = {
@@ -124,6 +135,12 @@ class Cloud:
         reads = {(s[0], s[1]) for s in SPECS.values()} | {("sts", "GetCallerIdentity")}
         if self.read_only and (service, action) not in reads:
             raise ValueError("configuration checks permit only identity and resource inventories")
+        cleanup_actions = reads | {("ess", "DescribeScalingInstances"), ("ess", "DescribeScalingActivities"), ("ess", "DeleteScalingGroup"),
+                                   ("ecs", "DeleteInstance"), ("ecs", "DeleteDisk"), ("ecs", "DeleteNetworkInterface"),
+                                   ("ecs", "DeleteLaunchTemplate"), ("ecs", "DeleteKeyPairs"), ("ecs", "DeleteSecurityGroup"),
+                                   ("vpc", "DeleteVSwitch"), ("vpc", "DeleteVpc")}
+        if self.cleanup_only and (service, action) not in cleanup_actions:
+            raise ValueError("cleanup access permits only identity, inventories and deletion")
         command = ["aliyun", service, action, "--mode", "StsToken", "--region", self.region,
                    "--retry-count", "0", "--connect-timeout", "10", "--read-timeout", "30"]
         if service != "sts":
@@ -143,9 +160,9 @@ class Cloud:
         except (subprocess.SubprocessError, OSError):
             # UserData contains a per-run host private key. Subprocess exceptions
             # include argv, so neither their text nor exception chain may escape.
-            raise RuntimeError("cloud operation unavailable: " + service + "/" + action) from None
+            raise CloudOperationError(service, action, unavailable=True) from None
         if result.returncode:
-            raise RuntimeError("cloud operation failed: " + service + "/" + action)
+            raise CloudOperationError(service, action, output=result.stderr + "\n" + result.stdout)
         return json.loads(result.stdout)
 
     def inventory(self, kind):
@@ -177,6 +194,7 @@ class Fixture:
         self.name = name_for(tags)
         self.path = self.directory / "fixture.json"
         self.state = {"tags": tags, "name": self.name, "operations": {}, "ids": {}}
+        self.driver_exit_code = None
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
             if self.state["tags"] != tags or self.state["name"] != self.name:
@@ -349,71 +367,6 @@ class Fixture:
                 path.unlink()
 
 
-def matching_error_templates(log, source):
-    templates = set()
-    pattern = r'\b(?:errors\.New|fmt\.Errorf|t\.(?:Fatalf?|Errorf?))\(\s*("(?:[^"\\]|\\.)*")'
-    for literal in re.findall(pattern, source):
-        try:
-            template = json.loads(literal)
-        except ValueError:
-            continue
-        prefix = template.split("%", 1)[0]
-        if len(prefix) >= 12 and prefix in log:
-            # Return only the published source literal, never interpolated data.
-            templates.add(template)
-    return sorted(templates)
-
-
-def driver_diagnostic(receipt, code, log):
-    """Select public test facts without copying private log or receipt values."""
-    if not isinstance(receipt, dict):
-        receipt = {}
-    resources = receipt.get("resources", {})
-    resources = resources if isinstance(resources, dict) else {}
-    instances = resources.get("instances")
-    results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "CLEANUP_FAILED")
-    root = Path(__file__).resolve().parent.parent
-    sources = [root / "tests/live/extended_test.go"]
-    for package in ("acceptance", "aliyun", "provider"):
-        sources.extend(p for p in (root / "internal" / package).glob("*.go") if not p.name.endswith("_test.go"))
-    templates = set()
-    for path in sources:
-        try:
-            templates.update(matching_error_templates(log, path.read_text()))
-        except OSError:
-            continue
-    categories = set()
-    for error in re.findall(r"Alibaba Cloud API error: code=([^\s]+)", log):
-        category = "other_cloud_api"
-        for prefixes, label in ((("Forbidden", "AccessDenied", "Unauthorized", "NoPermission"), "authorization"),
-                                (("IdempotentParameterMismatch",), "idempotency_conflict"),
-                                (("Quota", "LimitExceeded"), "quota"),
-                                (("InsufficientInstanceCapacity", "ResourceNotAvailable", "SoldOut"), "capacity"),
-                                (("Throttling",), "throttling"), (("TransportError",), "transport")):
-            if error.startswith(prefixes):
-                category = label
-                break
-        categories.add(category)
-    return {"exit_code": code, "result": receipt.get("result") if receipt.get("result") in results else "UNKNOWN",
-            "test_lines": sorted({int(n) for n in re.findall(r"(?m)^\s+extended_test\.go:([1-9][0-9]{0,4}):", log)}),
-            "api_error_categories": sorted(categories),
-            "transport_error_categories": [name for name, markers in (
-                ("authentication", ("ssh: unable to authenticate",)),
-                ("host_key", ("ssh: host key mismatch", "knownhosts: key mismatch")),
-                ("timeout", ("i/o timeout", "context deadline exceeded")),
-                ("connection_refused", ("connection refused",)),
-                ("connection_reset", ("connection reset by peer",)),
-                ("handshake", ("ssh: handshake failed",))) if any(marker in log for marker in markers)],
-            "matched_error_templates": sorted(templates),
-            "workers_observed": len(instances) if isinstance(instances, list) else None,
-            "worker_checks": {k: sum(isinstance(row, dict) and row.get(k) is True for row in instances)
-                              if isinstance(instances, list) else None for k in
-                              ("inventory_complete", "spot_verified", "deletion_verified")},
-            "evidence_incomplete": resources.get("evidence_incomplete") if type(resources.get("evidence_incomplete")) is bool else None,
-            "checks": {k: receipt.get(k) if type(receipt.get(k)) is bool else None for k in
-                       ("ssh_completed", "normal_release", "specified_release", "restart_recovered")}}
-
-
 def driver(fixture, root, manifest, cidr, config):
     mode = fixture.tags["fleeting-scenario"]
     binary = root / manifest["fault_binary" if mode == MODES[-1] else "normal_binary"]
@@ -441,11 +394,12 @@ def driver(fixture, root, manifest, cidr, config):
         fixture.save()
         process = None
         try:
-            process = subprocess.Popen(["go", "test", "-tags", "live", "-count=1", "-timeout=24m", "-run", "^TestExtendedCloud$", "./tests/live"],
+            process = subprocess.Popen(["go", "test", "-v", "-tags", "live", "-count=1", "-timeout=24m", "-run", "^TestExtendedCloud$", "./tests/live"],
                                        env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             fixture.state["driver_group"] = process.pid
             fixture.save()
             code = process.wait(timeout=25 * 60)
+            fixture.driver_exit_code = code
         finally:
             if process is not None:
                 stop_process_group(process)
@@ -516,40 +470,129 @@ def run(args):
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
     status = cleanup_status = "FAIL"
     plugin_hash = ""
+    diagnostics = {"fixture_setup": {"result": "UNKNOWN"}, "driver": {"result": "UNKNOWN"},
+                   "fixture_cleanup": {"result": "UNKNOWN"}}
+    primary_error = cleanup_error = None
+    stage, started = "fixture_setup", time.monotonic()
     try:
         fixture.prepare(cidr, config)
+        diagnostics[stage] = {"result": "PASS", "duration_ms": duration_ms(started)}
+        stage, started = "driver", time.monotonic()
         plugin_hash = driver(fixture, args.root, manifest, cidr, config)
         status = "PASS"
+        diagnostics[stage] = {"result": "PASS", "duration_ms": duration_ms(started)}
+    except BaseException as error:
+        # Preserve cancellation as well as normal failure, but always attempt the
+        # existing guarded cleanup and persist both outcomes before propagating.
+        primary_error = error
+        diagnostics[stage] = {"result": "FAIL", "duration_ms": duration_ms(started),
+                              "error": diagnostic_error(error)}
     finally:
+        started = time.monotonic()
         try:
             fixture.cleanup()
             cleanup_status = "PASS"
-        finally:
-            write_json(args.receipt, {"schema_version": 1, "result": status, "cleanup_result": cleanup_status,
-                "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
-                "mode": args.mode, "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
-                "fixture_config_sha256": config_digest(config),
-                "plugin_sha256": plugin_hash, "response_gate_instrumented": args.mode == MODES[-1],
-                "leftover_resources": 0 if cleanup_status == "PASS" else -1})
+            diagnostics["fixture_cleanup"] = {"result": "PASS", "duration_ms": duration_ms(started)}
+        except BaseException as error:
+            cleanup_error = error
+            diagnostics["fixture_cleanup"] = {"result": "FAIL", "duration_ms": duration_ms(started),
+                                               "error": diagnostic_error(error)}
+        diagnostics["driver"]["evidence"] = read_driver_diagnostic(
+            fixture.directory, tags["fleeting-ci-run"], tags["fleeting-ci-attempt"], fixture.driver_exit_code)
+        receipt = {"schema_version": 1, "result": status, "cleanup_result": cleanup_status,
+                   "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
+                   "mode": args.mode, "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
+                   "fixture_config_sha256": config_digest(config),
+                   "plugin_sha256": plugin_hash, "response_gate_instrumented": args.mode == MODES[-1],
+                   "leftover_resources": 0 if cleanup_status == "PASS" else -1, "diagnostics": diagnostics}
+        # The console fallback survives a failure to write/upload the receipt.
+        print(json.dumps({"cloud_diagnostic": diagnostics}), flush=True)
+        write_json(args.receipt, receipt)
+    if isinstance(cleanup_error, (KeyboardInterrupt, SystemExit)) and not isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+        raise cleanup_error
+    if primary_error is not None:
+        raise primary_error
+    if cleanup_error is not None:
+        raise cleanup_error
 
 
-def janitor(directory, completed_run=None, completed_attempt=None):
+def verify_drill_creation(owner, identity=None):
+    group = owner.state["ids"]["group"]
+    response = owner.cloud.call("ess", "DescribeScalingActivities", ScalingGroupId=group, PageNumber=1, PageSize=50)
+    total = response.get("TotalCount")
+    rows = response.get("ScalingActivities", {}).get("ScalingActivity")
+    if type(total) is not int or not isinstance(rows, list) or not 0 <= total == len(rows) <= 50:
+        raise ValueError("cleanup drill activity history is incomplete")
+    activities, instances, created, pending = set(), set(), 0, False
+    for row in rows:
+        activity = row.get("ScalingActivityId")
+        count = row.get("CreatedCapacity", 0)
+        ids = row.get("CreatedInstances", {}).get("CreatedInstance", [])
+        status = row.get("StatusCode")
+        if (not isinstance(activity, str) or not activity or activity in activities or row.get("ScalingGroupId") != group or
+                type(count) is not int or count < 0 or not isinstance(ids, list) or
+                any(not isinstance(value, str) or not value.startswith("i-") for value in ids) or len(set(ids)) != len(ids) or
+                status not in ("Successful", "InProgress")):
+            raise ValueError("cleanup drill activity is failed, unknown or malformed")
+        activities.add(activity)
+        if status == "Successful" and count != len(ids):
+            raise ValueError("cleanup drill activity creation evidence is incomplete")
+        created += count
+        instances.update(ids)
+        pending |= status == "InProgress"
+    if created > 1 or len(instances) > 1 or (identity is not None and instances - {identity}):
+        raise ValueError("cleanup drill activity history exceeds its one-worker budget")
+    if pending or created != 1 or len(instances) != 1:
+        return False
+    members = owner.cloud.call("ess", "DescribeScalingInstances", ScalingGroupId=group, PageSize=100)
+    current = {row["InstanceId"] for row in owner.owned("instance")}
+    if len(owner.state["ids"].get("instance", [])) > 1 or current - instances:
+        raise ValueError("cleanup drill observed a replacement worker")
+    members = verified_members(members, group, current)
+    return members == {identity} if identity is not None else members <= instances
+
+
+def janitor(directory, completed_run=None, completed_attempt=None, *, receipt=None, require_recovery=False):
     if completed_run or completed_attempt:
         if any(not isinstance(v, str) or not re.fullmatch(r"[1-9][0-9]*", v) for v in (completed_run, completed_attempt)):
             raise ValueError("both completed run and attempt must be positive identifiers")
-    failures = 0
-    for region in cleanup_regions():
-        try:
-            janitor_region(Cloud(region), directory / region, completed_run, completed_attempt)
-        except Exception:
-            # A malformed response in one region must not strand other regions.
-            # Process termination still propagates (BaseException).
-            failures += 1
-    if failures:
-        raise RuntimeError("cleanup failed in one or more configured regions; remaining regions were attempted")
+    if require_recovery and not completed_run:
+        raise ValueError("a recovery drill requires an exact completed run and attempt")
+    result = {"schema_version": 1, "result": "FAIL", "cleaned_fixtures": 0, "leftover_resources": -1,
+              "source_run_id": completed_run, "source_run_attempt": completed_attempt,
+              "scope": "completed-run" if completed_run else "expired", "recovery_required": require_recovery,
+              "drill_budget_verified": False if require_recovery else None}
+    try:
+        failures = 0
+        budget_verified = True
+        for region in cleanup_regions():
+            try:
+                recovered = janitor_region(Cloud(region, cleanup_only=True), directory / region, completed_run, completed_attempt, require_recovery=require_recovery)
+                result["cleaned_fixtures"] += recovered["cleaned_fixtures"]
+                if require_recovery:
+                    budget_verified &= recovered["drill_budget_verified"]
+            except Exception:
+                # A malformed response in one region must not strand other regions.
+                # Process termination still propagates (BaseException).
+                failures += 1
+        if failures:
+            raise RuntimeError("cleanup failed in one or more configured regions; remaining regions were attempted")
+        if require_recovery and result["cleaned_fixtures"] != 1:
+            raise RuntimeError("cleanup drill requires exactly one recovered fixture; an empty scan is not proof")
+        result["leftover_resources"] = 0
+        if require_recovery:
+            result["drill_budget_verified"] = budget_verified
+        if require_recovery and not result["drill_budget_verified"]:
+            raise RuntimeError("fixture cleanup completed but the one-worker drill budget is not proven")
+        result.update(result="PASS", leftover_resources=0)
+    finally:
+        print(json.dumps(result), flush=True)
+        if receipt is not None:
+            write_json(receipt, result)
+    return result
 
 
-def janitor_region(cloud, directory, completed_run, completed_attempt):
+def janitor_region(cloud, directory, completed_run, completed_attempt, *, require_recovery=False):
     project = os.environ["GITHUB_REPOSITORY"]
     fixtures = {}
     # Every atomic create is labelled; scanning all kinds also recovers a setup
@@ -563,14 +606,26 @@ def janitor_region(cloud, directory, completed_run, completed_attempt):
                               tags.get("fleeting-ci-attempt", ""), tags.get("fleeting-scenario", ""), tags.get("fleeting-fixture-expires", ""))
             expired = datetime.strptime(expected["fleeting-fixture-expires"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
             completed = (completed_run, completed_attempt) == (expected["fleeting-ci-run"], expected["fleeting-ci-attempt"])
-            if not expired and not completed:
+            if (completed_run and not completed) or (not completed_run and not expired):
                 continue
             if not stopped_run(expected):
                 continue
             fixtures[name_for(expected)] = expected
+    budget_verified = True
     for name, tags in fixtures.items():
-        Fixture(cloud, directory / name, tags).cleanup()
-    print(json.dumps({"result": "PASS", "cleaned_fixtures": len(fixtures)}))
+        owner = Fixture(cloud, directory / name, tags)
+        if require_recovery:
+            try:
+                for kind in ("vpc", "template", "group"):
+                    owner.owned(kind)
+                if tags["fleeting-scenario"] != DRILL_MODE or not verify_drill_creation(owner):
+                    budget_verified = False
+            except Exception:
+                # An unknown/failed budget observation must not strand resources.
+                # Cleanup retains its independent, strict ownership checks.
+                budget_verified = False
+        owner.cleanup()
+    return {"cleaned_fixtures": len(fixtures), "drill_budget_verified": budget_verified}
 
 
 def check_configuration():
@@ -599,11 +654,14 @@ def main():
     parser.add_argument("--cleanup", action="store_true", help="validate only identity and recovery regions")
     parser.add_argument("--completed-run")
     parser.add_argument("--completed-attempt")
+    parser.add_argument("--require-recovery", action="store_true", help="require exactly one recovered drill fixture")
     args = parser.parse_args()
+    if args.require_recovery and args.operation != "janitor":
+        parser.error("--require-recovery applies only to janitor")
     if (args.read_only or args.cleanup) and args.operation != "preflight":
         parser.error("--read-only and --cleanup apply only to preflight; use check for read-only cloud access")
     if args.operation == "preflight":
-        preflight(read_only=args.read_only)
+        preflight(read_only=args.read_only, cleanup_only=args.cleanup)
         cleanup_regions() if args.cleanup else fixture_config()
         if os.environ.get("GITHUB_ACTIONS") == "true":
             for key, value in os.environ.items():
@@ -614,7 +672,7 @@ def main():
     elif args.operation == "check":
         check_configuration()
     elif args.operation == "janitor":
-        janitor(args.directory, args.completed_run, args.completed_attempt)
+        janitor(args.directory, args.completed_run, args.completed_attempt, receipt=args.receipt, require_recovery=args.require_recovery)
     else:
         run(args)
 

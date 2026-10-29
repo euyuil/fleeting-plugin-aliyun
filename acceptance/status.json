@@ -1413,5 +1413,50 @@
       "The workflow-completion janitor found no fixtures to recover. This does not demonstrate scheduled recovery of abandoned resources.",
       "A prior SSH-check-stage failure lacks enough retained evidence for a precise root cause. The later cleanup-token collision was reproduced offline; its exact historical cloud error code was not retained."
     ]
+  },
+  "cloud_cleanup_drill": {
+    "status": "PASS",
+    "source_revision": "8d51b87b739383b42a974949a75dbfed2809e18d",
+    "interruption_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40808641485",
+    "janitor_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40808713223",
+    "supervisor_exit_code": 86,
+    "source_receipt": {
+      "schema_version": 1,
+      "mode": "cleanup-drill",
+      "source_sha": "8d51b87b739383b42a974949a75dbfed2809e18d",
+      "run_id": "40808641485",
+      "run_attempt": "1",
+      "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+      "workers_observed": 1,
+      "result": "INTERRUPTED",
+      "writer_terminated": true,
+      "cleanup_result": "PENDING_INDEPENDENT_RECOVERY",
+      "writer": {
+        "evidence": "RECORDED",
+        "exit_code": -9,
+        "last_phase": "await_interruption",
+        "failure_phase": null,
+        "error": null,
+        "cleanup": {
+          "result": "NOT_STARTED",
+          "error": null
+        }
+      }
+    },
+    "janitor_receipt": {
+      "schema_version": 1,
+      "result": "PASS",
+      "cleaned_fixtures": 1,
+      "leftover_resources": 0,
+      "source_run_id": "40808641485",
+      "source_run_attempt": "1",
+      "scope": "completed-run",
+      "recovery_required": true,
+      "drill_budget_verified": true
+    },
+    "creation_enabled_after_run": false,
+    "cleanup_enabled_after_run": true,
+    "release_published": false,
+    "limitation": "Completion-triggered recovery only; scheduled expiry recovery, STS renewal and the final release candidate require separate validation."
   }
 }

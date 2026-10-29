@@ -11,7 +11,7 @@ on:
   schedule:
     - cron: '37 * * * *'
   workflow_run:
-    workflows: [Release, Cloud acceptance]
+    workflows: [Release, Cloud acceptance, Cloud cleanup drill]
     types: [completed]
 permissions:
   contents: read
@@ -29,7 +29,7 @@ jobs:
       actions: read
       id-token: write
     env:
-      RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
+      RELEASE_CLOUD_CLEANUP_ENABLED: ${{ vars.RELEASE_CLOUD_CLEANUP_ENABLED }}
       RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
       RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
       RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
@@ -38,18 +38,18 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        if: env.RELEASE_CLOUD_ACCEPTANCE_ENABLED == 'true'
+        if: env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
         with:
           ref: main
           persist-credentials: false
       - name: Validate the dedicated cleanup identity
-        if: env.RELEASE_CLOUD_ACCEPTANCE_ENABLED == 'true'
+        if: env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
         run: |
           python3 tools/cloud_fixture.py preflight --cleanup
           python3 tools/fetch-aliyun.py
           printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
       - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
-        if: env.RELEASE_CLOUD_ACCEPTANCE_ENABLED == 'true'
+        if: env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
         with:
           role-to-assume: ${{ env.RELEASE_ALIYUN_ROLE_ARN }}
           oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
@@ -57,9 +57,20 @@ jobs:
           role-session-expiration: 3600
           role-session-name: pre-release-cleanup-${{ github.run_id }}
       - name: Recover labelled fixtures independently of prior artifacts
-        if: env.RELEASE_CLOUD_ACCEPTANCE_ENABLED == 'true'
+        if: env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
         env:
           COMPLETED_RUN: ${{ github.event.workflow_run.id || inputs.run_id }}
           COMPLETED_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
+          REQUIRE_RECOVERY: ${{ github.event.workflow_run.name == 'Cloud cleanup drill' }}
         run: |
-          python3 tools/cloud_fixture.py janitor --completed-run "$COMPLETED_RUN" --completed-attempt "$COMPLETED_ATTEMPT"
+          args=()
+          if [ "$REQUIRE_RECOVERY" = true ]; then args+=(--require-recovery); fi
+          python3 tools/cloud_fixture.py janitor --completed-run "$COMPLETED_RUN" --completed-attempt "$COMPLETED_ATTEMPT" \
+            --receipt .cache/cleanup/result.json "${args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && env.RELEASE_CLOUD_CLEANUP_ENABLED == 'true'
+        with:
+          name: cloud-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/cleanup/*.json
+          if-no-files-found: warn
+          retention-days: 7

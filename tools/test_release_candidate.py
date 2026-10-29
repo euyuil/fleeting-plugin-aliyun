@@ -57,6 +57,18 @@ class CandidateTests(unittest.TestCase):
     def test_complete_same_candidate_passes(self):
         self.gate()
 
+    def test_diagnostics_do_not_override_failed_acceptance_or_cleanup(self):
+        path = self.receipts / "cloud-smoke.json"
+        receipt = json.loads(path.read_text())
+        receipt["diagnostics"] = {"driver": {"result": "PASS"}, "fixture_cleanup": {"result": "PASS"}}
+        candidate.write_json(path, receipt)
+        self.gate()
+        for field in ("result", "cleanup_result"):
+            with self.subTest(field=field):
+                candidate.write_json(path, {**receipt, field: "FAIL"})
+                with self.assertRaises(ValueError):
+                    self.gate()
+
     def test_candidate_changes_are_rejected(self):
         for change in ("binary", "added", "missing", "manifest"):
             with self.subTest(change=change):
