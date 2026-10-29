@@ -1,11 +1,20 @@
-# Run GitLab Runner as a Linux service
+# Manual OCI installation and Linux service setup
 
-This guide uses a separate systemd service on Ubuntu or Debian. It can run on
+For the `.deb` package and `manager setup`, follow the
+[Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm) and
+[Debian guide](debian-installation.md). The worker and cloud prerequisites below
+apply to both installation methods.
+
+This alternative installs the published OCI plugin and creates a systemd service
+manually on Ubuntu or Debian. Choose one installation method for a given Manager;
+the package does not adopt the manual service created here. It can run on
 the GitLab host or another Linux host. Jobs run on remote ECS workers. Runner
 starts the plugin as a child process; the plugin needs no separate service.
 
 Use GitLab Runner 19.5.1 and plugin `0.1.0-rc.2`, the combination used for the
-recorded Linux VM and Docker job checks. See the [Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm).
+recorded Linux VM and Docker job checks. This released version does not include
+the new `manager` commands. Its public OCI package needs no registry login or
+Docker daemon.
 
 ## Worker and cloud prerequisites
 
@@ -68,6 +77,9 @@ sudo install -d -m 0700 -o gitlab-runner-aliyun -g gitlab-runner-aliyun \
 ```
 
 ### Add the Runner configuration and SSH key
+
+Create a project runner and save its authentication token as described in
+[Quick Start step 2](../README.md#2-create-a-runner-in-gitlab).
 
 Save the complete [VM example](../examples/instance/config.toml) as
 `config.toml` in a private directory outside your checkout. Use the

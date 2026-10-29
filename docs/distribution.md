@@ -41,8 +41,10 @@ download, real Runner 19.5.1 installation and listing, exact Release binary
 comparison, version/source checks, and plugin protocol loading passed on native
 Linux amd64 and arm64 in the
 [public installation workflow](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094).
-The [quick start](../README.md#quick-start-run-a-job-on-a-linux-vm) has the
-installation steps. The [acceptance report](acceptance-report.md#corrected-prerelease-installation)
+The [manual OCI service guide](installation.md#linux-service-setup) has the
+installation steps. For `.deb` installation and `manager` commands from main CI,
+use the [Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm).
+The [acceptance report](acceptance-report.md#corrected-prerelease-installation)
 records the exact source, manifest and installed binary checksums. These checks
 did not run a GitLab job or create cloud workers.
 
