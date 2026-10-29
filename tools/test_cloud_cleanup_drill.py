@@ -144,6 +144,33 @@ class CleanupDrillTests(unittest.TestCase):
         self.assertEqual(result["result"], "FAIL")
         self.assertNotEqual(result["cleanup_result"], "PENDING_INDEPENDENT_RECOVERY")
 
+    def test_history_respects_api_page_limit_and_rejects_a_truncated_budget_proof(self):
+        owner = mock.Mock()
+        owner.state = {"ids": {"group": "synthetic-group", "instance": ["i-current"]}}
+        owner.owned.return_value = [{"InstanceId": "i-current"}]
+        activities = [{"ScalingActivityId": f"synthetic-activity-{n}", "ScalingGroupId": "synthetic-group",
+                       "CreatedCapacity": 1 if n == 0 else 0, "StatusCode": "Successful",
+                       "CreatedInstances": {"CreatedInstance": ["i-current"] if n == 0 else []}} for n in range(50)]
+        for total in (50, 51):
+            calls = []
+            def api(service, action, **params):
+                calls.append(action)
+                if action == "DescribeScalingActivities":
+                    # Enforce the documented service boundary instead of accepting
+                    # arbitrary parameters as the previous unconstrained mock did.
+                    if not 1 <= params["PageSize"] <= 50:
+                        raise ValueError("activity API page size out of range")
+                    return {"TotalCount": total, "ScalingActivities": {"ScalingActivity": activities}}
+                self.assertEqual(action, "DescribeScalingInstances")
+                return {"TotalCount": 1, "ScalingInstances": {"ScalingInstance": [{"ScalingGroupId": "synthetic-group", "InstanceId": "i-current"}]}}
+            owner.cloud.call.side_effect = api
+            if total == 50:
+                self.assertTrue(fixture.verify_drill_creation(owner, "i-current"))
+            else:
+                with self.assertRaisesRegex(ValueError, "history is incomplete"):
+                    fixture.verify_drill_creation(owner, "i-current")
+                self.assertEqual(calls, ["DescribeScalingActivities"])
+
     def test_writer_requests_one_worker_once_and_cleans_if_the_reply_is_lost(self):
         fixture.write_json(self.directory / "context.json", {"tags": self.tags, "config": CONFIG, "cidr": self.context[2]})
         with mock.patch("cloud_cleanup_drill.Cloud"), mock.patch("cloud_cleanup_drill.Fixture") as owner:

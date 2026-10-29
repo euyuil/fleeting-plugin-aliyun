@@ -518,10 +518,10 @@ def run(args):
 
 def verify_drill_creation(owner, identity=None):
     group = owner.state["ids"]["group"]
-    response = owner.cloud.call("ess", "DescribeScalingActivities", ScalingGroupId=group, PageNumber=1, PageSize=100)
+    response = owner.cloud.call("ess", "DescribeScalingActivities", ScalingGroupId=group, PageNumber=1, PageSize=50)
     total = response.get("TotalCount")
     rows = response.get("ScalingActivities", {}).get("ScalingActivity")
-    if type(total) is not int or not isinstance(rows, list) or not 0 <= total == len(rows) <= 100:
+    if type(total) is not int or not isinstance(rows, list) or not 0 <= total == len(rows) <= 50:
         raise ValueError("cleanup drill activity history is incomplete")
     activities, instances, created, pending = set(), set(), 0, False
     for row in rows:
