@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import shlex
+from debian_package import debian_version
 
 ACTIONS = {
     "actions/checkout": "checkout", "actions/setup-go": "setup_go",
@@ -101,6 +102,26 @@ def check_status(status):
     require(len(architectures) == len(set(architectures)) and set(architectures) <= {"amd64", "arm64"}, "duplicate or unknown installation architecture")
     claimed = {arch for arch in ("amd64", "arm64") if release.get("linux_" + arch + "_runner_installation") == "pass"}
     require(claimed <= set(architectures), "release PASS needs its architecture receipt")
+
+    architectures = []
+    for receipt in release.get("debian_installation_receipts", []):
+        arch = receipt["architecture"]
+        architectures.append(arch)
+        package = f"fleeting-plugin-aliyun_{debian_version(release['version'])}_{arch}.deb"
+        require(receipt["version"] == release["version"], "Debian receipt version differs")
+        require(receipt["package"] == package, "Debian receipt package identity differs")
+        require(receipt["release_asset"] == package.replace("~", "."), "Debian receipt asset identity differs")
+        require(re.fullmatch(r"[0-9a-f]{64}", receipt["package_sha256"]), "Debian receipt package checksum missing")
+        checksums = [asset["sha256"] for asset in release.get("release_assets", [])
+                     if asset["name"] == receipt["release_asset"]]
+        require(checksums == [receipt["package_sha256"]], "Debian receipt and release asset checksum differ")
+        if release.get("linux_" + arch + "_debian_lifecycle") == "pass":
+            require(all(receipt.get(k) is True for k in ("anonymous_download", "native_binary_match", "lifecycle")),
+                    "Debian PASS needs successful installation evidence")
+    require(len(architectures) == len(set(architectures)) and set(architectures) <= {"amd64", "arm64"},
+            "duplicate or unknown Debian installation architecture")
+    claimed = {arch for arch in ("amd64", "arm64") if release.get("linux_" + arch + "_debian_lifecycle") == "pass"}
+    require(claimed <= set(architectures), "Debian PASS needs its architecture receipt")
 
 
 def check_links(root):

@@ -188,8 +188,10 @@ architecture so results cannot overwrite each other.
 ### Publication
 
 Use the trusted main branch, review final changes and CI, select a new semantic
-version, and invoke Release explicitly. Preflight refuses existing Releases and
-source tags. The [pre-release cloud gate](pre-release-cloud.md) must then pass all
+version, and invoke Release explicitly. Preflight requires the first line of
+`docs/release-notes.md` to be `# VERSION`, matching the requested version, before
+querying remote state. It also refuses existing Releases and source tags.
+The [pre-release cloud gate](pre-release-cloud.md) must then pass all
 six plugin-only scenarios and complete fixture cleanup in the separately
 configured test account. Missing configuration blocks publication. The workflow
 reuses the exact accepted artifacts without rebuilding, creates the candidate's

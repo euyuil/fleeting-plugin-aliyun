@@ -38,9 +38,10 @@ only on a disposable Linux systemd host. This target installs/removes packages.
 `make lint` reports unformatted Go files without editing them. Apply `gofmt -w`
 explicitly when needed. Module checks use the tidy graph: `make deps` downloads
 selected dependencies without adding unrelated full-graph zip checksums.
-`check-metadata` verifies locked module/Action/tool references, published receipt
-identities, capability status structure, and local Markdown file links. It does
-not treat historical acceptance evidence as evidence for the current commit.
+`check-metadata` verifies locked module/Action/tool references, published OCI and
+Debian receipt identities, Debian asset checksums, capability status structure,
+and local Markdown file links. It does not treat historical acceptance evidence
+as evidence for the current commit.
 When upgrading dependencies or Actions, update their authoritative pins together;
 Go has one version in `go.mod`, and every setup-go action reads that file.
 
@@ -181,10 +182,10 @@ See [distribution](docs/distribution.md) for native and OCI packaging, installat
 and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.
 
 Release automatically calls the public installation workflow after publication,
-binding the published tag to the source commit accepted by the cloud gate. Both
-native Linux architecture jobs must pass before the Release workflow succeeds.
+binding the published tag to the source commit accepted by the cloud gate. All
+four Ubuntu platform jobs must pass before the Release workflow succeeds.
 The verifier receives read-only repository access and no inherited cloud secrets.
-After a failed verification, inspect the existing immutable release; do not
+After a failed verification, inspect the existing published release; do not
 repeat publication. The same workflow can verify an already published version
 on fresh GitHub-hosted Linux amd64 and arm64 hosts:
 
@@ -192,7 +193,7 @@ on fresh GitHub-hosted Linux amd64 and arm64 hosts:
 gh workflow run verify-release.yml --ref main -f version=0.1.0-rc.3
 ```
 
-Wait for both jobs to finish successfully and inspect their OCI and Debian JSON
+Wait for all four jobs to finish successfully and inspect their OCI and Debian JSON
 receipts. The Debian check downloads the public package and runs the disposable-host
 lifecycle test above against its checksum-verified native binary. Older tags
 without Debian packaging retain OCI-only checks.
