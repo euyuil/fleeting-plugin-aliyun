@@ -93,15 +93,22 @@ def install_package(root, manifest, phase, directory):
         raise ValueError("installed Debian binary differs from the sealed candidate")
 
 
+def job_cases(scenario):
+    return ["capacity"] * 3 if scenario == "capacity" else (["smoke"] if scenario == "smoke" else [scenario, "smoke"])
+
+
 def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scenario="smoke"):
-    cases = ["smoke"] if scenario == "smoke" else [scenario, "smoke"]
+    cases = job_cases(scenario)
     expected = {"result": "PASS", "cleanup_result": "PASS", "normal_release": True,
                 "mode": "smoke", "executor": executor, "manager_mode": "systemd", "job_scenario": scenario,
                 "plugin_commit": manifest["candidate_sha"], "plugin_version": manifest["version"],
                 "plugin_sha256": manifest["files"][manifest["normal_binary"]],
                 "runner_sha256": lock["runner"]["sha256"]["linux-amd64"], "runner_version": lock["runner"]["version"],
                 "gitlab_fixture_sha": gitlab["fixture_sha"], "gitlab_project_id": gitlab["project_id"], "gitlab_runner_id": int(gitlab["runner_id"]),
-                "github_run_id": run_id, "github_run_attempt": attempt, "instance_limit": 1, "creation_budget": len(cases), "evidence_incomplete": False}
+                "github_run_id": run_id, "github_run_attempt": attempt, "instance_limit": 2 if scenario == "capacity" else 1,
+                "creation_budget": len(cases), "evidence_incomplete": False}
+    if scenario == "capacity":
+        expected["capacity_verified"] = True
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
@@ -115,12 +122,13 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
         raise ValueError("job sequence or persistent Manager identity is missing")
     seen = {k: set() for k in ("pipeline_id", "job_id", "nonce", "instance_id")}
     for step, case in zip(steps, cases):
-        status, reason = {"smoke": ("success", ""), "failure": ("failed", "script_failure"),
+        status, reason = {"smoke": ("success", ""), "capacity": ("success", ""), "failure": ("failed", "script_failure"),
                           "cancel": ("canceled", None), "timeout": ("failed", "job_execution_timeout")}[case]
         if (not isinstance(step, dict) or step.get("scenario") != case or step.get("status") != status or
                 (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not True or
                 type(step.get("manager_pid")) is not int or step["manager_pid"] != result["manager_pid"] or
-                step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True)):
+                step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True) or
+                (case == "capacity" and step.get("control_released") is not True)):
             raise ValueError("unexpected job outcome, restart or incomplete normal release")
         for key in seen:
             value = step.get(key)
@@ -214,7 +222,7 @@ def run(args):
             # Publish only checksums and verdicts, never raw project/runner/cloud
             # identities, logs, configuration, job artifacts or credentials.
             write_json(args.receipt, {"schema_version": 2, "result": status, "cleanup_result": cleanup,
-                       "job_scenario": args.scenario, "job_count": 1 if args.scenario == "smoke" else 2,
+                       "job_scenario": args.scenario, "job_count": len(job_cases(args.scenario)),
                        "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                        "phase": args.phase, "executor": args.executor, "manager_mode": "systemd",
                        "distribution_source": "sealed-candidate" if args.phase == "candidate" else "anonymous-release",
@@ -226,7 +234,7 @@ def run(args):
 
 
 def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke"):
-    expected = {"schema_version": 2, "job_scenario": scenario, "job_count": 1 if scenario == "smoke" else 2, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+    expected = {"schema_version": 2, "job_scenario": scenario, "job_count": len(job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"], "manifest_sha256": manifest_digest,
                 "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": run_id, "run_attempt": attempt,
                 "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",

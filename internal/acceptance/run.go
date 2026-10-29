@@ -24,29 +24,30 @@ const FleetingVersion = "v0.0.0-20260915191451-6ed75a33d303"
 
 type Result struct {
 	Ledger
-	Result          string        `json:"result"`
-	Mode            string        `json:"mode"`
-	PluginCommit    string        `json:"plugin_commit"`
-	PluginSHA256    string        `json:"plugin_sha256"`
-	RunnerSHA256    string        `json:"runner_sha256"`
-	RunnerVersion   string        `json:"runner_version"`
-	FleetingVersion string        `json:"fleeting_version"`
-	Nonce           string        `json:"run_nonce"`
-	FixtureSHA      string        `json:"gitlab_fixture_sha"`
-	ProjectID       string        `json:"gitlab_project_id"`
-	PipelineID      int64         `json:"gitlab_pipeline_id"`
-	JobID           int64         `json:"gitlab_job_id"`
-	RunnerID        int64         `json:"gitlab_runner_id"`
-	Executor        string        `json:"executor"`
-	PluginReference string        `json:"plugin_reference"`
-	PluginVersion   string        `json:"plugin_version,omitempty"`
-	JobImage        string        `json:"job_image,omitempty"`
-	NormalRelease   bool          `json:"normal_release"`
-	Missing         []string      `json:"missing_configuration,omitempty"`
-	Errors          []string      `json:"errors,omitempty"`
-	JobScenario     string        `json:"job_scenario"`
-	Jobs            []JobEvidence `json:"jobs"`
-	FinishedAt      time.Time     `json:"finished_at"`
+	Result           string        `json:"result"`
+	Mode             string        `json:"mode"`
+	PluginCommit     string        `json:"plugin_commit"`
+	PluginSHA256     string        `json:"plugin_sha256"`
+	RunnerSHA256     string        `json:"runner_sha256"`
+	RunnerVersion    string        `json:"runner_version"`
+	FleetingVersion  string        `json:"fleeting_version"`
+	Nonce            string        `json:"run_nonce"`
+	FixtureSHA       string        `json:"gitlab_fixture_sha"`
+	ProjectID        string        `json:"gitlab_project_id"`
+	PipelineID       int64         `json:"gitlab_pipeline_id"`
+	JobID            int64         `json:"gitlab_job_id"`
+	RunnerID         int64         `json:"gitlab_runner_id"`
+	Executor         string        `json:"executor"`
+	PluginReference  string        `json:"plugin_reference"`
+	PluginVersion    string        `json:"plugin_version,omitempty"`
+	JobImage         string        `json:"job_image,omitempty"`
+	NormalRelease    bool          `json:"normal_release"`
+	Missing          []string      `json:"missing_configuration,omitempty"`
+	Errors           []string      `json:"errors,omitempty"`
+	JobScenario      string        `json:"job_scenario"`
+	Jobs             []JobEvidence `json:"jobs"`
+	CapacityVerified bool          `json:"capacity_verified"`
+	FinishedAt       time.Time     `json:"finished_at"`
 }
 
 func Missing(get func(string) string) []string {
@@ -59,9 +60,12 @@ func Missing(get func(string) string) []string {
 	return missing
 }
 func Run(ctx context.Context, dir string) (result Result) {
-	duration, budget := 20*time.Minute, 1
+	duration, budget, limit := 20*time.Minute, 1, 1
 	if scenario := os.Getenv("ACCEPTANCE_JOB_SCENARIO"); scenario != "" && scenario != "smoke" {
 		duration, budget = 40*time.Minute, 2
+	}
+	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "capacity" {
+		budget, limit = 3, 2
 	}
 	ctx, stageCancel := context.WithTimeout(ctx, duration)
 	defer stageCancel()
@@ -78,7 +82,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 	dir = runDir
 	now := time.Now().UTC()
 	result = Result{Ledger: Ledger{SchemaVersion: 1, Project: get("ACCEPTANCE_PROJECT"), Region: get("ALIYUN_REGION"), GroupID: get("ALIYUN_SCALING_GROUP_ID"), RunID: get("GITHUB_RUN_ID"), Attempt: get("GITHUB_RUN_ATTEMPT"), StartedAt: now, ExpiresAt: now.Add(duration + 10*time.Minute), CleanupResult: "NOT_RUN", Instances: []Resource{}, Leftovers: []string{}}, Mode: "smoke", Result: "NOT_RUN_MISSING_CONFIGURATION", RunnerVersion: RunnerVersion, FleetingVersion: FleetingVersion, PluginCommit: get("PLUGIN_COMMIT"), ProjectID: get("GITLAB_PROJECT_ID"), FixtureSHA: get("GITLAB_FIXTURE_SHA")}
-	result.InstanceLimit = 1
+	result.InstanceLimit = limit
 	result.CreationBudget = budget
 	result.DeadlineAt = now.Add(duration)
 	result.Ledger.Path = filepath.Join(dir, "ledger.json")
@@ -208,7 +212,13 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(err)
 		return result
 	}
-	if err = aliyun.ValidateSpotSmoke(group, tmpl); err != nil {
+	if group.MaxSize != limit {
+		fail(errors.New("job fixture MaxSize differs from the scenario limit"))
+		return result
+	}
+	smokeGroup := group
+	smokeGroup.MaxSize = 1
+	if err = aliyun.ValidateSpotSmoke(smokeGroup, tmpl); err != nil {
 		fail(err)
 		return result
 	}
@@ -305,8 +315,12 @@ func Run(ctx context.Context, dir string) (result Result) {
 		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer cancel()
-		if result.PipelineID != 0 && result.Result != "PASS" {
-			_ = gl.request(cleanupCtx, "POST", fmt.Sprintf("/pipelines/%d/cancel", result.PipelineID), nil, nil)
+		if result.Result != "PASS" {
+			for _, e := range result.Jobs {
+				if e.PipelineID > 0 {
+					_ = gl.request(cleanupCtx, "POST", fmt.Sprintf("/pipelines/%d/cancel", e.PipelineID), nil, nil)
+				}
+			}
 		}
 		if err := Cleanup(cleanupCtx, cloud, &result.Ledger, false); err != nil {
 			result.Result = "CLEANUP_FAILED"
@@ -440,13 +454,30 @@ func Run(ctx context.Context, dir string) (result Result) {
 			if err := ObserveBudget(ctx, cloud, &result.Ledger, budget, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
 				return err
 			}
+			if options.scenario == "capacity" {
+				if err := checkJobCapacity(ctx, cloud); err != nil {
+					return err
+				}
+			}
 			return result.Ledger.Save()
 		},
 		release: func(ctx context.Context) error {
 			return WaitForNormalRelease(ctx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID"))
 		},
 	}
-	if err = sequence.run(ctx); err != nil {
+	if options.scenario == "capacity" {
+		err = (capacitySequence{jobSequence: sequence,
+			openJob: func(ctx context.Context, e JobEvidence) error {
+				return openCapacityJob(ctx, cloud, e, options.executor, get("WORKER_USER"), key)
+			},
+			workerGone: func(ctx context.Context, id string) (bool, error) {
+				return normalWorkerGone(ctx, cloud, &result.Ledger, id)
+			},
+		}).run(ctx)
+	} else {
+		err = sequence.run(ctx)
+	}
+	if err != nil {
 		result.Result = liveFailure(err)
 		fail(err)
 		return result

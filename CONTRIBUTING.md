@@ -177,7 +177,7 @@ gh workflow run cloud-acceptance.yml --ref main \
 This builds and verifies a sealed candidate, then runs `instance` and
 `docker-autoscaler` serially through its installed `.deb` and real systemd
 Manager. It cannot authorize publication without the six plugin scenarios.
-Inspect all eight sanitized scenario receipts and the final gate. Do not upload private
+Inspect all ten sanitized scenario receipts and the final gate. Do not upload private
 driver logs, GitLab job artifacts or fixture configuration.
 
 To exercise independent cleanup after a deliberate process loss, separately

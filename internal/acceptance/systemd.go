@@ -86,6 +86,9 @@ func packagedRunnerConfig(input []byte, address, token, region, group, user stri
 		}
 	}
 	pool["url"], pool["token"] = address, token
+	if options.scenario == "capacity" {
+		doc["concurrent"], autoscaler["max_instances"] = int64(2), int64(2)
+	}
 	provider["region"], provider["scaling_group_id"] = region, group
 	connector["username"] = user
 	if options.executor == "docker-autoscaler" {

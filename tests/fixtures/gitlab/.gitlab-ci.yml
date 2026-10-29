@@ -3,19 +3,30 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "api" && $FLEETING_NONCE =~ /^[0-9a-f]{48}$/ && $FLEETING_EXPECTED_RUNNER_ID =~ /^[0-9]+$/ && $FLEETING_EXECUTION_MODE =~ /^(instance|docker-autoscaler)$/'
     - when: never
 
-spot-smoke:
+.spot-common:
   tags:
     - $FLEETING_RUNNER_TAG
-  timeout: 20m
   retry: 0
-  rules:
-    - if: '$FLEETING_JOB_SCENARIO == "timeout"'
-      variables:
-        RUNNER_SCRIPT_TIMEOUT: 3m
-    - when: on_success
   script:
     - test "$CI_RUNNER_ID" = "$FLEETING_EXPECTED_RUNNER_ID"
     - sh smoke.sh
   artifacts:
     paths: [result.json]
     expire_in: 1 day
+
+spot-smoke:
+  extends: .spot-common
+  timeout: 20m
+  rules:
+    - if: '$FLEETING_JOB_SCENARIO == "capacity"'
+      when: never
+    - if: '$FLEETING_JOB_SCENARIO == "timeout"'
+      variables:
+        RUNNER_SCRIPT_TIMEOUT: 3m
+    - when: on_success
+
+spot-capacity:
+  extends: .spot-common
+  timeout: 40m
+  rules:
+    - if: '$FLEETING_JOB_SCENARIO == "capacity"'

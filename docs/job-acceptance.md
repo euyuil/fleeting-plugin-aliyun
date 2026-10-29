@@ -1,6 +1,6 @@
 # Release job acceptance
 
-`tools/job_acceptance.py` owns a fresh fixture with at most one active worker and drives real GitLab
+`tools/job_acceptance.py` owns a fresh fixture with at most two active workers and drives real GitLab
 jobs through the installed Debian package and its systemd Manager. Both
 `instance` and `docker-autoscaler` must pass independently. The candidate phase
 installs the sealed package; the public phase downloads the package and checksum
@@ -15,7 +15,7 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors and all four scenarios serially on
+The `Release job acceptance` reusable workflow runs both executors and all five scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
@@ -31,7 +31,7 @@ establish future Spot availability or universal success on other user images.
 
 ## Expected failures and continued service
 
-Every executor runs four independently bounded scenarios:
+Every executor runs five independently bounded scenarios:
 
 | Scenario | First job | Follow-up job | Cumulative worker budget |
 | --- | --- | --- | --- |
@@ -39,6 +39,7 @@ Every executor runs four independently bounded scenarios:
 | `failure` | Deliberate exit 42, reported as `script_failure` | Success | 2 |
 | `cancel` | Driver cancels the pipeline after the script checkpoint | Success | 2 |
 | `timeout` | Runner's fixed three-minute `RUNNER_SCRIPT_TIMEOUT`, reported as `job_execution_timeout` | Success | 2 |
+| `capacity` | Two concurrent successful jobs, with a third queued | Third job succeeds on a fresh worker while the retained job continues | 3 |
 
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
 Cancellation is requested only after that worker has complete independent Spot
@@ -57,11 +58,40 @@ and cannot make failed recovery pass.
 
 Each recovery driver has a 40-minute execution deadline, bounded shutdown and
 cleanup, and a 60-minute hosted job deadline. Smoke retains its 20-minute driver
-deadline. The serial eight-case phase permits fourteen cumulative workers,
-with at most one active worker per fixture. Both candidate and public phases
-require all eight schema-v2 receipts; a smoke receipt cannot substitute for a
+deadline. The serial ten-case phase permits twenty cumulative workers,
+with at most two active workers per fixture. Both candidate and public phases
+require all ten schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
+
+## Capacity, queueing and job isolation
+
+The `capacity` case keeps `capacity_per_instance=1` and `max_use_count=1`, and
+sets both Manager concurrency and ESS MaxSize to two. It submits three distinct
+single-job pipelines through the same Manager. Two nonce-bound script checkpoints
+must prove simultaneous work on distinct inventoried Spot workers while the
+third concrete GitLab job remains pending.
+
+The driver releases one job's barrier over the existing fixture SSH connection.
+For Docker, it selects the one running container labeled with that exact job ID
+and checks the nonce inside it before releasing the barrier. The first job must
+finish successfully and its worker, disks and ENIs must disappear through normal
+Runner release. The other original job must remain running throughout. The
+queued job must then reach its checkpoint on a third, fresh worker before the
+driver releases either remaining barrier. All three artifacts, stable Manager
+identity, final zero capacity and complete resource release are required.
+
+Every job rejects pre-existing sentinels in its checkout and `/tmp`, writes its
+nonce there and checks it again after the barrier. Together with three distinct
+worker identities, this verifies workspace isolation across concurrent and
+successive jobs. A changed job ID, unexpected retry, early third execution,
+interrupted retained job, failed control command or missing artifact fails the
+case. Control commands do not change cloud capacity or delete resources.
+
+Barrier waits have a 30-minute fallback that fails the job. The capacity job's
+GitLab timeout and the driver deadline are 40 minutes, with the same 60-minute
+hosted job deadline and cleanup path. Configure the dedicated Runner's maximum
+job timeout to permit this case. Recovery and smoke keep their existing bounds.
 
 ## Dedicated configuration
 
@@ -144,11 +174,12 @@ in the [ECS bandwidth documentation](https://www.alibabacloud.com/help/en/ecs/us
 
 Use an instance type suitable for full jobs. The initial target is 2 vCPU and
 2 GiB, for example `ecs.e-c1m1.large`, subject to regional Spot availability.
-Each mode uses MaxSize 1 and concurrency 1, with no on-demand fallback. Smoke
-permits one cumulative worker; each recovery scenario permits exactly two
-successive workers. Pre- and post-publication executor/scenario modes have
+Smoke and recovery use MaxSize 1 and concurrency 1; capacity uses two. There is
+no on-demand fallback. Smoke permits one cumulative worker; each recovery
+scenario permits exactly two successive workers; capacity permits three.
+Pre- and post-publication executor/scenario modes have
 distinct fixture names and ownership tags. Existing janitor discovery covers
-all sixteen modes even if local evidence is lost.
+all twenty modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
 disabled until the paid run is approved and the official base image is configured.

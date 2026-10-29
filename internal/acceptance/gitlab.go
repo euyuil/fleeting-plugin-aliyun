@@ -78,6 +78,7 @@ type Artifact struct {
 	CommandOK         bool   `json:"command_ok"`
 	Executor          string `json:"executor"`
 	ContainerDetected *bool  `json:"container_detected"`
+	IsolationOK       bool   `json:"isolation_ok"`
 }
 
 func VerifyArtifact(a Artifact, l *Ledger, nonce, sha string, runner int64) error {

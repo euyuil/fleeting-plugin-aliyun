@@ -24,7 +24,7 @@ from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
 DRILL_MODE = "cleanup-drill"
-JOB_SCENARIOS = ("smoke", "failure", "cancel", "timeout")
+JOB_SCENARIOS = ("smoke", "failure", "cancel", "timeout", "capacity")
 JOB_MODES = tuple(f"job-{phase}-{executor}" + ("" if scenario == "smoke" else "-" + scenario)
                   for phase in ("candidate", "public") for executor in ("instance", "docker-autoscaler") for scenario in JOB_SCENARIOS)
 SPECS = {
@@ -83,7 +83,7 @@ def name_for(tags):
         for executor, short_executor in (("instance", "vm"), ("docker-autoscaler", "docker")):
             for scenario in JOB_SCENARIOS:
                 suffix = "" if scenario == "smoke" else "-" + scenario
-                short_suffix = "" if scenario == "smoke" else "-" + scenario[0]
+                short_suffix = "" if scenario == "smoke" else "-" + ("q" if scenario == "capacity" else scenario[0])
                 aliases[f"job-{phase}-{executor}{suffix}"] = f"job-{short_phase}-{short_executor}{short_suffix}"
     identity = {k: v for k, v in tags.items() if k != "fleeting-fixture-expires"}
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
@@ -340,7 +340,7 @@ class Fixture:
             **tag_args(self.tags)}, "TemplateTag")
         self.create("group", "CreateScalingGroup", {
             "ScalingGroupName": self.name, "GroupType": "ECS", "MinSize": 0,
-            "MaxSize": 2 if self.tags["fleeting-scenario"] == "cloud-scale" else 1, "DesiredCapacity": 0,
+            "MaxSize": 2 if self.tags["fleeting-scenario"] == "cloud-scale" or self.tags["fleeting-scenario"].endswith("-capacity") else 1, "DesiredCapacity": 0,
             "LaunchTemplateId": ids["template"], "LaunchTemplateVersion": "1", "VSwitchId": ids["vswitch"],
             "ScalingPolicy": "release", "MultiAZPolicy": "COST_OPTIMIZED", "SpotInstancePools": 1,
             "OnDemandBaseCapacity": 0, "OnDemandPercentageAboveBaseCapacity": 0, "CompensateWithOnDemand": "false",
