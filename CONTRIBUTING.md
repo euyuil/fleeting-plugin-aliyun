@@ -182,6 +182,28 @@ The candidate version must be newer than the published upgrade baseline; see
 Inspect all eighteen sanitized scenario receipts and the final gate. Do not upload private
 driver logs, GitLab job artifacts or fixture configuration.
 
+For a failed case, use its candidate SHA and the GitHub scenario job's UTC start
+and completion times to read the corresponding GitLab outcome:
+
+```sh
+gh workflow run job-diagnostics.yml --ref main \
+  -f candidate_sha=FULL_CANDIDATE_SHA -f executor=instance -f scenario=worker-loss \
+  -f started_at=2026-01-01T00:00:00Z -f completed_at=2026-01-01T00:30:00Z
+```
+
+This uses only the existing project API credential, makes only GitLab reads, and
+needs no cloud identity, Runner token, or paid-resource enablement. It checks the
+private project, candidate fixture ref, time window, scenario, executor, and
+dedicated Runner before reading a trace. An ambiguous selector, retried job, or
+incomplete inventory fails closed. The time window is bounded to two hours and
+the candidate ref to fewer than 100 pipelines. Only generated `acceptance/<SHA>`
+refs are supported; cases that reused the unchanged configured base ref require
+private inspection in GitLab. Capacity has three pipelines in one case: use a
+narrower window identifying one pipeline. `upgrade` selects its actual `smoke`
+job. Only fixed status/failure enums, booleans, and bounded exit
+codes are printed; original traces and private identities remain in GitLab.
+These diagnostics neither change acceptance assertions nor produce a PASS receipt.
+
 To exercise independent cleanup after a deliberate process loss, separately
 authorize the paid drill and enable both creation and cleanup switches, then run:
 

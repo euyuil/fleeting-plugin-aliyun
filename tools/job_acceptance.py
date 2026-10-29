@@ -18,6 +18,7 @@ from cloud_diagnostics import driver_diagnostic
 from debian_package import debian_version
 from debian_upgrade import baseline, fetch_baseline, require_newer, verify_package
 from gitlab_fixture import prepare as prepare_gitlab_fixture
+from job_diagnostics import outcome as job_outcome
 from release_candidate import digest, revision, verify, write_json
 
 EXECUTORS = ("instance", "docker-autoscaler")
@@ -236,6 +237,8 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
     if code:
         diagnostic = driver_diagnostic({"result": result.get("result"), "resources": result}, code,
                                        json.dumps(result.get("errors", [])))
+        jobs = result.get("jobs")
+        diagnostic["jobs"] = [job_outcome(job) for job in jobs[:3]] if isinstance(jobs, list) else []
         print(json.dumps({"job_diagnostic": diagnostic}))
         raise ValueError("real GitLab job acceptance failed; private diagnostics retained")
     lock = json.loads(Path("upstream.lock.json").read_text())

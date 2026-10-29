@@ -1,0 +1,49 @@
+name: Read-only job diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full candidate source SHA
+        required: true
+        type: string
+      executor:
+        required: true
+        type: choice
+        options: [instance, docker-autoscaler]
+      scenario:
+        required: true
+        type: choice
+        options: [smoke, failure, cancel, timeout, capacity, drain, worker-loss, manager-crash, upgrade]
+      started_at:
+        description: UTC start of the GitHub scenario job (ISO 8601 ending in Z)
+        required: true
+        type: string
+      completed_at:
+        description: UTC completion of the GitHub scenario job (ISO 8601 ending in Z)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    environment: aliyun-pre-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Read the selected GitLab job without raw log output
+        env:
+          RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+          RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXECUTOR: ${{ inputs.executor }}
+          SCENARIO: ${{ inputs.scenario }}
+          STARTED_AT: ${{ inputs.started_at }}
+          COMPLETED_AT: ${{ inputs.completed_at }}
+        run: |
+          python3 tools/job_diagnostics.py --sha "$CANDIDATE_SHA" \
+            --executor "$EXECUTOR" --scenario "$SCENARIO" \
+            --started-at "$STARTED_AT" --completed-at "$COMPLETED_AT"
