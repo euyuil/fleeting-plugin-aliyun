@@ -12,6 +12,8 @@ Prepare these resources before starting Runner:
   SSH user, and a pinned job image. See the [Docker example](../examples/docker-autoscaler/config.toml).
 - A launch template with the image, instance type, disk, network, and desired
   Spot policy. Pin its version. CPU and memory come from the instance type.
+  For the Quick Start's disposable workers, configure the system disk and all
+  data disks to be released with the instance so the cleanup check can pass.
 - A dedicated, active ESS group with desired capacity enabled, minimum `0`, a
   finite maximum, and unit instance weights. For the first job, use desired `0`
   and maximum `1`. Follow the [group compatibility rules](#dedicated-ess-group).
@@ -48,7 +50,7 @@ while the provider has pending intent. See [API boundaries](cloud-api.md) and
 
 ## Static SSH and Instance executor
 
-Follow the [Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm)
+Follow the [online Quick Start](https://github.com/euyuil/fleeting-plugin-aliyun/blob/main/README.md#quick-start-run-a-job-on-a-linux-vm)
 for `.deb` installation and local `manager` commands. The Manager can run on
 the GitLab host or a separate host. The [manual OCI service guide](installation.md#linux-service-setup)
 is an alternative for the published plugin; see [distribution](distribution.md)
