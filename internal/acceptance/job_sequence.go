@@ -30,6 +30,7 @@ type JobEvidence struct {
 	CancelRequested  bool   `json:"cancel_requested"`
 	ControlReleased  bool   `json:"control_released"`
 	LossInjected     bool   `json:"loss_injected"`
+	CrashInjected    bool   `json:"crash_injected"`
 	SSHTransportLoss bool   `json:"ssh_transport_loss"`
 	NormalRelease    bool   `json:"normal_release"`
 }
@@ -54,6 +55,9 @@ func jobCases(scenario string) []string {
 
 func expectedJobOutcome(e JobEvidence) bool {
 	switch e.Scenario {
+	case "manager-crash":
+		serverDrop := e.FailureReason == "server_timeout_running" || e.FailureReason == "no_updates_running"
+		return e.Checkpoint && e.CrashInjected && !e.ControlReleased && e.Status == "failed" && serverDrop && !e.CancelRequested
 	case "worker-loss":
 		failure := e.FailureReason == "runner_system_failure" || (e.FailureReason == "script_failure" && e.SSHTransportLoss)
 		return e.Checkpoint && e.LossInjected && !e.ControlReleased && e.Status == "failed" && failure && !e.CancelRequested
@@ -83,15 +87,19 @@ func verifyJobSequence(r *Result) error {
 	if r.JobScenario == "drain" && (!r.DrainVerified || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
 		return errors.New("drain scenario lacks graceful stop and distinct restart proof")
 	}
+	if r.JobScenario == "manager-crash" && (!r.CrashVerified || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
+		return errors.New("crash scenario lacks automatic restart proof")
+	}
 	if len(r.Jobs) != len(cases) || len(r.Instances) != len(cases) || r.CreationBudget != len(cases) || r.ManagerPID <= 0 {
 		return errors.New("job sequence lacks its exact job and worker budget")
 	}
 	pipelines, jobs, workers, nonces := map[int64]bool{}, map[int64]bool{}, map[string]bool{}, map[string]bool{}
 	for i, e := range r.Jobs {
-		managerMatches := e.ManagerPID == r.ManagerPID || (r.JobScenario == "drain" && i == 0)
+		managerMatches := e.ManagerPID == r.ManagerPID || ((r.JobScenario == "drain" || r.JobScenario == "manager-crash") && i == 0)
 		injected := r.JobScenario == "worker-loss" && i == 0
 		normalRelease := !injected
 		if e.Scenario != cases[i] || !expectedJobOutcome(e) || e.NormalRelease != normalRelease || e.LossInjected != injected || !managerMatches ||
+			e.CrashInjected != (r.JobScenario == "manager-crash" && i == 0) ||
 			(e.SSHTransportLoss && (!injected || r.Executor != "instance")) ||
 			e.PipelineID <= 0 || e.JobID <= 0 || e.InstanceID == "" || !regexp.MustCompile(`^[0-9a-f]{48}$`).MatchString(e.Nonce) ||
 			pipelines[e.PipelineID] || jobs[e.JobID] || workers[e.InstanceID] || nonces[e.Nonce] {

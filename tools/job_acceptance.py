@@ -113,6 +113,8 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
         expected["drain_verified"] = True
     if scenario == "worker-loss":
         expected["worker_loss_verified"] = True
+    if scenario == "manager-crash":
+        expected["crash_verified"] = True
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
@@ -127,16 +129,20 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
     seen = {k: set() for k in ("pipeline_id", "job_id", "nonce", "instance_id")}
     for index, (step, case) in enumerate(zip(steps, cases)):
         pid = step.get("manager_pid") if isinstance(step, dict) else None
-        manager_matches = type(pid) is int and pid > 0 and (pid != result["manager_pid"] if scenario == "drain" and index == 0 else pid == result["manager_pid"])
+        manager_matches = type(pid) is int and pid > 0 and (pid != result["manager_pid"] if scenario in ("drain", "manager-crash") and index == 0 else pid == result["manager_pid"])
         injected = scenario == "worker-loss" and index == 0
         status, reason = {"smoke": ("success", ""), "capacity": ("success", ""), "drain": ("success", ""), "failure": ("failed", "script_failure"),
                           "worker-loss": ("failed", "runner_system_failure"),
+                          "manager-crash": ("failed", "server_timeout_running"),
                           "cancel": ("canceled", None), "timeout": ("failed", "job_execution_timeout")}[case]
         if isinstance(step, dict) and injected and executor == "instance" and step.get("ssh_transport_loss") is True and step.get("failure_reason") == "script_failure":
             reason = "script_failure"
+        if isinstance(step, dict) and case == "manager-crash" and step.get("failure_reason") == "no_updates_running":
+            reason = "no_updates_running"
         if (not isinstance(step, dict) or step.get("scenario") != case or step.get("status") != status or
                 (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not (not injected) or
                 step.get("loss_injected", False) is not injected or (injected and step.get("control_released") is not False) or
+                step.get("crash_injected", False) is not (case == "manager-crash") or (case == "manager-crash" and step.get("control_released") is not False) or
                 (step.get("ssh_transport_loss", False) is not False and (not injected or executor != "instance" or step["ssh_transport_loss"] is not True)) or
                 not manager_matches or
                 step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True) or
@@ -188,7 +194,7 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
             process = subprocess.Popen([str(binary.resolve()), "smoke"], env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             fixture.state["driver_group"] = process.pid
             fixture.save()
-            code = process.wait(timeout=(30 if scenario == "smoke" else 50) * 60)
+            code = process.wait(timeout=(30 if scenario == "smoke" else 60 if scenario == "manager-crash" else 50) * 60)
         finally:
             if process is not None:
                 stop_process_group(process)

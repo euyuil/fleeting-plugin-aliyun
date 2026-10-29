@@ -31,7 +31,7 @@ func readSmokeOptions(get func(string) string) (smokeOptions, error) {
 	}
 	switch o.scenario {
 	case "smoke":
-	case "failure", "cancel", "timeout", "capacity", "drain", "worker-loss":
+	case "failure", "cancel", "timeout", "capacity", "drain", "worker-loss", "manager-crash":
 		if o.manager != "systemd" {
 			return o, errors.New("job recovery scenarios require the packaged systemd Manager")
 		}

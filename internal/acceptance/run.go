@@ -49,6 +49,7 @@ type Result struct {
 	CapacityVerified   bool          `json:"capacity_verified"`
 	DrainVerified      bool          `json:"drain_verified"`
 	WorkerLossVerified bool          `json:"worker_loss_verified"`
+	CrashVerified      bool          `json:"crash_verified"`
 	FinishedAt         time.Time     `json:"finished_at"`
 }
 
@@ -68,6 +69,9 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "capacity" {
 		budget, limit = 3, 2
+	}
+	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "manager-crash" {
+		duration = 50 * time.Minute
 	}
 	ctx, stageCancel := context.WithTimeout(ctx, duration)
 	defer stageCancel()
@@ -467,7 +471,9 @@ func Run(ctx context.Context, dir string) (result Result) {
 			return WaitForNormalRelease(ctx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID"))
 		},
 	}
-	if options.scenario == "worker-loss" {
+	if options.scenario == "manager-crash" {
+		err = (crashSequence{jobSequence: sequence, crash: service.crash}).run(ctx)
+	} else if options.scenario == "worker-loss" {
 		err = (workerLossSequence{jobSequence: sequence, loseWorker: func(ctx context.Context, e JobEvidence) error {
 			return injectWorkerLoss(ctx, cloud, &result.Ledger, e)
 		}}).run(ctx)

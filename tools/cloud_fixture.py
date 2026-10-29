@@ -24,7 +24,7 @@ from cloud_config import cleanup_regions, fixture_config, config_digest
 
 PURPOSE = "pre-release-acceptance"
 DRILL_MODE = "cleanup-drill"
-JOB_SCENARIOS = ("smoke", "failure", "cancel", "timeout", "capacity", "drain", "worker-loss")
+JOB_SCENARIOS = ("smoke", "failure", "cancel", "timeout", "capacity", "drain", "worker-loss", "manager-crash")
 JOB_MODES = tuple(f"job-{phase}-{executor}" + ("" if scenario == "smoke" else "-" + scenario)
                   for phase in ("candidate", "public") for executor in ("instance", "docker-autoscaler") for scenario in JOB_SCENARIOS)
 SPECS = {

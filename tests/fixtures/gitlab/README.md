@@ -51,3 +51,7 @@ then requires normal cleanup and a successful job after restart.
 The [worker-loss case](../../../docs/job-acceptance.md#abrupt-worker-loss-during-a-real-job)
 leaves the barrier closed and deletes the verified worker, then requires an
 verified failure, resource reconciliation and a fresh successful job.
+The [Manager-crash case](../../../docs/job-acceptance.md#manager-crash-during-a-real-job)
+uses a separate fifteen-minute job timeout. The barrier stays closed while the
+driver verifies the service's automatic restart, GitLab's server-side failure
+classification, resource recovery, and a fresh successful job.

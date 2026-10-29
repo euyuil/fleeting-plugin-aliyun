@@ -100,7 +100,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_job_modes_have_distinct_recoverable_fixture_names(self):
         tags = [labels("example/project", "a" * 40, "123456789012345678", "1", mode, "2030-01-01T00:00:00Z") for mode in JOB_MODES]
         names = {name_for(value) for value in tags}
-        self.assertEqual(len(names), 28)
+        self.assertEqual(len(names), 32)
         self.assertTrue(all(len(name) <= 64 for name in names))
         self.assertEqual(names, {name_for(json.loads(json.dumps(value))) for value in tags})
 
@@ -205,6 +205,23 @@ class JobAcceptanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", "drain")
 
+        crash = copy.deepcopy(drain)
+        crash.update(job_scenario="manager-crash", crash_verified=True)
+        crash["jobs"][0].update(scenario="manager-crash", status="failed", failure_reason="server_timeout_running", control_released=False, crash_injected=True)
+        for reason in ("server_timeout_running", "no_updates_running"):
+            crash["jobs"][0]["failure_reason"] = reason
+            job.check_result(crash, manifest(), gitlab, "instance", lock, "10", "1", "manager-crash")
+        for change in (lambda value: value.update(crash_verified=False),
+                       lambda value: value["jobs"][0].update(crash_injected=False),
+                       lambda value: value["jobs"][0].update(control_released=True),
+                       lambda value: value["jobs"][0].update(manager_pid=124),
+                       lambda value: value["jobs"][0].update(failure_reason="job_execution_timeout"),
+                       lambda value: value["jobs"][1].update(crash_injected=True)):
+            broken = copy.deepcopy(crash)
+            change(broken)
+            with self.assertRaises(ValueError):
+                job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", "manager-crash")
+
     def test_gate_requires_every_scenario_and_same_fixture(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"GITHUB_RUN_ID": "10", "GITHUB_RUN_ATTEMPT": "1"}), patch.object(job, "verify", return_value=manifest()):
             root = Path(temp)
@@ -222,7 +239,7 @@ class JobAcceptanceTests(unittest.TestCase):
                 job.gate(args)
 
     def test_recovery_receipt_cannot_reuse_smoke_or_wrong_case(self):
-        for scenario in ("failure", "cancel", "timeout", "capacity", "drain", "worker-loss"):
+        for scenario in ("failure", "cancel", "timeout", "capacity", "drain", "worker-loss", "manager-crash"):
             good = receipt(scenario=scenario)
             job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
             for key, value in (("schema_version", 1), ("job_count", 1), ("job_count", True), ("job_scenario", "smoke")):
