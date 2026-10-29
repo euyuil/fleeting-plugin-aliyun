@@ -1,0 +1,168 @@
+name: Release job acceptance
+on:
+  workflow_call:
+    inputs:
+      artifact_id:
+        required: true
+        type: string
+      manifest_sha256:
+        required: true
+        type: string
+      candidate_sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      phase:
+        required: true
+        type: string
+    secrets:
+      RELEASE_ALIYUN_ACCOUNT_ID:
+        required: false
+      RELEASE_ALIYUN_ROLE_ARN:
+        required: false
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN:
+        required: false
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN:
+        required: false
+      RELEASE_ALIYUN_CLEANUP_REGIONS:
+        required: false
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG:
+        required: false
+      RELEASE_GITLAB_CONFIG:
+        required: false
+      RELEASE_GITLAB_API_TOKEN:
+        required: false
+      RELEASE_GITLAB_RUNNER_TOKEN:
+        required: false
+    outputs:
+      release_ready:
+        value: ${{ jobs.gate.outputs.release_ready }}
+permissions:
+  contents: read
+# The caller owns aliyun-pre-release-acceptance for this entire workflow.
+# Acquiring that group again here would deadlock the reusable workflow.
+defaults:
+  run:
+    shell: bash
+jobs:
+  scenario:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    environment: aliyun-pre-release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        executor: [instance, docker-autoscaler]
+    env:
+      VERSION: ${{ inputs.version }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+      PHASE: ${{ inputs.phase }}
+      EXECUTOR: ${{ matrix.executor }}
+      RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
+      RELEASE_JOB_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_JOB_ACCEPTANCE_ENABLED }}
+      RELEASE_CLOUD_CLEANUP_ENABLED: ${{ vars.RELEASE_CLOUD_CLEANUP_ENABLED }}
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN || vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS || vars.RELEASE_ALIYUN_CLEANUP_REGIONS }}
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG || vars.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
+      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+      RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - name: Validate the sealed candidate and dedicated job configuration
+        run: |
+          test "$RELEASE_CLOUD_ACCEPTANCE_ENABLED" = true
+          test "$RELEASE_JOB_ACCEPTANCE_ENABLED" = true
+          test "$RELEASE_CLOUD_CLEANUP_ENABLED" = true
+          case "$PHASE" in candidate|public) ;; *) exit 1 ;; esac
+          mkdir -p .cache/candidate
+          tar -xf .cache/download/candidate.tar -C .cache/candidate
+          python3 tools/release_candidate.py verify --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256"
+          python3 tools/job_acceptance.py preflight
+          python3 tools/fetch-aliyun.py
+          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
+          go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
+      - name: Obtain fresh credentials in the dedicated account
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          role-to-assume: ${{ env.RELEASE_ALIYUN_ROLE_ARN }}
+          oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 3600
+          role-session-name: job-acceptance-${{ github.run_id }}
+      - name: Install the package, run a real job, and verify full teardown
+        run: |
+          python3 tools/job_acceptance.py run --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
+            --digest "$MANIFEST_SHA256" --phase "$PHASE" --executor "$EXECUTOR" \
+            --directory ".live/job-$PHASE-$EXECUTOR" --receipt ".cache/job-receipts/$EXECUTOR.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}-${{ matrix.executor }}
+          path: .cache/job-receipts/*.json
+          if-no-files-found: warn
+          retention-days: 7
+  gate:
+    if: always()
+    needs: scenario
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    outputs:
+      release_ready: ${{ steps.result.outputs.release_ready }}
+    env:
+      VERSION: ${{ inputs.version }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+      PHASE: ${{ inputs.phase }}
+      SCENARIO_RESULT: ${{ needs.scenario.result }}
+    steps:
+      - name: Require both executor jobs to have succeeded
+        run: test "$SCENARIO_RESULT" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}-*
+          path: .cache/job-receipts
+          merge-multiple: true
+      - name: Require both receipts for this phase, distribution and attempt
+        id: result
+        run: |
+          mkdir -p .cache/candidate
+          tar -xf .cache/download/candidate.tar -C .cache/candidate
+          python3 tools/job_acceptance.py gate --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
+            --digest "$MANIFEST_SHA256" --phase "$PHASE" --receipts .cache/job-receipts
+          printf 'release_ready=true\n' >> "$GITHUB_OUTPUT"

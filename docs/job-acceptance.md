@@ -15,6 +15,20 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
+The `Release job acceptance` reusable workflow runs both executors serially on
+fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
+candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
+scenarios, permits publication. Release invokes the public phase after its
+anonymous installation matrix succeeds. Any failed, canceled or skipped required
+job prevents that phase from passing, even if some receipt artifacts exist.
+The public installation matrix remains credential-free; cloud and GitLab
+credentials are confined to the separate job workflow's Environment.
+
+These live jobs cover the configured immutable Linux amd64 worker image and
+its exact type, zone and network assumptions. The wider amd64/arm64 Ubuntu and
+Debian package matrix remains offline installation evidence. Neither receipt
+establishes future Spot availability or universal success on other user images.
+
 ## Dedicated configuration
 
 Use the `aliyun-pre-release` GitHub Environment and its existing dedicated
@@ -58,14 +72,25 @@ fixture fields and independent cleanup requirements.
 
 The job-worker image must support cloud-init and root SSH using the fresh
 per-run ECS key pair. It needs Git, curl, coreutils, the pinned Runner, Docker
-Engine, and `/var/lib/fleeting-worker/ready` after preparation succeeds. Bake
-the pinned job image and matching Runner helper image into it to avoid large
-downloads over the one-Mbps worker connection. Verify both VM and container
+Engine, and `/var/lib/fleeting-worker/ready` after preparation succeeds. Preloading
+the pinned job image and matching Runner helper image reduces repeated setup
+work and dependency on external registries. The one-Mbps setting limits outbound
+traffic; it is not a one-Mbps download limit. ECS documents a separate inbound
+limit for [fixed public IP bandwidth](https://www.alibabacloud.com/help/en/ecs/user-guide/network-bandwidth/).
+Do not infer cold-start time from the outbound setting; measure it against the
+readiness and acquisition deadlines. Verify both VM and container
 access to IMDSv2; the fixed job independently reads its instance ID. Prepare the
 image using the [worker image procedure](../infra/README.md), remove temporary
 preparation credentials and stale cloud-init state, and retain its private
 image/snapshot ownership record. No GitLab or Manager cloud credentials enter
 the image. Image creation and retained storage require separate cost approval.
+
+Releasing the builder or test instances does not release the image's snapshots.
+[Snapshot storage remains billable](https://www.alibabacloud.com/help/en/ecs/user-guide/create-a-custom-image-from-an-instance)
+for as long as those snapshots are retained, including between acceptance runs.
+The fixture janitor cleans per-run resources; it does not retire prepared images.
+Track the current image and its snapshots separately, and delete superseded
+images together with their associated snapshots after validating a replacement.
 
 Use an instance type suitable for full jobs. The initial target is 2 vCPU and
 2 GiB, for example `ecs.e-c1m1.large`, subject to regional Spot availability.

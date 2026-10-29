@@ -158,11 +158,27 @@ gh workflow run cloud-acceptance.yml --ref main \
 gh workflow run cloud-janitor.yml --ref main
 ```
 
-Select another documented mode or `all` for the full suite. Release invokes all
-six modes as a mandatory pre-publication dependency. Configuration, ownership,
-budgets and recovery are documented in [pre-release cloud acceptance](docs/pre-release-cloud.md).
+Select another documented mode or `all` for the full suite. Release requires all
+six plugin scenarios and both real GitLab executor jobs before publication.
+Configuration, ownership, budgets and recovery are documented in
+[pre-release cloud acceptance](docs/pre-release-cloud.md).
 For immediate recovery of a completed run, add `-f run_id=RUN_ID -f run_attempt=ATTEMPT`
 to the janitor command; otherwise it scans only expired fixtures.
+
+After configuring the separately prepared job image, dedicated GitLab fixture,
+and explicit paid-job enablement from [release job acceptance](docs/job-acceptance.md),
+validate just the two real jobs without publishing:
+
+```sh
+gh workflow run cloud-acceptance.yml --ref main \
+  -f version=0.1.0-dev -f candidate_sha=FULL_MAIN_COMMIT_SHA -f mode=jobs
+```
+
+This builds and verifies a sealed candidate, then runs `instance` and
+`docker-autoscaler` serially through its installed `.deb` and real systemd
+Manager. It cannot authorize publication without the six plugin scenarios.
+Inspect both sanitized job receipts and the final gate. Do not upload private
+driver logs, GitLab job artifacts or fixture configuration.
 
 To exercise independent cleanup after a deliberate process loss, separately
 authorize the paid drill and enable both creation and cleanup switches, then run:
@@ -183,8 +199,10 @@ and explicit release gates. See [third-party obligations](docs/third-party.md) b
 
 Release automatically calls the public installation workflow after publication,
 binding the published tag to the source commit accepted by the cloud gate. All
-four Ubuntu platform jobs must pass before the Release workflow succeeds.
-The verifier receives read-only repository access and no inherited cloud secrets.
+four Ubuntu platform jobs and both subsequent public-package job checks must
+pass before the Release workflow succeeds.
+The installation verifier receives read-only repository access and no inherited
+cloud secrets; the subsequent job workflow uses the dedicated Environment.
 After a failed verification, inspect the existing published release; do not
 repeat publication. The same workflow can verify an already published version
 on fresh GitHub-hosted Linux amd64 and arm64 hosts:

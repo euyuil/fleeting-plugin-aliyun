@@ -14,6 +14,14 @@ on:
         required: false
       RELEASE_ALIYUN_CLEANUP_REGIONS:
         required: false
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG:
+        required: false
+      RELEASE_GITLAB_CONFIG:
+        required: false
+      RELEASE_GITLAB_API_TOKEN:
+        required: false
+      RELEASE_GITLAB_RUNNER_TOKEN:
+        required: false
     inputs:
       version:
         required: true
@@ -44,7 +52,7 @@ on:
         description: One scenario or the complete pre-release gate
         type: choice
         default: all
-        options: [all, cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart, cloud-increase-response-loss]
+        options: [all, jobs, cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart, cloud-increase-response-loss]
 permissions:
   contents: read
 concurrency:
@@ -87,13 +95,13 @@ jobs:
           from release_candidate import MODES, revision
           sha = revision(os.environ['CANDIDATE_SHA'])
           mode = os.environ['MODE']
-          if mode != 'all' and mode not in MODES:
+          if mode not in ('all', 'jobs', *MODES):
               raise SystemExit('unknown cloud acceptance mode')
           subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], check=True)
           subprocess.run(['git', 'checkout', '--detach', sha], check=True)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('sha=' + sha + '\nmode=' + mode + '\n')
-              output.write('matrix=' + json.dumps({'mode': list(MODES) if mode == 'all' else [mode]}) + '\n')
+              output.write('matrix=' + json.dumps({'mode': list(MODES) if mode == 'all' else [MODES[0] if mode == 'jobs' else mode]}) + '\n')
           PY
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -132,6 +140,7 @@ jobs:
       version: ${{ inputs.version }}
   scenario:
     needs: [build, platforms]
+    if: needs.build.outputs.mode != 'jobs'
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     environment: aliyun-pre-release
@@ -197,9 +206,34 @@ jobs:
           path: .cache/receipts/*.json
           if-no-files-found: warn
           retention-days: 7
+  gitlab_jobs:
+    if: >-
+      !cancelled() && needs.build.result == 'success' && needs.platforms.result == 'success' &&
+      (needs.build.outputs.mode == 'jobs' || (needs.build.outputs.mode == 'all' && needs.scenario.result == 'success'))
+    needs: [build, platforms, scenario]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance.yml
+    secrets:
+      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID }}
+      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN }}
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
+      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS }}
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
+      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+      RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
+    with:
+      artifact_id: ${{ needs.build.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.build.outputs.manifest_sha256 }}
+      candidate_sha: ${{ needs.build.outputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: candidate
   gate:
     if: always()
-    needs: [build, platforms, scenario]
+    needs: [build, platforms, scenario, gitlab_jobs]
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
@@ -212,9 +246,16 @@ jobs:
       BUILD_RESULT: ${{ needs.build.result }}
       PLATFORM_RESULT: ${{ needs.platforms.result }}
       SCENARIO_RESULT: ${{ needs.scenario.result }}
+      JOB_RESULT: ${{ needs.gitlab_jobs.result }}
+      JOB_READY: ${{ needs.gitlab_jobs.outputs.release_ready }}
     steps:
-      - name: Require completed build and cloud scenarios
-        run: test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success && test "$SCENARIO_RESULT" = success
+      - name: Require completed build and selected acceptance paths
+        run: |
+          test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success
+          if [ "$MODE" != jobs ]; then test "$SCENARIO_RESULT" = success; fi
+          if [ "$MODE" = all ] || [ "$MODE" = jobs ]; then
+            test "$JOB_RESULT" = success && test "$JOB_READY" = true
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.build.outputs.candidate_sha }}
@@ -228,6 +269,7 @@ jobs:
           path: .cache/download
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: env.MODE != 'jobs'
         with:
           pattern: cloud-receipt-${{ github.run_id }}-${{ github.run_attempt }}-*
           path: .cache/receipts
@@ -244,7 +286,9 @@ jobs:
           root, receipts = pathlib.Path('.cache/candidate'), pathlib.Path('.cache/receipts')
           sha, version, digest = os.environ['CANDIDATE_SHA'], os.environ['VERSION'], os.environ['MANIFEST_SHA256']
           run, attempt, mode = os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT'], os.environ['MODE']
-          if mode == 'all':
+          if mode == 'jobs':
+              verify(root, digest, sha, version)
+          elif mode == 'all':
               gate(root, receipts, digest, sha, version, run, attempt)
           else:
               manifest = verify(root, digest, sha, version)
