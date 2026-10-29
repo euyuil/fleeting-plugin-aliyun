@@ -10,11 +10,12 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
 import urllib.request
 
 from cloud_config import config_digest, decode, fixture_config
 from cloud_fixture import JOB_SCENARIOS, Cloud, Fixture, labels, preflight, require_linux, stop_process_group
-from cloud_diagnostics import driver_diagnostic
+from cloud_diagnostics import diagnostic_error, driver_diagnostic, duration_ms
 from debian_package import debian_version
 from debian_upgrade import baseline, fetch_baseline, require_newer, verify_package
 from gitlab_fixture import prepare as prepare_gitlab_fixture
@@ -192,6 +193,33 @@ def manager_fenced():
             raise ValueError("systemd Manager termination and startup fence are not confirmed")
 
 
+def result_diagnostic(result, code):
+    diagnostic = driver_diagnostic({"result": result.get("result"), "resources": result}, code,
+                                   json.dumps(result.get("errors", [])))
+    jobs = result.get("jobs")
+    diagnostic["jobs"] = [job_outcome(value) for value in jobs[:3]] if isinstance(jobs, list) else []
+    return diagnostic
+
+
+def saved_driver_diagnostic(fixture, run, attempt):
+    path = fixture.directory / "evidence" / f"run-{run}-{attempt}" / "result.json"
+    try:
+        result = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {"evidence": "NOT_RECORDED"}
+    if not isinstance(result, dict):
+        return {"evidence": "INVALID"}
+    return {"evidence": "RECORDED", **result_diagnostic(result, fixture.driver_exit_code)}
+
+
+def fixture_operations(fixture):
+    operations = fixture.state.get("operations", {})
+    if not isinstance(operations, dict):
+        return {}
+    return {kind: operations[kind] if operations[kind] in ("unknown", "accepted") else "invalid"
+            for kind in ("vpc", "vswitch", "sg", "key", "template", "group") if kind in operations}
+
+
 def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scenario="smoke", packages=None):
     env = {k: v for k, v in os.environ.items() if k not in
            ("ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_CREDENTIALS_FILE", "ALIBABA_CLOUD_ROLE_ARN",
@@ -224,6 +252,7 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
             fixture.state["driver_group"] = process.pid
             fixture.save()
             code = process.wait(timeout=(30 if scenario in ("smoke", "upgrade") else 60 if scenario == "manager-crash" else 50) * 60)
+            fixture.driver_exit_code = code
         finally:
             if process is not None:
                 stop_process_group(process)
@@ -235,11 +264,7 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
     path = Path(env["ACCEPTANCE_OUTPUT"]) / f"run-{env['GITHUB_RUN_ID']}-{env['GITHUB_RUN_ATTEMPT']}" / "result.json"
     result = json.loads(path.read_text())
     if code:
-        diagnostic = driver_diagnostic({"result": result.get("result"), "resources": result}, code,
-                                       json.dumps(result.get("errors", [])))
-        jobs = result.get("jobs")
-        diagnostic["jobs"] = [job_outcome(job) for job in jobs[:3]] if isinstance(jobs, list) else []
-        print(json.dumps({"job_diagnostic": diagnostic}))
+        print(json.dumps({"job_diagnostic": result_diagnostic(result, code)}))
         raise ValueError("real GitLab job acceptance failed; private diagnostics retained")
     lock = json.loads(Path("upstream.lock.json").read_text())
     check_result(result, manifest, gitlab, executor, lock, env["GITHUB_RUN_ID"], env["GITHUB_RUN_ATTEMPT"], scenario)
@@ -261,27 +286,51 @@ def run(args):
     address = subprocess.check_output(["curl", "-4", "--fail", "--silent", "--show-error", "--max-time", "15", "https://api.ipify.org"], text=True).strip()
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
     status = cleanup = "FAIL"
+    diagnostics = {"fixture_setup": {"result": "UNKNOWN"}, "driver": {"result": "UNKNOWN"},
+                   "fixture_cleanup": {"result": "UNKNOWN"}}
+    primary_error = cleanup_error = None
+    stage, started = "fixture_setup", time.monotonic()
     try:
         fixture.prepare(cidr, config["fixture"], worker_script=worker_script(args.executor))
+        diagnostics[stage] = {"result": "PASS", "duration_ms": duration_ms(started)}
+        stage, started = "driver", time.monotonic()
         driver(fixture, args.root, manifest, config, gitlab, args.executor, cidr, args.driver, args.scenario, packages)
         status = "PASS"
+        diagnostics[stage] = {"result": "PASS", "duration_ms": duration_ms(started)}
+    except BaseException as error:
+        primary_error = error
+        diagnostics[stage] = {"result": "FAIL", "duration_ms": duration_ms(started),
+                              "error": diagnostic_error(error), "operations": fixture_operations(fixture)}
     finally:
+        started = time.monotonic()
         try:
             fixture.cleanup()
             cleanup = "PASS"
-        finally:
-            # Publish only checksums and verdicts, never raw project/runner/cloud
-            # identities, logs, configuration, job artifacts or credentials.
-            write_json(args.receipt, {"schema_version": 2, "result": status, "cleanup_result": cleanup,
-                       "job_scenario": args.scenario, "job_count": len(job_cases(args.scenario)),
-                       "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
-                       "phase": args.phase, "executor": args.executor, "manager_mode": "systemd",
-                       "distribution_source": "sealed-candidate" if args.phase == "candidate" else "anonymous-release",
-                       "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
-                       "fixture_config_sha256": config_digest(config), "gitlab_config_sha256": config_digest(gitlab),
-                       "package_sha256": manifest["files"][package_path(manifest)],
-                       "plugin_sha256": manifest["files"][manifest["normal_binary"]],
-                       "leftover_resources": 0 if cleanup == "PASS" else -1, **upgrade_receipt(args.scenario)})
+            diagnostics["fixture_cleanup"] = {"result": "PASS", "duration_ms": duration_ms(started)}
+        except BaseException as error:
+            cleanup_error = error
+            diagnostics["fixture_cleanup"] = {"result": "FAIL", "duration_ms": duration_ms(started),
+                                               "error": diagnostic_error(error), "operations": fixture_operations(fixture)}
+        diagnostics["driver"]["evidence"] = saved_driver_diagnostic(fixture, tags["fleeting-ci-run"], tags["fleeting-ci-attempt"])
+        # Keep both failures observable even if receipt persistence fails. Public
+        # diagnostics contain only allowlisted facts, never raw state or errors.
+        print(json.dumps({"job_orchestration_diagnostic": diagnostics}), flush=True)
+        write_json(args.receipt, {"schema_version": 2, "result": status, "cleanup_result": cleanup,
+                   "job_scenario": args.scenario, "job_count": len(job_cases(args.scenario)),
+                   "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
+                   "phase": args.phase, "executor": args.executor, "manager_mode": "systemd",
+                   "distribution_source": "sealed-candidate" if args.phase == "candidate" else "anonymous-release",
+                   "run_id": tags["fleeting-ci-run"], "run_attempt": tags["fleeting-ci-attempt"],
+                   "fixture_config_sha256": config_digest(config), "gitlab_config_sha256": config_digest(gitlab),
+                   "package_sha256": manifest["files"][package_path(manifest)],
+                   "plugin_sha256": manifest["files"][manifest["normal_binary"]],
+                   "leftover_resources": 0 if cleanup == "PASS" else -1, "diagnostics": diagnostics, **upgrade_receipt(args.scenario)})
+    if isinstance(cleanup_error, (KeyboardInterrupt, SystemExit)) and not isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+        raise cleanup_error
+    if primary_error is not None:
+        raise primary_error
+    if cleanup_error is not None:
+        raise cleanup_error
 
 
 def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke"):
