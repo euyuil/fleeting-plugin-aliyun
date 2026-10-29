@@ -19,16 +19,20 @@ while the provider has pending intent. See [API boundaries](cloud-api.md) and
 
 ## Static SSH and Instance executor
 
-Follow the [OCI quick start](../README.md#quick-start-run-a-job-on-a-linux-vm)
-to install the public plugin with Runner. The Manager can run on a separate host
-from GitLab CE. Use the same plugin directory for installation and Runner.
-See [distribution](distribution.md) for the native binary alternative.
+Follow the [Quick Start](../README.md#quick-start-run-a-job-on-a-linux-vm)
+for `.deb` installation and local `manager` commands. The Manager can run on
+the GitLab host or a separate host. The [manual OCI service guide](installation.md#linux-service-setup)
+is an alternative for the published plugin; see [distribution](distribution.md)
+for standalone native binaries.
 
 Start from [`examples/instance/config.toml`](../examples/instance/config.toml).
 Set the GitLab URL and runner authentication token, group and region,
 worker username and private-key file. Do not commit credentials. The example
-already uses the pinned OCI plugin. Follow the [Linux service setup](installation.md)
-for the service account, credentials, plugin directory, and systemd unit.
+uses a pinned OCI plugin reference. With the Debian package, `manager setup`
+replaces it with the installed binary and copies the SSH key to its private path.
+See [Configure a pool](debian-installation.md#configure-a-pool) for the packaged
+service. With manual OCI installation, keep the reference and use the same
+plugin directory for installation and Runner.
 Its default limits are max_instances=1, capacity_per_instance=1, and max_use_count=1.
 Jobs run on the VM without worker Docker or per-worker Runner registration.
 

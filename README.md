@@ -13,8 +13,8 @@ This is a community project under active development. Real cloud scaling and SSH
 tests have passed. Full Linux amd64 VM and Docker job cycles have also passed
 with Runner 19.5.1; see the [acceptance report](docs/acceptance-report.md#released-plugin-vm-and-docker-jobs).
 [`0.1.0-rc.2`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.2)
-is available for evaluation. Anonymous OCI installation with Runner 19.5.1 has
-passed on Linux amd64 and arm64; see the [installation checks](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40639528094).
+is available through OCI. The new `.deb` package and `manager` commands are
+available in main CI builds for evaluation; they are not in `0.1.0-rc.2`.
 
 ## Choose how jobs run
 
@@ -32,6 +32,11 @@ workers. See [supported configurations](docs/operations.md).
 
 ## Quick start: run a job on a Linux VM
 
+This path uses the `.deb` package on Ubuntu 24.04 or Debian 12 with systemd.
+The package sets up a dedicated Runner service with `manager` commands. You
+do not need to write a systemd unit or install another copy of the plugin.
+For the released OCI version, use the [manual OCI service guide](docs/installation.md#linux-service-setup).
+
 ### Before you start
 
 You need a Linux amd64 or arm64 host for Runner, a GitLab project where you can
@@ -46,18 +51,26 @@ See [worker and cloud prerequisites](docs/installation.md#worker-and-cloud-prere
 for the full checklist. You can use existing resources that meet these requirements.
 Spot workers, disks, images, and network traffic can cost money.
 
-### 1. Install or reuse GitLab Runner
+### 1. Install GitLab Runner and the plugin package
 
-Use **GitLab Runner 19.5.1**, the version tested with this prerelease. Follow the
+Install or reuse **GitLab Runner 19.5.1**. Follow the
 [official Linux installation guide](https://docs.gitlab.com/runner/install/linux-repository/)
-and its instructions for installing a specific version. Check your installation:
+for that exact version, including the matching helper images package.
+GitLab Runner is installed separately from this plugin.
+
+Follow [Download and install](docs/debian-installation.md#download-and-install)
+to get and verify the `release-candidate` artifact from a successful main CI run.
+In the extracted directory, install the package for your host:
 
 ```sh
+sudo apt install "./fleeting-plugin-aliyun_0.1.0~dev_$(dpkg --print-architecture).deb"
 gitlab-runner --version
+fleeting-plugin-aliyun version
 ```
 
-Keep any existing Runner configuration. The service guide below uses a separate
-service and private directories for this worker pool.
+Installation leaves the new service stopped. The [Debian guide](docs/debian-installation.md)
+covers supported hosts and existing manual installations. There is no hosted
+APT repository yet.
 
 ### 2. Create a runner in GitLab
 
@@ -66,39 +79,40 @@ Give it the tag `aliyun-vm` and turn off **Run untagged jobs**. Save its runner
 authentication token. This is the token the Manager needs to receive jobs.
 Workers do not register themselves with GitLab.
 
-### 3. Configure Runner and install the plugin
+### 3. Configure the Manager
 
-Save the complete [VM configuration example](examples/instance/config.toml) as
-`config.toml` in a private directory outside your checkout. It already includes
-the OCI plugin reference and the Linux shell settings. Fill in these values:
+Follow [Configure a pool](docs/debian-installation.md#configure-a-pool) to copy
+the packaged VM example, prepare your worker SSH key, and choose a cloud
+credential source. Keep these files in a private directory outside your checkout.
+Fill in the GitLab URL, runner token, region, ESS group ID, and SSH username.
+If using a reachable private worker network, set `use_external_addr = false`.
 
-| Setting | Your value |
-|---|---|
-| `url` | Your GitLab URL, reachable by the Manager and workers |
-| `token` | The runner authentication token from step 2 |
-| `region` | The Alibaba Cloud region of your ESS group |
-| `scaling_group_id` | Your dedicated ESS group ID |
-| `username` | The SSH user in your worker image, such as `ci` |
-| `key_path` | The private-key path used by the service setup |
+Once the files are ready, set up the service and check it:
 
-Keep `plugin = "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.2"` pinned to this
-exact version. If using a reachable private worker network, set
-`use_external_addr = false`.
+```sh
+sudo fleeting-plugin-aliyun manager setup \
+  --config "$HOME/aliyun-runner-setup/config.toml" \
+  --ssh-key "$HOME/aliyun-runner-setup/worker.key" \
+  --credentials "$HOME/aliyun-runner-setup/manager.env"
+sudo fleeting-plugin-aliyun manager doctor
+```
 
-Follow the [Linux service setup](docs/installation.md#linux-service-setup) to
-place the configuration and key in private directories, configure cloud
-credentials, and run `gitlab-runner fleeting install` as the service user.
-The public plugin package needs no registry login or Docker daemon.
+Omit `--credentials` when using a credential source available to the service,
+such as the Manager's ECS RAM role. Setup creates the dedicated account and
+private files. It replaces the example's OCI reference with the installed binary
+and sets the copied SSH key path. `doctor` checks the local setup; the first job
+below checks the connection to GitLab and the workers.
 
 ### 4. Start Runner as a service
 
-Complete the [systemd service setup](docs/installation.md#start-the-service),
-then check its status and logs using the commands in that guide. The service
-uses the same configuration, credentials, and plugin directory as the install
-step. It keeps running when you disconnect from the host.
+```sh
+sudo fleeting-plugin-aliyun manager start
+sudo fleeting-plugin-aliyun manager status
+```
 
-Starting the service allows queued jobs to create billable workers. Use one
-Manager configuration per ESS group. Runner starts the plugin automatically.
+The service starts at boot and keeps running when you disconnect. Queued jobs
+can now create billable workers. Use one Manager per ESS group. Runner starts
+the plugin automatically.
 
 ### 5. Run a job and check cleanup
 
@@ -120,6 +134,11 @@ creates one worker, runs one job, and releases the worker after use. Confirm tha
 ESS desired capacity returns to `0` and that the worker and its disks are gone.
 The ESS group, image, and network remain available for the next job. See
 [teardown](infra/README.md#teardown-and-cost-boundaries) when you no longer need them.
+
+To pause the pool, run `sudo fleeting-plugin-aliyun manager stop`. It waits for
+active jobs to finish. See the Debian guide for [logs and stopping](docs/debian-installation.md#start-and-stop),
+[upgrades and rollback](docs/debian-installation.md#upgrade-and-roll-back), and
+[removal](docs/debian-installation.md#remove).
 
 ## Choose CPU and memory
 
@@ -143,9 +162,11 @@ instead of the VM example. This selects where jobs run; running the Manager
 itself in Docker is a separate deployment choice. Prepare a worker image with
 Docker Engine, allow the SSH user to access Docker, and set a job image pinned
 by digest. Jobs can then use
-the Docker executor's `image` and `services` features. The example includes the
-same pinned OCI plugin. Use the service setup with this configuration and a
-dedicated ESS group for the Docker pool.
+the Docker executor's `image` and `services` features. Follow the same Quick Start
+with the packaged Docker example and a dedicated ESS group for this pool.
+`manager setup` selects the installed native plugin for either example.
+The packaged service manages one pool per host; use a separate Manager host
+for an additional pool, or manage multiple pools through a manual Runner setup.
 
 To limit the job container, add `cpus` and `memory` to the existing
 `[runners.docker]` section. For example:
@@ -169,12 +190,12 @@ jobs also passed checkout, scripts, artifacts, and normal release to zero.
 Other images, larger pools, Windows, full arm64 jobs, and production acceptance
 still need validation. Suspend/resume is disabled.
 
-- [Linux service setup](docs/installation.md): configuration, plugin installation, and systemd.
+- [Debian installation and lifecycle](docs/debian-installation.md): download, setup, upgrades, rollback and removal.
+- [Manual OCI service setup](docs/installation.md): released plugin installation and a hand-written systemd unit.
 - [Operating guide](docs/operations.md): credentials, connections, and recovery.
 - [Infrastructure guide](infra/README.md): images, networking, and teardown.
 - [Acceptance report](docs/acceptance-report.md): what has been tested and what remains.
 - [Testing guide](docs/testing.md): reproducible checks and explicit live tests.
 - [Compatibility and limitations](docs/upstream-parity.md): upstream capability mapping.
 - [Contributing](CONTRIBUTING.md): development commands and checks.
-- [Debian packages](docs/debian-installation.md): native installation, local manager commands, upgrades and removal.
 - [Design specification](docs/specification.md): architecture and requirements.
