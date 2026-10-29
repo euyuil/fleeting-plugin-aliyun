@@ -144,6 +144,34 @@ Debian/Manager addition in `72e2628` or later source changes, Linux arm64 cloud
 execution, full GitLab jobs, STS renewal, or broader lifecycle scenarios. Future
 publication must run its own gate against the version and artifacts it publishes.
 
+### Independent cleanup after real writer interruption
+
+On 2026-10-29 (Asia/Shanghai), the manual
+[Cloud cleanup drill](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40808641485)
+and its automatically triggered
+[independent janitor](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40808713223)
+established recovery of a deliberately abandoned fixture on source
+`8d51b87b739383b42a974949a75dbfed2809e18d`.
+
+The source receipt reports `INTERRUPTED`, one observed worker, and confirmed
+writer termination. The writer reached `await_interruption`, exited from SIGKILL
+(`-9`), and did not start cleanup. The supervisor deliberately exited with code
+86, so the source workflow's failure is expected. No fallback cleanup ran.
+
+The janitor ran on a fresh runner with fresh OIDC credentials, discovered the
+fixture from cloud ownership labels, and bound recovery to source run
+`40808641485`, attempt `1`. Its receipt reports `PASS`, `cleaned_fixtures=1`,
+`drill_budget_verified=true`, and `leftover_resources=0`. Cleanup completed two
+full absence inventories covering the owned scaling group, instance, disk, ENI,
+launch template, key pair, security group, vSwitch, and VPC.
+
+The creation switch was restored to false while cleanup remained enabled.
+Selected sanitized receipts are retained in `cloud_cleanup_drill` in the
+machine-readable status. No release or GitLab job was performed by this drill.
+This proves completion-triggered independent recovery for this source; scheduled
+expiry recovery and STS renewal still need separate live evidence. It does not
+replace a release candidate's six-scenario gate.
+
 ### Direct ECS connectivity preflight
 
 On 2026-10-27, one explicitly authorized Spot instance ran in `us-east-1b` with
