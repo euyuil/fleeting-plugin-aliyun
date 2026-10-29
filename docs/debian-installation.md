@@ -1,6 +1,6 @@
 # Debian package installation
 
-Use this path on Ubuntu 24.04 or Debian 12 with systemd and a Linux amd64 or
+Use this path on Ubuntu 24.04/26.04 or Debian 12 with systemd and a Linux amd64 or
 arm64 manager. The package, executable, and repository are all named
 `fleeting-plugin-aliyun`. This package includes the plugin and local manager
 commands. GitLab Runner is installed separately.
@@ -12,11 +12,12 @@ provided; install the downloaded file with APT. Versions before `0.1.0-rc.3`
 do not include Debian packages or `manager` commands.
 
 Every PR and push to main tests the same candidate package on native Ubuntu
-24.04 amd64 and arm64, plus isolated Debian 12 amd64 with real systemd. The same
-platform checks must pass before release cloud acceptance starts. Debian 12 arm64
-is not a separately tested userspace configuration.
+24.04 and 26.04, each on amd64 and arm64, plus isolated Debian 12 amd64 with real
+systemd hosted by the Ubuntu 26.04 amd64 job. The same platform checks must pass
+before release cloud acceptance starts. Debian 12 arm64 is not a separately
+tested userspace configuration.
 The [public release check](https://github.com/euyuil/fleeting-plugin-aliyun/actions/workflows/verify-release.yml)
-tests downloaded packages on native Ubuntu amd64 and arm64 hosts.
+tests downloaded packages on the same four native Ubuntu combinations.
 
 ## Download and install
 

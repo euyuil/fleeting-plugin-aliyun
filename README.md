@@ -18,7 +18,7 @@ production acceptance still need validation. Suspend/resume is disabled.
 
 ## Quick start: run a job on a Linux VM
 
-Use an Ubuntu 24.04 or Debian 12 host with systemd, sudo access, and Linux amd64
+Use an Ubuntu 24.04/26.04 or Debian 12 host with systemd, sudo access, and Linux amd64
 or arm64. Run the shell commands below on this Manager host in the same shell.
 
 ### Before you start

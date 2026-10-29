@@ -29,6 +29,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - runner: ubuntu-26.04
+            arch: amd64
+          - runner: ubuntu-26.04-arm
+            arch: arm64
           - runner: ubuntu-24.04
             arch: amd64
           - runner: ubuntu-24.04-arm
@@ -38,6 +42,7 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       ARCH: ${{ matrix.arch }}
+      RUNNER_IMAGE: ${{ matrix.runner }}
       EXPECTED_REVISION: ${{ inputs.expected_revision }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -94,7 +99,7 @@ jobs:
             -verify-ref "ghcr.io/$GITHUB_REPOSITORY:$VERSION" \
             -expected-version "$VERSION" -expected-revision "$RELEASE_REVISION" \
             -expected-binary "$release_dir/fleeting-plugin-aliyun" \
-            | tee "install-receipt-$ARCH.json"
+            | tee "install-receipt-$RUNNER_IMAGE-$ARCH.json"
       - name: Download and test the public Debian package
         # Older tags predate Debian packaging and retain OCI-only verification.
         if: hashFiles('tools/test-debian-lifecycle.py') != ''
@@ -121,15 +126,16 @@ jobs:
           package = pathlib.Path(sys.argv[1])
           receipt = {
               'version': os.environ['VERSION'], 'architecture': os.environ['ARCH'],
+              'runner_image': os.environ['RUNNER_IMAGE'],
               'package': package.name, 'package_sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
               'release_asset': package.name.replace('~', '.'),
               'anonymous_download': True, 'native_binary_match': True, 'lifecycle': True,
           }
-          pathlib.Path('install-receipt-debian-' + os.environ['ARCH'] + '.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          pathlib.Path('install-receipt-debian-' + os.environ['RUNNER_IMAGE'] + '-' + os.environ['ARCH'] + '.json').write_text(json.dumps(receipt, indent=2) + '\n')
           PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: release-install-${{ matrix.arch }}
+          name: release-install-${{ matrix.runner }}-${{ matrix.arch }}
           path: install-receipt-*.json
           if-no-files-found: error
           retention-days: 7
