@@ -24,7 +24,7 @@ job prevents that phase from passing, even if some receipt artifacts exist.
 The public installation matrix remains credential-free; cloud and GitLab
 credentials are confined to the separate job workflow's Environment.
 
-These live jobs cover the configured immutable Linux amd64 worker image and
+These live jobs cover the configured official Ubuntu 26.04 amd64 base image and
 its exact type, zone and network assumptions. The wider amd64/arm64 Ubuntu and
 Debian package matrix remains offline installation evidence. Neither receipt
 establishes future Spot availability or universal success on other user images.
@@ -64,33 +64,29 @@ fixture ref without reviewing the new files and updating its pinned SHA.
 Add `RELEASE_ALIYUN_JOB_FIXTURE_CONFIG` as a private Environment secret (or a
 variable where the deployment policy permits private resource configuration).
 Its two fields are `fixture` and `job_image`. `fixture` has the same validated
-fields as `RELEASE_ALIYUN_FIXTURE_CONFIG`, but must reference a separately
-prepared immutable job-worker image. `job_image` is a full registry/repository
+fields as `RELEASE_ALIYUN_FIXTURE_CONFIG`, but must reference a fixed official
+Ubuntu 26.04 amd64 base image. `job_image` is a full registry/repository
 reference with a SHA-256 digest. There are no fallback image IDs or instance
 types. See the [cloud configuration contract](pre-release-cloud.md) for the base
 fixture fields and independent cleanup requirements.
 
-The job-worker image must support cloud-init and root SSH using the fresh
-per-run ECS key pair. It needs Git, curl, coreutils, the pinned Runner, Docker
-Engine, and `/var/lib/fleeting-worker/ready` after preparation succeeds. Preloading
-the pinned job image and matching Runner helper image reduces repeated setup
-work and dependency on external registries. The one-Mbps setting limits outbound
-traffic; it is not a one-Mbps download limit. ECS documents a separate inbound
-limit for [fixed public IP bandwidth](https://www.alibabacloud.com/help/en/ecs/user-guide/network-bandwidth/).
-Do not infer cold-start time from the outbound setting; measure it against the
-readiness and acquisition deadlines. Verify both VM and container
-access to IMDSv2; the fixed job independently reads its instance ID. Prepare the
-image using the [worker image procedure](../infra/README.md), remove temporary
-preparation credentials and stale cloud-init state, and retain its private
-image/snapshot ownership record. No GitLab or Manager cloud credentials enter
-the image. Image creation and retained storage require separate cost approval.
+Each fresh worker installs its tools through cloud-init. The fixture passes its
+per-run SSH public key and the checked-in bootstrap scripts as launch-template
+user data. `infra/bootstrap-job-worker.sh` selects the signed Ubuntu archive
+snapshot pinned in `upstream.lock.json`, installs Docker for the container
+executor, and then runs `infra/bootstrap-linux.sh` to install the checksum-pinned
+Runner and verify Git, curl, coreutils and SSH. Readiness is written only after
+preparation succeeds. Docker pulls the job and Runner helper images normally.
+No custom ECS image is built or retained, and no container cache is prepared.
+No GitLab PAT, Runner authentication token or Manager cloud credentials enter
+the worker bootstrap. The selected public image must support cloud-init and root
+SSH with an ECS key pair. Both VM and container jobs independently read IMDSv2.
 
-Releasing the builder or test instances does not release the image's snapshots.
-[Snapshot storage remains billable](https://www.alibabacloud.com/help/en/ecs/user-guide/create-a-custom-image-from-an-instance)
-for as long as those snapshots are retained, including between acceptance runs.
-The fixture janitor cleans per-run resources; it does not retire prepared images.
-Track the current image and its snapshots separately, and delete superseded
-images together with their associated snapshots after validating a replacement.
+The fixture job has a 20-minute timeout to include ordinary preparation. The
+shipped Manager examples retain their readiness and acquisition deadlines;
+installation failure or an exceeded deadline fails acceptance. The one-Mbps
+setting limits outbound traffic, not downloads. See the separate inbound limit
+in the [ECS bandwidth documentation](https://www.alibabacloud.com/help/en/ecs/user-guide/network-bandwidth/).
 
 Use an instance type suitable for full jobs. The initial target is 2 vCPU and
 2 GiB, for example `ecs.e-c1m1.large`, subject to regional Spot availability.
@@ -100,7 +96,7 @@ distinct fixture names and ownership tags. Existing janitor discovery covers
 all four modes even if local evidence is lost.
 
 Keep `RELEASE_CLOUD_ACCEPTANCE_ENABLED` and `RELEASE_JOB_ACCEPTANCE_ENABLED`
-disabled until the separate paid run is approved and its image is ready.
+disabled until the paid run is approved and the official base image is configured.
 `RELEASE_CLOUD_CLEANUP_ENABLED` must already be true. Read-only local
 configuration validation is available with:
 

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -48,6 +49,15 @@ def configuration(env=os.environ, *, read_only=False):
 
 def package_path(manifest):
     return f"dist/fleeting-plugin-aliyun_{debian_version(manifest['version'])}_amd64.deb"
+
+
+def worker_script(executor):
+    lock = json.loads(Path("upstream.lock.json").read_text())
+    values = {"RUNNER_VERSION": lock["runner"]["version"], "RUNNER_SHA256": lock["runner"]["sha256"]["linux-amd64"],
+              "WORKER_USER": "root", "PACKAGE_SNAPSHOT": lock["job_worker"]["ubuntu_snapshot"],
+              "INSTALL_DOCKER": "true" if executor == "docker-autoscaler" else "false"}
+    return ("set -eu\n" + "".join("export " + key + "=" + shlex.quote(value) + "\n" for key, value in values.items())
+            + Path("infra/bootstrap-job-worker.sh").read_text() + "\n" + Path("infra/bootstrap-linux.sh").read_text())
 
 
 def install_package(root, manifest, phase, directory):
@@ -164,7 +174,7 @@ def run(args):
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
     status = cleanup = "FAIL"
     try:
-        fixture.prepare(cidr, config["fixture"])
+        fixture.prepare(cidr, config["fixture"], worker_script=worker_script(args.executor))
         driver(fixture, args.root, manifest, config, gitlab, args.executor, cidr, args.driver)
         status = "PASS"
     finally:

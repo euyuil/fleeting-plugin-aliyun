@@ -47,7 +47,7 @@ statuses and timings without the target address.
 The [pre-release cloud gate](pre-release-cloud.md) automates the six modes below
 with fresh fixtures, a separate account and exact candidate-artifact binding.
 Its manual entry can also run a single mode without publication. The
-[release job gate](job-acceptance.md) uses separate prepared-image fixtures for
+[release job gate](job-acceptance.md) bootstraps fresh official-image workers for
 real GitLab jobs. The older `Live acceptance` workflow and one-time setup below
 remain available for explicit checks of a reusable pool.
 

@@ -102,6 +102,7 @@ class FixtureTests(unittest.TestCase):
                            ("InternetMaxBandwidthOut", "internet_max_bandwidth_out")):
             self.assertEqual(template[field], CONFIG[key])
         user_data = base64.b64decode(template["UserData"]).decode()
+        self.assertNotIn("runcmd:", user_data)
         self.assertIn("size: " + str(CONFIG["swap_mib"] * 1024 * 1024), user_data)
         for action, key in (("CreateVpc", "vpc_cidr"), ("CreateVSwitch", "vswitch_cidr")):
             self.assertEqual(next(p["CidrBlock"] for _, a, p in self.cloud.calls if a == action), CONFIG[key])
@@ -115,6 +116,30 @@ class FixtureTests(unittest.TestCase):
             self.owner.cleanup()
         self.assertTrue(all(not rows for rows in self.cloud.rows.values()))
         self.assertFalse((self.directory / "host-key").exists())
+
+    def test_job_bootstrap_preserves_shell_text_and_public_key_as_data(self):
+        public_key = "synthetic public key ' $(exit 99)"
+
+        def keygen(command, **_kwargs):
+            path = Path(command[-1])
+            path.write_text("synthetic private key\n")
+            path.with_suffix(".pub").write_text(public_key + "\n")
+
+        tags = {**self.tags, "fleeting-scenario": "job-candidate-instance"}
+        owner = fixture.Fixture(self.cloud, self.directory, tags)
+        script = "set -eu\nprintf '%s' \"$WORKER_PUBLIC_KEY\"\n"
+        with mock.patch("subprocess.run", side_effect=keygen):
+            owner.prepare("192.0.2.1/32", CONFIG, worker_script=script)
+        template = next(p for _, a, p in self.cloud.calls if a == "CreateLaunchTemplate")
+        user_data = base64.b64decode(template["UserData"]).decode()
+        command = json.loads(user_data.split("runcmd:\n  - ", 1)[1])
+        self.assertEqual(subprocess.check_output(command, text=True), public_key)
+        self.assertNotIn("synthetic private key", command[-1])
+
+    def test_plugin_only_fixture_rejects_job_bootstrap_before_creating_resources(self):
+        with self.assertRaises(ValueError):
+            self.owner.prepare("192.0.2.1/32", CONFIG, worker_script="exit 0")
+        self.assertFalse(self.cloud.calls)
 
     def test_lost_create_reply_is_recovered_without_repeating_creation(self):
         self.cloud.fail_create = True

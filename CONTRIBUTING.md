@@ -165,7 +165,7 @@ Configuration, ownership, budgets and recovery are documented in
 For immediate recovery of a completed run, add `-f run_id=RUN_ID -f run_attempt=ATTEMPT`
 to the janitor command; otherwise it scans only expired fixtures.
 
-After configuring the separately prepared job image, dedicated GitLab fixture,
+After configuring the official base image, dedicated GitLab fixture,
 and explicit paid-job enablement from [release job acceptance](docs/job-acceptance.md),
 validate just the two real jobs without publishing:
 

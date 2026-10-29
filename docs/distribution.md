@@ -174,7 +174,7 @@ executor jobs through the candidate `.deb`, installed examples and systemd
 Manager. Those receipts bind the package checksum, private fixture configuration
 digests and exact workflow attempt. Both normal scale-in and complete fixture
 cleanup must pass. See [release job acceptance](job-acceptance.md) for its
-separate prepared-image and GitLab configuration. A selected single scenario or
+separate base-image and GitLab configuration. A selected single scenario or
 jobs-only run cannot mark a candidate ready for publication.
 
 ### Candidate platform checks

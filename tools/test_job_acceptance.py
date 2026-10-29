@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -14,7 +15,7 @@ from cloud_fixture import JOB_MODES, labels, name_for
 
 
 def inputs():
-    fixture = {"region": "test-region-1", "zone": "test-region-1a", "instance_type": "ecs.example.large", "image": "prepared-job-image",
+    fixture = {"region": "test-region-1", "zone": "test-region-1a", "instance_type": "ecs.example.large", "image": "official-ubuntu-image",
                "disk_category": "cloud_essd", "disk_size_gib": 20, "disk_performance_level": "PL0", "internet_max_bandwidth_out": 1,
                "spot_duration": 1, "vpc_cidr": "10.45.0.0/16", "vswitch_cidr": "10.45.1.0/24", "swap_mib": 1024}
     config = {"fixture": fixture, "job_image": "docker.io/library/example@sha256:" + "a" * 64}
@@ -47,6 +48,39 @@ def receipt(executor="instance", phase="candidate"):
 
 
 class JobAcceptanceTests(unittest.TestCase):
+    def test_worker_rejects_wrong_os_before_installing_anything(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            observed = root / "install-called"
+            for name, content in {"uname": "#!/bin/sh\nprintf x86_64", "install": '#!/bin/sh\ntouch "$TEST_CALL_LOG"\nexit 97'}.items():
+                path = root / name
+                path.write_text(content)
+                path.chmod(0o700)
+            release = root / "os-release"
+            script = Path("infra/bootstrap-job-worker.sh").read_text().replace("/etc/os-release", str(release))
+            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"], "TEST_CALL_LOG": str(observed),
+                   "PACKAGE_SNAPSHOT": "20261027T000000Z", "INSTALL_DOCKER": "false"}
+            for system, version, codename in (("debian", "26.04", "resolute"), ("ubuntu", "24.04", "noble"), ("ubuntu", "26.04", "noble")):
+                with self.subTest(system=system, version=version, codename=codename):
+                    release.write_text(f"ID={system}\nVERSION_ID={version}\nVERSION_CODENAME={codename}\n")
+                    result = subprocess.run(["sh"], input=script, text=True, env=env, capture_output=True)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(observed.exists())
+            release.write_text("ID=ubuntu\nVERSION_ID=26.04\nVERSION_CODENAME=resolute\n")
+            result = subprocess.run(["sh"], input=script, text=True, env=env, capture_output=True)
+            self.assertEqual(result.returncode, 97)
+            self.assertTrue(observed.exists())
+
+    def test_cold_bootstrap_uses_locked_runner_and_repository_scripts(self):
+        lock = json.loads(Path("upstream.lock.json").read_text())
+        for executor in job.EXECUTORS:
+            script = job.worker_script(executor)
+            subprocess.run(["sh", "-n"], input=script, text=True, check=True)
+            self.assertIn(lock["runner"]["sha256"]["linux-amd64"], script)
+            self.assertIn(lock["job_worker"]["ubuntu_snapshot"], script)
+            self.assertTrue(script.endswith(Path("infra/bootstrap-linux.sh").read_text()))
+            self.assertIn("export INSTALL_DOCKER=" + ("true" if executor == "docker-autoscaler" else "false"), script)
+
     def test_separate_configuration_and_opt_in(self):
         config, gitlab, env = inputs()
         self.assertEqual(job.configuration(env), (config, gitlab))
