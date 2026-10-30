@@ -385,8 +385,17 @@ cleanup; extra creation IDs or unverified resources invalidate PASS.
 The stage is bounded at 20 minutes; acquisition at 10 minutes; workflow at 40
 minutes, including dependency setup and cleanup. Cleanup gets up to 8 minutes
 plus Manager shutdown time. Ownership expires after 30 minutes, and observed
-instances receive a one-hour automatic release deadline (the ECS API requires
-at least 30 minutes). The independent hourly janitor confirms expiry **and** the
+instances are bounded by an automatic release deadline no later than one hour
+after the driver starts. The driver preserves a future deadline actually returned
+by `DescribeInstances` when it is within that fixed limit, including deadlines
+with less than 30 minutes remaining. A launch-template setting alone is not
+proof of inheritance. Missing deadlines are set to the minute-truncated fixed
+limit only while at least 31 minutes remain: [the ECS API requires 30 minutes
+and rounds seconds down](https://help.aliyun.com/zh/ecs/developer-reference/api-ecs-2014-05-26-modifyinstanceautoreleasetime),
+with one additional minute reserved for transmission. Invalid, expired or
+out-of-bound deadlines, and late workers without a deadline, fail closed;
+the driver never extends the limit for a recovery job.
+The independent hourly janitor confirms expiry **and** the
 owning GitHub run's completed status before reclaiming. The workflow timeout is
 longer than the stage so initial setup cannot consume the cleanup margin.
 

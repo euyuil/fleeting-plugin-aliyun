@@ -41,12 +41,12 @@ type Member struct {
 	Entrusted                                                                                                                                         bool
 }
 type Instance struct {
-	InstanceId, Status, OSType, InstanceType, SpotStrategy, ZoneId, ImageId, InstanceChargeType string
-	PublicIpAddress                                                                             struct{ IpAddress []string }
-	InnerIpAddress                                                                              struct{ IpAddress []string }
-	VpcAttributes                                                                               struct{ PrivateIpAddress struct{ IpAddress []string } }
-	EipAddress                                                                                  struct{ IpAddress, AllocationId string }
-	Tags                                                                                        struct {
+	InstanceId, Status, OSType, InstanceType, SpotStrategy, ZoneId, ImageId, InstanceChargeType, AutoReleaseTime string
+	PublicIpAddress                                                                                              struct{ IpAddress []string }
+	InnerIpAddress                                                                                               struct{ IpAddress []string }
+	VpcAttributes                                                                                                struct{ PrivateIpAddress struct{ IpAddress []string } }
+	EipAddress                                                                                                   struct{ IpAddress, AllocationId string }
+	Tags                                                                                                         struct {
 		Tag []struct{ TagKey, TagValue string }
 	}
 }

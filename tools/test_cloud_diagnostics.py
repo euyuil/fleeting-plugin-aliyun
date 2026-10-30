@@ -10,6 +10,13 @@ def marker(event, scope="scenario", phase="ssh", elapsed=0, **fields):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_auto_release_error_uses_an_exact_public_code(self):
+        code = "InvalidAutoReleaseTime.Malformed"
+        result = api_error("ecs", "ModifyInstanceAutoReleaseTime", code)
+        self.assertEqual(result["code"], code)
+        self.assertEqual(result["action"], "ModifyInstanceAutoReleaseTime")
+        self.assertEqual(api_error("ecs", "ModifyInstanceAutoReleaseTime", code + ".private")["code"], "unknown")
+
     def test_formatted_errors_keep_static_suffixes_and_never_values(self):
         source = ('fmt.Sprintf("GitLab API HTTP %d", status)\n'
                   'fmt.Errorf("member %s is not verified as releasable by ESS", id)\n'
