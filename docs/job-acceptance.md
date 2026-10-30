@@ -41,7 +41,7 @@ Every executor runs nine independently bounded scenarios:
 | `timeout` | Runner's fixed three-minute `RUNNER_SCRIPT_TIMEOUT`, reported as `job_execution_timeout` | Success | 2 |
 | `capacity` | Two concurrent successful jobs, with a third queued | Third job succeeds on a fresh worker while the retained job continues | 3 |
 | `drain` | Running job completes while `manager stop` drains the service | Success after an explicit Manager restart | 2 |
-| `worker-loss` | Abruptly delete the checkpointed worker; require a proven loss outcome | Success on a fresh worker using the same Manager | 2 |
+| `worker-loss` | Abruptly delete the checkpointed worker; require a proven loss outcome and drain at most one replacement | Success on a fresh worker using the same Manager | 3 |
 | `manager-crash` | Kill the owned Manager unit; require automatic restart and GitLab server-side job failure | Success on a fresh worker with the original Runner identity | 2 |
 | `upgrade` | Install and configure the pinned published package, upgrade, roll back, and upgrade again; run a successful job | None | 1 |
 
@@ -64,7 +64,7 @@ and cannot make failed recovery pass.
 Recovery drivers have a 40-minute execution deadline and a 60-minute hosted job
 deadline, except `manager-crash`, which allows 50 and 80 minutes respectively for
 GitLab's server-side job timeout and bounded shutdown/cleanup. Smoke and upgrade use a
-20-minute driver deadline. The serial eighteen-case phase permits thirty-four cumulative workers,
+20-minute driver deadline. The serial eighteen-case phase permits thirty-six cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
 require all eighteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
@@ -182,8 +182,18 @@ status/signal. Other keepalive causes do not qualify. An ordinary
 script failure, an echoed command, or a continued trace fragment cannot pass.
 Before a follow-up pipeline is submitted, read-only observation
 must prove zero group demand/capacity, quiet activities and absence of the worker
-and its associated resources. Any unrequested replacement fails the case. The
-second job must succeed on a distinct worker and finish through normal release.
+and its associated resources. ESS retains desired capacity after disappearance
+and can create a replacement, as described in
+[ADR 0002](adr/0002-capacity-reconciliation.md#interruption-and-health-replacement)
+and the [ESS desired-capacity contract](https://help.aliyun.com/zh/auto-scaling/user-guide/expected-number-of-instances).
+At most one replacement is allowed, with complete Spot and disk/ENI inventory.
+Runner must release it normally and the read-only zero check must finish before
+the recovery pipeline is submitted. The driver records that replacement's
+identity privately at this boundary; it cannot serve either job. Additional
+replacements, including one first observed during recovery, fail the case.
+The second job must succeed on a fresh worker and finish through normal release.
+Concurrency remains one; the cumulative bound is three workers, including the
+injected target, optional drained replacement, and recovery worker.
 
 Private evidence marks the first deletion as injected, with `normal_release`
 false for both that job and the whole sequence; `worker_loss_verified` records the
