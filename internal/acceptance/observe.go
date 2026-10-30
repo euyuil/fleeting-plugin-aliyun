@@ -71,10 +71,15 @@ func ObserveBudget(ctx context.Context, c *aliyun.Client, l *Ledger, budget int,
 		l.Instances[n].Zone = i.ZoneId
 		l.Instances[n].InstanceType = i.InstanceType
 		if l.Instances[n].AutoReleaseAt == "" && i.Status == "Running" {
-			at := l.StartedAt.Add(time.Hour).UTC().Format(time.RFC3339)
-			var out struct{ RequestId string }
-			if err = c.API.Call(ctx, "ecs", "ModifyInstanceAutoReleaseTime", map[string]string{"RegionId": c.Region, "InstanceId": i.InstanceId, "AutoReleaseTime": at}, &out); err != nil {
+			at, write, err := workerAutoReleaseDeadline(l.StartedAt, time.Now(), i.AutoReleaseTime)
+			if err != nil {
 				return err
+			}
+			if write {
+				var out struct{ RequestId string }
+				if err = c.API.Call(ctx, "ecs", "ModifyInstanceAutoReleaseTime", map[string]string{"RegionId": c.Region, "InstanceId": i.InstanceId, "AutoReleaseTime": at}, &out); err != nil {
+					return err
+				}
 			}
 			l.Instances[n].AutoReleaseAt = at
 			if err = l.Save(); err != nil {
@@ -85,6 +90,39 @@ func ObserveBudget(ctx context.Context, c *aliyun.Client, l *Ledger, budget int,
 	}
 	return nil
 }
+
+func workerAutoReleaseDeadline(started, now time.Time, existing string) (string, bool, error) {
+	if started.IsZero() || started.After(now) {
+		return "", false, errors.New("invalid run start for worker automatic release")
+	}
+	ceiling := started.Add(time.Hour).UTC().Truncate(time.Minute)
+	if existing != "" {
+		// DescribeInstances can return minute-precision UTC. Only its actual
+		// instance response proves that a launch-template deadline was inherited.
+		at, err := time.Parse(time.RFC3339, existing)
+		if err != nil {
+			at, err = time.Parse("2006-01-02T15:04Z", existing)
+		}
+		if err != nil {
+			return "", false, errors.New("worker automatic release deadline has an invalid format")
+		}
+		if !at.After(now) {
+			return "", false, errors.New("worker automatic release deadline has expired")
+		}
+		if at.After(ceiling) {
+			return "", false, errors.New("worker automatic release deadline exceeds the fixed one-hour limit")
+		}
+		return at.UTC().Format(time.RFC3339), false, nil
+	}
+	// ECS rounds down to the minute and requires 30 minutes of lead time for
+	// a new setting. Leave another minute for transmission; never roll the cap
+	// forward for a late worker or rewrite its already-established deadline.
+	if ceiling.Before(now.Add(31 * time.Minute)) {
+		return "", false, errors.New("insufficient lead time to establish the fixed worker automatic release deadline")
+	}
+	return ceiling.Format(time.RFC3339), true, nil
+}
+
 func appendUnique(ids []string, id string) []string {
 	if !slices.Contains(ids, id) {
 		return append(ids, id)
