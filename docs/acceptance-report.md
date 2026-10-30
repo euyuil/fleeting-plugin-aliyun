@@ -1,6 +1,6 @@
 # Implementation and acceptance report
 
-Updated on 2026-10-29 (Asia/Shanghai). This report separates implemented code, offline evidence,
+Updated on 2026-10-30 (Asia/Shanghai). This report separates implemented code, offline evidence,
 live acceptance, and external publication. The machine-readable status is
 [`acceptance/status.json`](../acceptance/status.json); exact source versions are
 in [`upstream.lock.json`](../upstream.lock.json).
@@ -75,8 +75,9 @@ supply the controlled boundaries.
 | Pinned Runner config parsing | All three examples parsed by the real checksum-verified Runner. No GitLab registration or job ran. |
 | Staged review | Full staged scope, new-file whitespace, and `git diff --cached --check` checked per commit. Significant implementation slices received independent review. |
 
-[CONTRIBUTING.md](../CONTRIBUTING.md) owns the executable procedures. Current CI runs shared code/security checks and verifies both native Linux
-architectures plus the documented Debian userspace. These checks do not change
+[CONTRIBUTING.md](../CONTRIBUTING.md) owns the executable procedures. Current PR/main CI runs quick code and security checks. Pre-release acceptance
+adds the full code profile, both native Linux architectures and the documented
+Debian userspace. These checks do not change
 the versions or scope of the historical evidence below. CI success is not
 evidence that a live job or publication happened.
 

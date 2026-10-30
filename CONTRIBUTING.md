@@ -10,7 +10,7 @@ Other upstream versions are pinned in `upstream.lock.json`; Go dependencies
 are locked by `go.mod` and `go.sum`.
 No cloud credentials are needed for local development. Fixture safety tests
 use an OpenSSH client for public-key validation and OpenSSL for a synthetic
-loopback TLS server. CI also exercises the pinned CLI against that server using
+loopback TLS server. Full pre-release CI also exercises the pinned CLI against that server using
 synthetic STS credentials; real fixture creation requires
 the separately pinned Alibaba CLI documented in [infrastructure](infra/README.md).
 
@@ -19,13 +19,20 @@ make verify
 make dist
 ```
 
-`make verify` runs the shared code checks and security scans. PR CI and release
-candidate builds call `make verify-code` plus the same reusable security job.
-Code checks include an early toolchain check, metadata/documentation consistency,
-`go mod tidy -diff`, checksum verification, normal/race/responsegate tests,
-read-only formatting, vet/actionlint, Runner example parsing, and a deliberately
-disabled live-tag entry. No live SDK or credentials are enabled by this target.
-The live-tag diagnostics execute; the cloud scenario explicitly reports NOT_RUN.
+`make verify-fast` runs the code profile used by PR and main CI: toolchain and
+metadata checks, `go mod tidy -diff`, dependency checksum verification, the native
+build, ordinary Go/Python tests, formatting, vet, actionlint and static Runner
+configuration checks. It does not build release archives or Debian packages,
+run race/responsegate/live-tag checks, install the official Runner or Alibaba
+CLI, or execute native platform installation matrices. CLI-only Python tests
+explicitly skip when their pinned executable is absent.
+
+`make verify-code` adds race/responsegate checks, the deliberately disabled live
+entry and actual pinned-Runner example parsing. `make verify` runs this full code
+profile plus security scans. Pre-release candidate builds retain
+`make verify-code`, `make dist`, the shared security job and all four native
+platform installations. Ordinary PR/main CI uses `make verify-fast` and the same
+security job. A green ordinary CI run is not full distribution or live acceptance.
 For focused work, the `test`, `test-component`, `test-race`, `test-responsegate`,
 `test-live-offline`, `test-configs`, `lint`, and `security` targets remain available.
 
@@ -75,27 +82,27 @@ pinned, checksum-verified Runner binary.
 Before committing, review `git diff`, stage only intended files, review the
 complete `git diff --cached`, and run `git diff --check` and
 `git diff --cached --check`. Use Conventional Commits and approved contributor
-identity. GitHub CI runs the same checksum, race, vet, formatting, and whitespace checks.
+identity. GitHub CI runs the quick code profile, security and whitespace checks.
 CI fetches the full Git history and checks committed PR changes with
 `git diff --check "$BASE_SHA...$HEAD_SHA" --`, using the PR event's base and head
 SHAs. The three-dot range checks changes since their merge base, including when
 the target branch has advanced. For pushes to `main`, CI checks the event's
 before and after SHAs with `git diff --check "$BASE_SHA" "$HEAD_SHA" --`.
 The `main` ruleset requires the aggregate `offline` check from GitHub Actions
-before merging. It rejects failed, canceled, or skipped build/platform/security jobs.
-CI uploads the candidate, downloads it by artifact ID, and compares
-every archive, Debian package, checksum file, and dependency inventory byte for
-byte. This exercises the pinned Node.js 24 artifact Actions without cloud access.
-The same sealed candidate also runs through `verify-candidate.yml` in PR CI and
-before cloud acceptance. General CI jobs use explicitly pinned Ubuntu 26.04
-hosts. The platform matrix retains Ubuntu 24.04 and adds Ubuntu 26.04, each on
-native amd64 and arm64. All four jobs verify the candidate source and manifest,
-install the full OCI payload, parse examples with the pinned Runner, and exercise
-the Debian package lifecycle. The Ubuntu 26.04 amd64 job additionally boots an
-isolated Debian 12 userspace with systemd and no network, then runs the lifecycle
-test on the same package. `tools/test-debian-system.sh` requires a disposable
-GitHub-hosted amd64 runner; debootstrap downloads authenticated Debian packages
-before the isolated test starts. No cloud or GitLab credentials are used.
+before merging. It rejects failed, canceled, or skipped quick-code/security jobs.
+
+Pre-release acceptance seals a candidate, downloads it by artifact ID and
+verifies every archive, Debian package, checksum file and dependency inventory
+against its manifest before native execution. The supported-platform matrix
+runs only on that pre-release path: Ubuntu 24.04 and 26.04, each on native amd64
+and arm64. All four jobs install the full OCI payload, parse examples with the
+pinned Runner, and exercise the Debian package lifecycle. The Ubuntu 26.04 amd64
+job also boots an isolated Debian 12 userspace with systemd and no network, then
+runs the lifecycle test on the same package. `tools/test-debian-system.sh`
+requires a disposable GitHub-hosted amd64 runner; debootstrap downloads
+authenticated Debian packages before the isolated test starts. These offline
+checks use no cloud or GitLab credentials. Paid acceptance remains separately
+controlled by its explicit enablement and scenario gates.
 
 Security checks run on every PR/main CI and before release candidate builds.
 They use checksum-pinned Gitleaks and ShellCheck, hash-locked Ruff wheels, and a
@@ -268,7 +275,7 @@ Replace the placeholders and use the exact published version. Retain the JSON
 receipt after a successful check. Verification reads public packages and local
 files; it does not publish or create cloud workers.
 
-The credential-free CI also compiles the optional live command:
+The full pre-release code profile also compiles the optional live command:
 
 ```sh
 go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
@@ -279,7 +286,7 @@ See [testing and acceptance](docs/testing.md) for explicit live configuration,
 authorization and do not run as part of normal PR validation.
 
 The response-loss acceptance mode uses a separate `responsegate` test build.
-Its credential-free checks are also required in CI:
+Its credential-free checks are required in the full pre-release profile:
 
 ```sh
 go test -race -tags=responsegate ./internal/acceptance ./internal/aliyun ./internal/provider

@@ -54,7 +54,7 @@ security: lint-scripts
 	.cache/tools/gitleaks git --redact --no-banner --log-opts="$(or $(SCAN_RANGE),--all)" .
 	.cache/tools/govulncheck ./...
 
-.PHONY: verify verify-code verify-dist test-race test-responsegate test-live-offline test-configs check-toolchain check-metadata check-modules
+.PHONY: verify verify-fast verify-code verify-dist test-race test-responsegate test-live-offline test-configs check-toolchain check-metadata check-modules
 check-toolchain:
 	GO="$(GO)" $(PYTHON) tools/check_toolchain.py
 check-metadata:
@@ -71,9 +71,11 @@ test-live-offline:
 	$(MAKE) test-live-extended RUN_LIVE_ACCEPTANCE= LIVE_EXTENDED_MODE=
 test-configs:
 	runner=$$($(PYTHON) tools/fetch-runner.py) && $(PYTHON) tools/check-configs.py --runner "$$runner"
-verify-code:
+verify-fast:
 	$(MAKE) check-toolchain check-metadata check-modules
-	$(MAKE) deps build test lint test-race test-responsegate test-live-offline test-configs RUN_LIVE_ACCEPTANCE= LIVE_EXTENDED_MODE=
+	$(MAKE) deps build test lint RUN_LIVE_ACCEPTANCE= LIVE_EXTENDED_MODE=
+verify-code: verify-fast
+	$(MAKE) test-race test-responsegate test-live-offline test-configs RUN_LIVE_ACCEPTANCE= LIVE_EXTENDED_MODE=
 	$(MAKE) check-modules
 verify: verify-code security
 verify-dist:

@@ -14,10 +14,6 @@ jobs:
   build:
     runs-on: ubuntu-26.04
     timeout-minutes: 20
-    outputs:
-      artifact_id: ${{ steps.platform_candidate.outputs.artifact-id }}
-      manifest_sha256: ${{ steps.candidate.outputs.digest }}
-      candidate_sha: ${{ steps.candidate.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -38,74 +34,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install pinned CLI for credential-free API metadata checks
-        run: |
-          python3 tools/fetch-aliyun.py
-          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
-      - name: Run the shared credential-free code checks
-        run: make verify-code
-      - run: make dist
-      - name: Verify unpublished cloud candidate without credentials
-        id: candidate
-        run: |
-          mkdir -p .cache/candidate/responsegate
-          cp -a dist .cache/candidate/dist
-          GOFLAGS=-tags=responsegate make build
-          cp bin/fleeting-plugin-aliyun .cache/candidate/responsegate/plugin
-          candidate_sha=$(git rev-parse HEAD)
-          digest=$(python3 tools/release_candidate.py create --root .cache/candidate --sha "$candidate_sha" --version 0.1.0-dev)
-          python3 tools/release_candidate.py verify --root .cache/candidate --sha "$candidate_sha" --version 0.1.0-dev --digest "$digest"
-          printf 'digest=%s\nsha=%s\n' "$digest" "$candidate_sha" >> "$GITHUB_OUTPUT"
-          tar -cf .cache/candidate.tar -C .cache/candidate .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        id: platform_candidate
-        with:
-          name: platform-candidate
-          path: .cache/candidate.tar
-          if-no-files-found: error
-          retention-days: 7
-      - name: Verify native assets
-        run: |
-          (cd dist && sha256sum -c SHA256SUMS)
-          dist/packages/linux/amd64/plugin version
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        id: release_candidate
-        with:
-          name: release-candidate
-          path: |
-            dist/*.tar.gz
-            dist/*.deb
-            dist/SHA256SUMS
-            dist/dependencies.json
-          retention-days: 7
-      - name: Download the uploaded candidate by ID
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          artifact-ids: ${{ steps.release_candidate.outputs.artifact-id }}
-          path: .cache/downloaded-release-candidate
-          merge-multiple: true
-      - name: Verify artifact transfer preserves every published file
-        run: |
-          for asset in dist/*.tar.gz dist/*.deb dist/SHA256SUMS dist/dependencies.json; do
-            cmp "$asset" ".cache/downloaded-release-candidate/$(basename "$asset")"
-          done
-  platforms:
-    needs: build
-    uses: ./.github/workflows/verify-candidate.yml
-    with:
-      artifact_id: ${{ needs.build.outputs.artifact_id }}
-      manifest_sha256: ${{ needs.build.outputs.manifest_sha256 }}
-      candidate_sha: ${{ needs.build.outputs.candidate_sha }}
-      version: 0.1.0-dev
+      - name: Run quick credential-free code checks
+        run: make verify-fast
   offline:
     if: always()
-    needs: [build, platforms, security]
+    needs: [build, security]
     runs-on: ubuntu-26.04
     timeout-minutes: 2
     env:
       BUILD_RESULT: ${{ needs.build.result }}
-      PLATFORM_RESULT: ${{ needs.platforms.result }}
       SECURITY_RESULT: ${{ needs.security.result }}
     steps:
-      - name: Require all offline checks and supported platforms
-        run: test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success && test "$SECURITY_RESULT" = success
+      - name: Require quick code and security checks
+        run: test "$BUILD_RESULT" = success && test "$SECURITY_RESULT" = success
