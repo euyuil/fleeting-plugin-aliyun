@@ -203,6 +203,9 @@ narrower window identifying one pipeline. `upgrade` selects its actual `smoke`
 job. Only fixed status/failure enums, booleans, bounded exit codes, and an outline
 using a fixed public error vocabulary are printed. Unknown words and numbers in
 that outline become `?`; original traces and private identities remain in GitLab.
+Preparation failures emitted before Runner retries are reported separately from
+terminal job errors, including when a later cancellation leaves no terminal error
+in the trace. Each category retains at most four error outlines.
 These diagnostics neither change acceptance assertions nor produce a PASS receipt.
 
 To exercise independent cleanup after a deliberate process loss, separately

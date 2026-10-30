@@ -28,7 +28,11 @@ ERROR_WORDS = frozenset("ERROR Job failed system failure run exit code wait remo
                         "Process with from Reason was ssh connection closed by keepalive timeout context canceled deadline exceeded "
                         "read write tcp udp pipe broken reset peer EOF unexpected stage step_script execute executing execution "
                         "error process killed terminated aborted stopped stopping transport session not started disconnected "
-                        "permission denied socket network use of user initiated shutdown probe timed out after KILL TERM HUP INT QUIT".split())
+                        "permission denied socket network use of user initiated shutdown probe timed out after KILL TERM HUP INT QUIT "
+                        "Preparation acquiring acquire instance ready readiness preparing environment executor dial connect connecting "
+                        "refused handshake authentication authenticate unable attempted methods supported remain check health "
+                        "provisioning lookup no such host certificate unknown authority expired x509 TLS docker image pull "
+                        "manifest unavailable found space left on device connector".split())
 
 
 def error_outline(line):
@@ -75,13 +79,18 @@ def outcome(job):
 def trace_diagnostic(raw):
     """Classify fixed Runner messages without copying trace text or identifiers."""
     result = {"ssh_exit_codes": [], "ssh_message_with_sgr_only": False, "ssh_message_with_csi_removed": False,
-              "script_exit_codes": [], "terminal_error_seen": False, "terminal_errors": []}
+              "script_exit_codes": [], "terminal_error_seen": False, "terminal_errors": [],
+              "preparation_error_seen": False, "preparation_errors": []}
     for line in raw.decode("utf-8", errors="replace").split("\n"):
         line = HEADER.sub("", line.removesuffix("\r"))
         sgr, csi = SGR.sub("", line), CSI.sub("", line)
         result["terminal_error_seen"] |= csi.startswith("ERROR: Job failed")
         if csi.startswith("ERROR: Job failed") and len(result["terminal_errors"]) < 4:
             result["terminal_errors"].append(error_outline(csi))
+        if csi.startswith("ERROR: Preparation failed:"):
+            result["preparation_error_seen"] = True
+            if len(result["preparation_errors"]) < 4:
+                result["preparation_errors"].append(error_outline(csi))
         for value, key in ((sgr, "ssh_message_with_sgr_only"), (csi, "ssh_message_with_csi_removed")):
             match = SSH_ERROR.fullmatch(value)
             if match and -1 <= int(match[1]) <= 255:
