@@ -433,15 +433,54 @@ class JobAcceptanceTests(unittest.TestCase):
             self.assertFalse({"project_id", "runner_id", "fixture_sha", "instances", "errors"} & value.keys())
 
     def test_unverified_fixture_fails_before_package_or_cloud_mutation(self):
+        _, gitlab, env = inputs()
+        errors = [ValueError("private fixture details"),
+                  job.GitLabError(503, operation="branch", method="GET", attempts=3)]
+        for error in errors:
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temp, \
+                    patch.dict(os.environ, env), patch.object(job, "require_linux"), \
+                    patch.object(job, "verify", return_value=manifest()), \
+                    patch.object(job, "prepare_gitlab_fixture", side_effect=error), \
+                    patch.object(job, "install_package") as install, patch.object(job, "Fixture") as cloud, \
+                    patch.object(job, "driver") as driver, redirect_stdout(io.StringIO()) as output:
+                root = Path(temp)
+                args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", scenario="smoke",
+                                       phase="candidate", executor="instance", profile="debug", directory=root / "private",
+                                       receipt=root / "receipts/result.json")
+                with self.assertRaises(ValueError) as caught:
+                    job.run(args)
+                self.assertIs(caught.exception, error)
+                install.assert_not_called()
+                cloud.assert_not_called()
+                driver.assert_not_called()
+                self.assertFalse(args.directory.exists())
+                value = json.loads(args.receipt.read_text())
+                self.assertEqual((value["result"], value["jobs_started"], value["cleanup_result"]), ("FAIL", 0, "NOT_STARTED"))
+                self.assertFalse(value["cloud_resource_creation_started"])
+                self.assertEqual((value["candidate_sha"], value["manifest_sha256"], value["run_id"], value["run_attempt"]),
+                                 ("c" * 40, "a" * 64, "10", "1"))
+                self.assertEqual(value["configured_gitlab_config_sha256"], job.config_digest(gitlab))
+                self.assertNotIn("private fixture details", output.getvalue() + args.receipt.read_text())
+                self.assertNotIn("synthetic-token", output.getvalue() + args.receipt.read_text())
+                for profile in ("full", "debug", "public-smoke"):
+                    with self.subTest(profile=profile), self.assertRaises(ValueError):
+                        job.check_receipt(value, manifest(), "a" * 64, "candidate", "instance", "10", "1", profile=profile)
+
+    def test_preflight_persistence_failure_preserves_original_diagnostic(self):
         _, _, env = inputs()
-        with patch.dict(os.environ, env), patch.object(job, "require_linux"), patch.object(job, "verify", return_value=manifest()), \
-                patch.object(job, "prepare_gitlab_fixture", side_effect=ValueError("unverified fixture")), \
-                patch.object(job, "install_package") as install, patch.object(job, "Fixture") as cloud:
-            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev", scenario="smoke")
-            with self.assertRaises(ValueError):
+        error = job.GitLabError(403, operation="project", method="GET")
+        with patch.dict(os.environ, env), patch.object(job, "require_linux"), \
+                patch.object(job, "verify", return_value=manifest()), \
+                patch.object(job, "prepare_gitlab_fixture", side_effect=error), \
+                patch.object(job, "write_json", side_effect=OSError("private path")), redirect_stdout(io.StringIO()) as output:
+            args = SimpleNamespace(root=Path("unused"), digest="a" * 64, sha="c" * 40, version="0.1.0-dev", scenario="smoke",
+                                   phase="candidate", executor="instance", receipt=Path("unused/receipt.json"))
+            with self.assertRaises(job.GitLabError) as caught:
                 job.run(args)
-            install.assert_not_called()
-            cloud.assert_not_called()
+            self.assertIs(caught.exception, error)
+            diagnostic = json.loads(output.getvalue().splitlines()[0])["job_preflight_diagnostic"]
+            self.assertEqual(diagnostic["diagnostics"]["requests"][0]["http_status"], 403)
+            self.assertNotIn("private path", output.getvalue())
 
     def test_unconfirmed_writer_exit_does_not_clear_fixture_barrier(self):
         config, gitlab, env = inputs()
