@@ -21,6 +21,7 @@ from debian_upgrade import baseline, fetch_baseline, require_newer, verify_packa
 from gitlab_fixture import GitLabError, prepare as prepare_gitlab_fixture
 from job_diagnostics import outcome as job_outcome
 from manager_diagnostics import manager_diagnostic
+from release_diagnostics import normal_release_diagnostic
 from release_candidate import digest, revision, verify, write_json
 
 EXECUTORS = ("instance", "docker-autoscaler")
@@ -297,6 +298,7 @@ def result_diagnostic(result, code):
     diagnostic["jobs"] = [job_outcome(value) for value in jobs[:3]] if isinstance(jobs, list) else []
     diagnostic["failures"] = failure_diagnostics(result)
     diagnostic["manager"] = manager_diagnostic(result)
+    diagnostic["last_normal_release"] = normal_release_diagnostic(result)
     diagnostic["recovery_policy"] = result.get("recovery_policy") if result.get("recovery_policy") in {recovery_policy("manager-crash"), recovery_policy("worker-loss")} else None
     diagnostic["orphan_release_verified"] = result.get("orphan_release_verified") if type(result.get("orphan_release_verified")) is bool else None
     return diagnostic
