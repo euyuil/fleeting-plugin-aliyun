@@ -15,6 +15,14 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
+Manager diagnostics are collected after attempting to fence the owned service.
+The collector retains at most 4 MiB of raw journal output, normalizes complete
+UTF-8 messages (including journald byte arrays), and persists a chronological
+whole-record tail bounded to 200 records and 128 KiB. Fixed capture reasons and
+omitted/invalid-record counts distinguish missing and truncated evidence. The
+public projection exposes only the latest eight recognized lifecycle events and
+allowlisted error terms. Diagnostics never change the acceptance verdict.
+
 The candidate `Release job acceptance` workflow runs both executors and all nine scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin

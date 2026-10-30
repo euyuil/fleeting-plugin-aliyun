@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,11 +33,12 @@ type serviceOwner struct {
 // The root-owned marker binds this disposable service to one acceptance run.
 // A local cleanup command may never adopt an unrelated existing Manager.
 type packagedManager struct {
-	owner        serviceOwner
-	command      func(context.Context, ...string) ([]byte, error)
-	drainCommand func(context.Context, ...string) ([]byte, error)
-	started      bool
-	pid          int
+	owner          serviceOwner
+	command        func(context.Context, ...string) ([]byte, error)
+	journalCommand func(context.Context, ...string) ([]byte, bool, error)
+	drainCommand   func(context.Context, ...string) ([]byte, error)
+	started        bool
+	pid            int
 }
 
 func serviceCommand(ctx context.Context, args ...string) ([]byte, error) {
@@ -44,15 +46,24 @@ func serviceCommand(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func boundedServiceCommand(ctx context.Context, limit time.Duration, args ...string) ([]byte, error) {
+	var output bytes.Buffer
+	if err := serviceCommandOutput(ctx, limit, &output, args...); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func serviceCommandOutput(ctx context.Context, limit time.Duration, output io.Writer, args ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, limit+10*time.Second)
 	defer cancel()
 	// The privileged timeout remains effective even if the unprivileged driver
 	// dies and sudo's child survives it. The outer deadline includes kill grace.
-	output, err := exec.CommandContext(ctx, "sudo", append([]string{"-n", "timeout", "--signal=TERM", "--kill-after=5s", strconv.Itoa(int(limit/time.Second)) + "s"}, args...)...).Output()
-	if err != nil {
-		return nil, errors.New("packaged Manager operation failed; inspect private diagnostics on the disposable host")
+	command := exec.CommandContext(ctx, "sudo", append([]string{"-n", "timeout", "--signal=TERM", "--kill-after=5s", strconv.Itoa(int(limit/time.Second)) + "s"}, args...)...)
+	command.Stdout = output
+	if err := command.Run(); err != nil {
+		return errors.New("packaged Manager operation failed; inspect private diagnostics on the disposable host")
 	}
-	return output, nil
+	return nil
 }
 
 func (m *packagedManager) beginDrain(ctx context.Context) (<-chan error, error) {

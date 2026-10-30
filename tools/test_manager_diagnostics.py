@@ -38,11 +38,11 @@ class ManagerDiagnosticTests(unittest.TestCase):
         removed = "instance marked for removal                   instance=i-private reason=instance ready up preparation failed subsystem=taskscaler"
         unknown = "unrelated private message instance=i-private subsystem=taskscaler"
         failed = "ERROR: connection preparation failed err=private subsystem=taskscaler"
-        value = manager_diagnostic(result(removed, failed, unknown, *(removed for _ in range(9))))
+        value = manager_diagnostic(result(removed, unknown, *(removed for _ in range(9)), failed))
         self.assertEqual(len(value["records"]), 8)
         self.assertEqual(value["omitted_count"], 3)
         self.assertFalse(value["window_limited"])
-        self.assertEqual([r["event"] for r in value["records"][:2]], ["instance_marked_for_removal", "connection_preparation_failed"])
+        self.assertEqual([r["event"] for r in value["records"][-2:]], ["instance_marked_for_removal", "connection_preparation_failed"])
         self.assertNotIn("private", json.dumps(value))
         self.assertTrue(manager_diagnostic(result(*(unknown for _ in range(200))))["window_limited"])
         for message in (removed.replace("subsystem=taskscaler", "subsystem=private"), "$ echo " + removed,
@@ -65,6 +65,28 @@ class ManagerDiagnosticTests(unittest.TestCase):
         for code in ("-1", "256", "999", "123456", "192.0.2.1"):
             message = "ERROR: ready up preparation failed err=ready command: Process exited with status " + code + " subsystem=taskscaler"
             self.assertIsNone(manager_diagnostic(result(message))["records"][0]["process_exit_code"])
+
+    def test_capture_quality_exposes_only_fixed_reasons_and_bounded_counts(self):
+        capture = {"reason": "recorded", "raw_truncated": True, "omitted_records": 3, "invalid_records": 2,
+                   "private": "synthetic-private-identity"}
+        value = result("ERROR: ready up preparation failed err=Process exited with status 124 subsystem=taskscaler")
+        value["manager_journal_capture"] = capture
+        public = manager_diagnostic(value)
+        self.assertTrue(public["window_limited"])
+        self.assertEqual(public["capture"], {key: capture[key] for key in ("reason", "raw_truncated", "omitted_records", "invalid_records")})
+        self.assertEqual(public["records"][0]["process_exit_code"], 124)
+        self.assertNotIn("private", json.dumps(public))
+        value.update(manager_journal_state="UNAVAILABLE", manager_journal="private-original")
+        for reason in ("read_failed", "ownership_unavailable", "invalid_start", "no_valid_records"):
+            capture["reason"] = reason
+            public = job_acceptance.result_diagnostic({**value, "result": "FAIL_PRODUCT", "errors": []}, 1)
+            self.assertEqual(public["result"], "FAIL_PRODUCT")
+            self.assertEqual(public["manager"]["capture"]["reason"], reason)
+            self.assertNotIn("private", json.dumps(public))
+        for patch in ({"reason": "private"}, {"reason": []}, {"invalid_records": True}, {"omitted_records": -1},
+                      {"raw_truncated": 1}, {"invalid_records": 4 * 1024 * 1024 + 1}):
+            value["manager_journal_capture"] = {**capture, **patch}
+            self.assertEqual(manager_diagnostic(value), {"evidence": "INVALID"})
 
     def test_brackets_and_escaped_quotes_in_log_values_are_not_structural_depth(self):
         error = 'private "quoted" \\ ' + "[{" * 100
