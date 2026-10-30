@@ -165,7 +165,7 @@ def matches_error_template(log, template):
 
 def matching_error_templates(log, source):
     templates = set()
-    pattern = r'\b(?:errors\.New|fmt\.(?:Errorf|Sprintf)|t\.(?:Fatalf?|Errorf?))\(\s*("(?:[^"\\]|\\.)*")'
+    pattern = r'\b(?:errors\.New|productViolation|fmt\.(?:Errorf|Sprintf)|t\.(?:Fatalf?|Errorf?))\(\s*("(?:[^"\\]|\\.)*")'
     for literal in re.findall(pattern, source):
         try:
             template = json.loads(literal)
@@ -198,7 +198,7 @@ def driver_diagnostic(receipt, code, log):
     resources = receipt.get("resources", {})
     resources = resources if isinstance(resources, dict) else {}
     instances = resources.get("instances")
-    results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "CLEANUP_FAILED")
+    results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "FAIL_UNCLASSIFIED", "CLEANUP_FAILED")
     templates = source_error_templates(log)
     categories = {api_error(None, None, code)["category"]
                   for code in re.findall(r"Alibaba Cloud API error: code=([^\s]+)", log)}

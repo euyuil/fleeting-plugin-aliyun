@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -43,8 +44,8 @@ func TestNormalReleaseTimeoutDoesNotPass(t *testing.T) {
 	a.fake.Add("i-worker")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if err := WaitForNormalRelease(ctx, c, l, "ecs.test.small", "image-test", "cn-test-1a"); err == nil {
-		t.Fatal("unreleased worker passed")
+	if err := WaitForNormalRelease(ctx, c, l, "ecs.test.small", "image-test", "cn-test-1a"); !errors.Is(err, context.DeadlineExceeded) || liveFailure(err) != "FAIL_INFRASTRUCTURE" {
+		t.Fatal("parent deadline was lost or mislabeled", err)
 	}
 	if len(a.fake.Members) != 1 {
 		t.Fatal("normal acceptance silently cleaned instead of observing")

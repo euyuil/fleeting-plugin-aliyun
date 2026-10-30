@@ -57,7 +57,10 @@ func WaitForNormalRelease(parent context.Context, c *aliyun.Client, l *Ledger, t
 			return nil
 		}
 		if err = aliyun.Wait(ctx, time.Second); err != nil {
-			return errors.New("provider did not release the disposable worker within the normal release deadline")
+			if parent.Err() != nil {
+				return parent.Err()
+			}
+			return productViolation("provider did not release the disposable worker within the normal release deadline")
 		}
 	}
 }

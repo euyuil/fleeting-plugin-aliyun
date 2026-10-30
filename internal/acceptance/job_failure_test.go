@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -67,6 +68,29 @@ func TestJobFailureLimitPreservesEarliestEvidence(t *testing.T) {
 	}
 	if len(r.Failures) != 8 || r.FailuresOmitted != 3 || r.Failures[0].Stage != "job_sequence" || len(r.Errors) != 11 {
 		t.Fatal("failure cap lost primary evidence or concealed truncation")
+	}
+}
+
+func TestFailureAttributionRequiresAnExplicitProductViolation(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		err        error
+	}{
+		{"observed contract", "FAIL_PRODUCT", productViolation("synthetic contract violation")},
+		{"wrapped contract", "FAIL_PRODUCT", fmt.Errorf("observation: %w", productViolation("synthetic contract violation"))},
+		{"GitLab HTTP", "FAIL_INFRASTRUCTURE", &operationError{service: "gitlab", err: &gitlabHTTPError{503}}},
+		{"GitLab transport", "FAIL_INFRASTRUCTURE", &operationError{service: "gitlab", err: io.ErrUnexpectedEOF}},
+		{"GitLab decode", "FAIL_INFRASTRUCTURE", &operationError{service: "gitlab", err: &json.SyntaxError{}}},
+		{"local evidence", "FAIL_UNCLASSIFIED", &os.PathError{Op: "open", Path: "/synthetic/evidence", Err: os.ErrPermission}},
+		{"harness timing", "FAIL_UNCLASSIFIED", errors.New("insufficient lead time to establish the fixed worker automatic release deadline")},
+		{"unknown operation", "FAIL_UNCLASSIFIED", &operationError{service: "synthetic", err: io.EOF}},
+		{"untyped assertion", "FAIL_UNCLASSIFIED", errors.New("actual worker is not Spot")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := liveFailure(tc.err); got != tc.want || got == "PASS" {
+				t.Fatalf("unexpected attribution: got %s, want %s", got, tc.want)
+			}
+		})
 	}
 }
 

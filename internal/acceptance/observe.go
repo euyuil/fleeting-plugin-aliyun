@@ -43,7 +43,7 @@ func ObserveBudget(ctx context.Context, c *aliyun.Client, l *Ledger, budget int,
 	}
 
 	if len(l.Instances) > budget {
-		return fmt.Errorf("instance creation budget %d exceeded, including replacements", budget)
+		return productViolation(fmt.Sprintf("instance creation budget %d exceeded, including replacements", budget))
 	}
 	ids := make([]string, 0, len(l.Instances))
 	for _, r := range l.Instances {
@@ -55,17 +55,17 @@ func ObserveBudget(ctx context.Context, c *aliyun.Client, l *Ledger, budget int,
 	}
 	for n, r := range l.Instances {
 		if r.UnsafeDiskPolicy {
-			return errors.New("actual worker disk policy does not release with instance")
+			return productViolation("actual worker disk policy does not release with instance")
 		}
 		i, exists := instances[r.InstanceID]
 		if !exists {
 			continue
 		}
 		if i.InstanceChargeType != "PostPaid" || (i.SpotStrategy != "SpotAsPriceGo" && i.SpotStrategy != "SpotWithPriceLimit") {
-			return errors.New("actual ECS instance is not Spot")
+			return productViolation("actual ECS instance is not Spot")
 		}
 		if i.InstanceType != typ || i.ImageId != image || i.ZoneId != zone || i.EipAddress.AllocationId != "" {
-			return errors.New("actual ECS resource violates fixed fixture allowlist")
+			return productViolation("actual ECS resource violates fixed fixture allowlist")
 		}
 		l.Instances[n].SpotVerified = true
 		l.Instances[n].Zone = i.ZoneId

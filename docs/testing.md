@@ -411,9 +411,18 @@ resource origin, expiry, inventories and cleanup outcome. They exclude keys and
 tokens. A failed evidence write cannot yield PASS. Artifact retention is seven
 days; retain only reviewed, redacted summaries long term.
 
-Results are `PASS`, `FAIL_PRODUCT`, `FAIL_INFRASTRUCTURE`,
+Results are `PASS`, `FAIL_PRODUCT`, `FAIL_INFRASTRUCTURE`, `FAIL_UNCLASSIFIED`,
 `NOT_RUN_MISSING_CONFIGURATION`, or `CLEANUP_FAILED`. Cleanup failure overrides a
-successful job. Infrastructure errors are not permission to change region,
+successful job. Within the job-sequence failure classifier, explicit observed
+contract violations produce `FAIL_PRODUCT`; GitLab API failures (including
+transport and response decoding) and cloud API or context failures produce
+`FAIL_INFRASTRUCTURE`. Untyped sequence errors, including local harness errors,
+produce `FAIL_UNCLASSIFIED` until triaged. Other stages retain their explicit
+classifications: preparation and evidence-write errors remain infrastructure
+failures, and a failed healthy Manager shutdown remains a product violation.
+No label establishes a root cause or makes a retry safe. All non-PASS outcomes
+block acceptance; diagnostic records preserve the primary failure even when
+shutdown or cleanup also fails. Infrastructure errors are not permission to change region,
 instance type, budget or billing strategy.
 
 ## Three cleanup layers and incomplete evidence
