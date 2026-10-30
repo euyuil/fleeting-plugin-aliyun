@@ -59,10 +59,11 @@ jobs:
           tar -xf .cache/download/candidate.tar -C .cache/candidate
           python3 tools/release_candidate.py verify --root .cache/candidate --sha "$REVISION" --version "$VERSION" --digest "$MANIFEST_SHA256"
       - name: Install the complete OCI payload and load the native plugin
-        run: make verify-dist DIST_DIR=.cache/candidate/dist
-      - name: Parse examples and test Ubuntu package lifecycle
         run: |
           python3 tools/fetch-runner.py
+          RUNNER_BINARY="$GITHUB_WORKSPACE/.cache/gitlab-runner-linux-$ARCH" make verify-dist DIST_DIR=.cache/candidate/dist
+      - name: Parse examples and test Ubuntu package lifecycle
+        run: |
           python3 tools/check-configs.py --runner ".cache/gitlab-runner-linux-$ARCH"
           make test-debian-lifecycle DISPOSABLE_HOST=true RUNNER_BINARY=".cache/gitlab-runner-linux-$ARCH" DIST_DIR=.cache/candidate/dist
       - name: Test the same package on isolated Debian 12 with systemd

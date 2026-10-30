@@ -179,7 +179,7 @@ jobs-only run cannot mark a candidate ready for publication.
 
 ### Candidate platform checks
 
-PR CI and the pre-release cloud workflow call the same credential-free platform
+The complete pre-release cloud workflow calls the credential-free platform
 verifier with the artifact ID, manifest digest, source SHA and version. Native
 Ubuntu 24.04 and 26.04 hosts, each on amd64 and arm64, verify the downloaded
 manifest and build metadata, then install the complete OCI payload and run the
@@ -187,11 +187,18 @@ real package lifecycle against the exact candidate bytes. The Ubuntu 26.04 amd64
 host also boots an isolated Debian 12 userspace with systemd for the package
 lifecycle. It has no network during the test. No candidate is rebuilt by these
 checks, and no registry is published.
-A failed, canceled or skipped platform job blocks both the PR aggregate check
-and the start of cloud scenarios. Public download checks remain a separate
+A failed, canceled or skipped platform job blocks the complete candidate gate
+and the start of its cloud scenarios. Ordinary PR/main CI stays on the quick code
+and security profile; manual jobs debugging also skips this platform prerequisite.
+Public download checks remain a separate
 post-publication requirement. The public verifier uses the same four Ubuntu
 combinations; receipt filenames and artifact names include the runner image and
 architecture so results cannot overwrite each other.
+After publication, those native checks bind anonymous tar/deb/inventory bytes and
+the complete installed OCI payload to the sealed candidate, then run Debian
+installation/doctor smoke. They do not repeat candidate lifecycle/rollback tests.
+See the authoritative [publication checks](job-acceptance.md#publication-checks-after-full-candidate-acceptance)
+for the two real public jobs and final receipt gate.
 
 ### Publication
 

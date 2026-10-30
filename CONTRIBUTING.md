@@ -244,8 +244,10 @@ and explicit release gates. See [third-party obligations](docs/third-party.md) b
 
 Release automatically calls the public installation workflow after publication,
 binding the published tag to the source commit accepted by the cloud gate. All
-four Ubuntu platform jobs and all subsequent public-package job checks must
+four Ubuntu platform jobs and both subsequent public-package smoke jobs must
 pass before the Release workflow succeeds.
+The final completion gate binds their receipts to the complete candidate suite;
+see [publication checks](docs/job-acceptance.md#publication-checks-after-full-candidate-acceptance).
 The installation verifier receives read-only repository access and no inherited
 cloud secrets; the subsequent job workflow uses the dedicated Environment.
 After a failed verification, inspect the existing published release; do not
@@ -257,9 +259,10 @@ gh workflow run verify-release.yml --ref main -f version=0.1.0-rc.3
 ```
 
 Wait for all four jobs to finish successfully and inspect their OCI and Debian JSON
-receipts. The Debian check downloads the public package and runs the disposable-host
-lifecycle test above against its checksum-verified native binary. Older tags
-without Debian packaging retain OCI-only checks.
+receipts. New tags use native Debian installation/doctor smoke after their full
+candidate lifecycle; older tags keep their original lifecycle helper, and tags
+without Debian packaging retain OCI-only checks. Standalone verification without
+a sealed candidate reports installation evidence only, not release acceptance.
 To run OCI verification on your own Linux hosts, prepare the clean
 credential and plugin directories described in [distribution](docs/distribution.md#public-installation-check),
 an OCI Runner config, the exact source commit, and the checksum-verified native

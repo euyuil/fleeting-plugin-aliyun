@@ -47,6 +47,9 @@ func main() {
 	verifyRef := flag.String("verify-ref", "", "verify an installed public OCI release without publishing")
 	expectedVersion := flag.String("expected-version", "", "expected installed release version")
 	expectedRevision := flag.String("expected-revision", "", "expected installed source commit")
+	pinRef := flag.String("pin-ref", "", "resolve an exact public version to an immutable installer reference")
+	pinnedRef := flag.String("pinned-ref", "", "immutable reference used by the official installer")
+	expectedPayload := flag.String("expected-payload", "", "sealed native OCI payload directory")
 	expectedBinary := flag.String("expected-binary", "", "binary from the checksum-verified release archive")
 	flag.Parse()
 	if *validate != "" {
@@ -58,12 +61,25 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	if *pinRef != "" {
+		if *ref != "" || *verifyRef != "" {
+			fmt.Fprintln(os.Stderr, "reference resolution cannot publish or verify")
+			os.Exit(1)
+		}
+		pinned, err := pinReference(ctx, *pinRef, *expectedVersion)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println(pinned)
+		return
+	}
 	if *verifyRef != "" {
 		if *ref != "" {
 			fmt.Fprintln(os.Stderr, "publication and verification cannot be combined")
 			os.Exit(1)
 		}
-		if err := verifyInstall(ctx, *verifyRef, *expectedVersion, *expectedRevision, *expectedBinary); err != nil {
+		if err := verifyInstall(ctx, *verifyRef, *expectedVersion, *expectedRevision, *expectedBinary, *pinnedRef, *expectedPayload); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

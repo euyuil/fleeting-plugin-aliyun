@@ -47,6 +47,8 @@ on:
         value: ${{ jobs.gate.outputs.release_ready }}
       selected_ready:
         value: ${{ jobs.gate.outputs.selected_ready }}
+      public_ready:
+        value: ${{ jobs.gate.outputs.public_ready }}
 permissions:
   contents: read
 # The caller owns aliyun-pre-release-acceptance for this entire workflow.
@@ -170,6 +172,7 @@ jobs:
     outputs:
       release_ready: ${{ steps.result.outputs.release_ready }}
       selected_ready: ${{ steps.result.outputs.selected_ready }}
+      public_ready: ${{ steps.result.outputs.public_ready }}
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -205,7 +208,12 @@ jobs:
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
           operation=gate
-          if [ "$PROFILE" = debug ]; then operation=debug-gate; else test "$PROFILE" = full; fi
+          case "$PROFILE" in
+            full) ;;
+            debug) operation=debug-gate ;;
+            public-smoke) operation=public-smoke-gate ;;
+            *) exit 1 ;;
+          esac
           python3 tools/job_acceptance.py "$operation" --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
             --digest "$MANIFEST_SHA256" --phase "$PHASE" --profile "$PROFILE" --receipts .cache/job-receipts --cases "$JOB_CASES" \
             --summary .cache/job-summary/result.json
@@ -214,6 +222,11 @@ jobs:
             printf 'release_ready=true\n' >> "$GITHUB_OUTPUT"
           else
             printf 'release_ready=false\n' >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$operation" = public-smoke-gate ]; then
+            printf 'public_ready=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'public_ready=false\n' >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:

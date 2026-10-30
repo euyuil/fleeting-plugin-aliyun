@@ -15,11 +15,13 @@ receipts must bind to the same source, version, manifest, workflow attempt,
 package bytes and fixture configurations. Receipts contain no account, project,
 runner or resource IDs; raw logs and artifacts remain private on the hosted VM.
 
-The `Release job acceptance` reusable workflow runs both executors and all nine scenarios serially on
+The candidate `Release job acceptance` workflow runs both executors and all nine scenarios serially on
 fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
-anonymous installation matrix succeeds. Any failed, canceled or skipped required
+anonymous installation matrix succeeds. That phase runs exactly one real smoke
+per executor through the anonymous public package. It does not repeat the
+candidate's recovery/upgrade scenarios. Any failed, canceled or skipped required
 job prevents that phase from passing, even if some receipt artifacts exist.
 The public installation matrix remains credential-free; cloud and GitLab
 credentials are confined to the separate job workflow's Environment.
@@ -73,9 +75,11 @@ crash. This separate, immutable cost-protection deadline leaves more
 than thirty minutes of ECS API lead time even for a late recovery worker.
 Normal release and inline cleanup still happen immediately when the case ends.
 The serial eighteen-case phase permits thirty-six cumulative workers,
-with at most two active workers per fixture. Both candidate and public phases
-require all eighteen schema-v3 receipts; a smoke receipt cannot substitute for a
-recovery case. Raw GitLab traces and identities remain private; failure output
+with at most two active workers per fixture. The full candidate gate requires all
+eighteen schema-v3 receipts; a smoke receipt cannot substitute for a recovery case.
+The separate `public-smoke-gate` requires exactly the two public smoke receipts,
+with `public_ready=true`, `full_suite=false` and `release_ready=false`. Full,
+debug and public-smoke profiles cannot exchange receipts. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
 ### Targeted debugging before a final full run
@@ -140,8 +144,8 @@ symlinks and other nonregular managed state. Package installation must never sta
 the service implicitly.
 
 Only then does the candidate Manager start, complete a real GitLab job and release
-its worker normally. Both executors run this case. The public phase upgrades to
-the anonymously downloaded public candidate package. The rollback step validates
+its worker normally. Both candidate executors run this case; publication reuses
+these exact package bytes and runs a fresh public smoke for each executor. The rollback step validates
 installation, preserved state and `doctor`; it does not execute a job on the old
 version or promise compatibility with arbitrary older configurations.
 
@@ -153,9 +157,36 @@ published assets and update every pinned hash and the manual default together.
 Ordinary native package lifecycle CI separately repacks the current payload to
 exercise package hooks; that test alone is not previous-release compatibility.
 
-Public upgrade receipts bind the old version and package hash in addition to the
+Upgrade receipts bind the old version and package hash in addition to the
 candidate identity. Private configuration and state fingerprints are not published.
 For the operator procedure, see [upgrade and roll back](debian-installation.md#upgrade-and-roll-back).
+
+## Publication checks after full candidate acceptance
+
+The public phase covers the distribution boundary. Each of the four native
+Ubuntu/architecture jobs receives the accepted artifact and verifies its manifest.
+Anonymous GitHub asset enumeration must contain exactly the declared two native
+archives, two Debian packages, checksum inventory and dependency inventory.
+Each native tar/deb and both inventories must equal the sealed candidate bytes;
+the complete checksum list also rejects duplicate, missing and undeclared packages.
+
+The official Runner installer uses a digest resolved once from the exact OCI
+version tag. Verification reads that immutable reference and compares all four
+installed payload files (`plugin`, `LICENSE`, `NOTICE`, `licenses.tar.gz`) with
+the sealed native payload. Version, source, native platform, artifact-layer
+version, plugin protocol and empty-configuration rejection remain required.
+Public Debian checks cover native bytes, installation, both configurations,
+`doctor` and no implicit service start. Full lifecycle, real baseline migration,
+failure/recovery and rollback assertions remain in candidate acceptance.
+
+The final Release completion gate reads the candidate's full-job summary, all
+four native installation/download receipt sets and both actual public job
+receipts. Source, version, manifest, configuration and workflow attempt must
+agree; any missing, failed, canceled or skipped required path blocks completion.
+The configured release therefore runs 34 candidate GitLab jobs plus two public
+smokes, rather than repeating 34 jobs after publication. A standalone historical
+public installation check without a sealed artifact reports candidate binding as
+not provided and cannot satisfy this release-completion gate.
 
 ## Capacity, queueing and job isolation
 
