@@ -197,7 +197,10 @@ installation verification remains separate.
 
 The caller holds the shared cloud concurrency group through the candidate job
 checks. After publication and the anonymous installation matrix, Release
-reacquires that group for all public-package job checks. Executor jobs are
+reacquires that group for the two public-package executor smoke jobs. Full
+recovery coverage remains in candidate acceptance; the public completion gate
+binds the installation and smoke evidence to those exact candidate bytes.
+Executor jobs are
 serial and use distinct temporary fixtures. The reusable job workflow does not
 acquire its caller's group a second time. Completion-triggered janitor recovery
 includes these job fixtures through the owning Release or Cloud acceptance run.

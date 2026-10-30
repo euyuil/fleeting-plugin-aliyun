@@ -25,6 +25,7 @@ from release_candidate import digest, revision, verify, write_json
 
 EXECUTORS = ("instance", "docker-autoscaler")
 PHASES = ("candidate", "public")
+PUBLIC_SMOKE_CASES = [(executor, "smoke") for executor in EXECUTORS]
 
 
 def selected_cases(value="all"):
@@ -51,13 +52,15 @@ def workflow_cases(value, mode):
 
 
 def workflow_profile(profile, phase, cases):
-    if profile not in ("full", "debug") or phase not in PHASES:
+    if profile not in ("full", "debug", "public-smoke") or phase not in PHASES:
         raise ValueError("unknown job acceptance profile or phase")
     selected = selected_cases(cases)
     if profile == "debug" and phase != "candidate":
         raise ValueError("debug validation is only available before publication")
     if profile == "full" and cases != "all":
         raise ValueError("full validation cannot select partial cases")
+    if profile == "public-smoke" and (phase != "public" or selected != PUBLIC_SMOKE_CASES):
+        raise ValueError("public smoke requires both exact public executor smoke cases")
     return selected
 
 
@@ -480,16 +483,23 @@ def debug_gate(args):
     validate_receipts(args, selected_cases(args.cases), "debug")
 
 
+def public_smoke_gate(args):
+    if args.phase != "public":
+        raise ValueError("public smoke cannot validate an unpublished candidate")
+    validate_receipts(args, PUBLIC_SMOKE_CASES, "public-smoke")
+
+
 def acceptance_summary(args):
     full = args.operation == "gate"
-    selected = selected_cases() if full else selected_cases(args.cases)
+    public = args.operation == "public-smoke-gate"
+    selected = PUBLIC_SMOKE_CASES if public else selected_cases() if full else selected_cases(args.cases)
     keys = ["/".join(case) for case in selected]
     binding = json.loads((args.receipts / ("-".join(selected[0]) + ".json")).read_text())
-    return {"schema_version": 2, "result": "PASS", "scope": "full-suite" if full else "selected-cases",
-            "validation_profile": "full" if full else "debug", "receipt_schema_version": 3,
+    return {"schema_version": 2, "result": "PASS", "scope": "public-smoke" if public else "full-suite" if full else "selected-cases",
+            "validation_profile": "public-smoke" if public else "full" if full else "debug", "receipt_schema_version": 3,
             "recovery_policies": {scenario: recovery_policy(scenario) for _, scenario in selected},
             "fixture_config_sha256": binding["fixture_config_sha256"], "gitlab_config_sha256": binding["gitlab_config_sha256"],
-            "full_suite": full, "release_ready": full, "candidate_sha": args.sha, "version": args.version,
+            "full_suite": full, "release_ready": full, "public_ready": public, "candidate_sha": args.sha, "version": args.version,
             "manifest_sha256": args.digest, "phase": args.phase, "run_id": os.environ["GITHUB_RUN_ID"],
             "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "selected_cases": keys,
             "omitted_cases": ["/".join(case) for case in selected_cases() if case not in selected]}
@@ -499,13 +509,13 @@ def main():
     os.umask(0o077)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("preflight", "run", "gate", "debug-gate"))
+    parser.add_argument("operation", choices=("preflight", "run", "gate", "debug-gate", "public-smoke-gate"))
     parser.add_argument("--root", type=Path)
     parser.add_argument("--digest")
     parser.add_argument("--sha")
     parser.add_argument("--version")
     parser.add_argument("--phase", choices=PHASES)
-    parser.add_argument("--profile", choices=("full", "debug"), default="full")
+    parser.add_argument("--profile", choices=("full", "debug", "public-smoke"), default="full")
     parser.add_argument("--executor", choices=EXECUTORS)
     parser.add_argument("--scenario", choices=JOB_SCENARIOS, default="smoke")
     parser.add_argument("--directory", type=Path)
@@ -518,8 +528,10 @@ def main():
     args = parser.parse_args()
     if args.operation == "gate" and args.profile != "full":
         parser.error("the complete gate requires the full validation profile")
-    if args.cases != "all" and args.operation != "debug-gate":
+    if args.cases != "all" and args.operation not in ("debug-gate", "public-smoke-gate"):
         parser.error("only debug-gate accepts a selected-case list; the full gate always requires all cases")
+    if args.operation == "public-smoke-gate" and args.cases != "all":
+        workflow_profile("public-smoke", args.phase, args.cases)
     if args.read_only and args.operation != "preflight":
         parser.error("--read-only applies only to configuration preflight")
     if args.operation != "preflight" and any(getattr(args, field) is None for field in ("root", "digest", "sha", "version", "phase")):
@@ -527,15 +539,18 @@ def main():
     if args.operation == "run" and any(getattr(args, field) is None for field in ("executor", "directory", "receipt")):
         parser.error("run requires an executor and private evidence and public receipt paths")
     if args.operation == "run":
-        workflow_profile(args.profile, args.phase, "all" if args.profile == "full" else args.executor + "/" + args.scenario)
-    if args.operation in ("gate", "debug-gate") and args.receipts is None:
+        cases = ",".join("/".join(case) for case in PUBLIC_SMOKE_CASES) if args.profile == "public-smoke" else "all" if args.profile == "full" else args.executor + "/" + args.scenario
+        workflow_profile(args.profile, args.phase, cases)
+        if args.profile == "public-smoke" and args.scenario != "smoke":
+            parser.error("public smoke cannot launch recovery cases")
+    if args.operation in ("gate", "debug-gate", "public-smoke-gate") and args.receipts is None:
         parser.error("gate requires the executor receipt directory")
     if args.operation == "preflight":
         configuration(read_only=args.read_only)
         if args.version:
             require_newer(args.version)
-    elif args.operation in ("gate", "debug-gate"):
-        (gate if args.operation == "gate" else debug_gate)(args)
+    elif args.operation in ("gate", "debug-gate", "public-smoke-gate"):
+        {"gate": gate, "debug-gate": debug_gate, "public-smoke-gate": public_smoke_gate}[args.operation](args)
         if args.summary:
             write_json(args.summary, acceptance_summary(args))
     else:

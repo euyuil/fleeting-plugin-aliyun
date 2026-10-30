@@ -106,6 +106,8 @@ jobs:
     with:
       version: ${{ inputs.version }}
       expected_revision: ${{ needs.acceptance.outputs.candidate_sha }}
+      artifact_id: ${{ needs.acceptance.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.acceptance.outputs.manifest_sha256 }}
   public_jobs:
     needs: [acceptance, publish, verify]
     concurrency:
@@ -131,3 +133,66 @@ jobs:
       candidate_sha: ${{ needs.acceptance.outputs.candidate_sha }}
       version: ${{ inputs.version }}
       phase: public
+      profile: public-smoke
+      cases: instance/smoke,docker-autoscaler/smoke
+  completion:
+    if: always()
+    needs: [acceptance, publish, verify, public_jobs]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ inputs.version }}
+      CANDIDATE_SHA: ${{ needs.acceptance.outputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ needs.acceptance.outputs.manifest_sha256 }}
+      ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+      VERIFY_RESULT: ${{ needs.verify.result }}
+      PUBLIC_RESULT: ${{ needs.public_jobs.result }}
+      CANDIDATE_READY: ${{ needs.acceptance.outputs.release_ready }}
+      PUBLIC_BOUND: ${{ needs.verify.outputs.candidate_bound }}
+      PUBLIC_READY: ${{ needs.public_jobs.outputs.public_ready }}
+    steps:
+      - name: Require publication and every pre/post verification path
+        run: |
+          test "$ACCEPTANCE_RESULT" = success && test "$CANDIDATE_READY" = true
+          test "$PUBLISH_RESULT" = success && test "$VERIFY_RESULT" = success
+          test "$PUBLIC_RESULT" = success && test "$PUBLIC_BOUND" = true && test "$PUBLIC_READY" = true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.acceptance.outputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.acceptance.outputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: release-install-*
+          path: .cache/public-platforms
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: job-summary-${{ github.run_id }}-${{ github.run_attempt }}-candidate
+          path: .cache/accepted-jobs
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-public-*
+          path: .cache/public-jobs
+          merge-multiple: true
+      - name: Bind public verification to the original full candidate
+        run: |
+          mkdir -p .cache/candidate
+          tar -xf .cache/download/candidate.tar -C .cache/candidate
+          python3 tools/public_release.py gate --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
+            --digest "$MANIFEST_SHA256" --platform-receipts .cache/public-platforms --job-receipts .cache/public-jobs \
+            --candidate-summary .cache/accepted-jobs/result.json --receipt .cache/release-completion/result.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-completion-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/release-completion/result.json
+          if-no-files-found: error
+          retention-days: 7

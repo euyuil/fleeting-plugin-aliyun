@@ -9,6 +9,16 @@ on:
         description: Full source commit accepted before publication
         required: true
         type: string
+      artifact_id:
+        description: Sealed candidate artifact for release callers
+        type: string
+        default: ''
+      manifest_sha256:
+        type: string
+        default: ''
+    outputs:
+      candidate_bound:
+        value: ${{ jobs.gate.outputs.candidate_bound }}
   workflow_dispatch:
     inputs:
       version:
@@ -44,6 +54,8 @@ jobs:
       ARCH: ${{ matrix.arch }}
       RUNNER_IMAGE: ${{ matrix.runner }}
       EXPECTED_REVISION: ${{ inputs.expected_revision }}
+      CANDIDATE_ARTIFACT_ID: ${{ inputs.artifact_id }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -60,6 +72,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.artifact_id != ''
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: .cache/download
+          merge-multiple: true
+      - name: Verify the sealed candidate binding when provided
+        run: |
+          if [ -n "$CANDIDATE_ARTIFACT_ID" ]; then
+            test -n "$MANIFEST_SHA256" && test -n "$EXPECTED_REVISION"
+            mkdir -p .cache/candidate
+            tar -xf .cache/download/candidate.tar -C .cache/candidate
+            python3 tools/release_candidate.py verify --root .cache/candidate --sha "$RELEASE_REVISION" --version "$VERSION" --digest "$MANIFEST_SHA256"
+            printf 'CANDIDATE_BOUND=true\n' >> "$GITHUB_ENV"
+          else
+            test -z "$MANIFEST_SHA256"
+            printf 'CANDIDATE_BOUND=false\n' >> "$GITHUB_ENV"
+          fi
       - name: Verify the exact version and pinned Runner
         run: |
           go run ./tools/distribution -validate-version "$VERSION"
@@ -76,29 +106,59 @@ jobs:
           test -z "$(ls -A "$FLEETING_PLUGIN_PATH")"
           printf '{"auths":{}}\n' > "$DOCKER_CONFIG/config.json"
           release_dir="$RUNNER_TEMP/release"
-          mkdir "$release_dir"
           archive="fleeting-plugin-aliyun_${VERSION}_linux_${ARCH}.tar.gz"
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
-          curl --fail --location --silent --show-error --retry 3 "$base/$archive" -o "$release_dir/$archive"
-          curl --fail --location --silent --show-error --retry 3 "$base/SHA256SUMS" -o "$release_dir/SHA256SUMS"
-          (cd "$release_dir" && sha256sum --check --ignore-missing SHA256SUMS)
+          if [ "$CANDIDATE_BOUND" = true ]; then
+            python3 tools/public_release.py download --root .cache/candidate --sha "$RELEASE_REVISION" --version "$VERSION" \
+              --digest "$MANIFEST_SHA256" --arch "$ARCH" --directory "$release_dir" \
+              --receipt "download-receipt-$RUNNER_IMAGE-$ARCH.json"
+          else
+            mkdir "$release_dir"
+            curl --fail --location --silent --show-error --retry 3 "$base/$archive" -o "$release_dir/$archive"
+            curl --fail --location --silent --show-error --retry 3 "$base/SHA256SUMS" -o "$release_dir/SHA256SUMS"
+            (cd "$release_dir" && sha256sum --check --ignore-missing SHA256SUMS)
+          fi
           tar -xzf "$release_dir/$archive" -C "$release_dir"
+          reference="ghcr.io/$GITHUB_REPOSITORY:$VERSION"
+          verify_flags=()
+          if [ -f tools/public_release.py ]; then
+            PUBLIC_PLUGIN_REFERENCE=$(go run ./tools/distribution -pin-ref "$reference" -expected-version "$VERSION")
+            verify_flags+=(-pinned-ref "$PUBLIC_PLUGIN_REFERENCE")
+          else
+            PUBLIC_PLUGIN_REFERENCE="$reference"
+          fi
+          export PUBLIC_PLUGIN_REFERENCE
+          if [ "$CANDIDATE_BOUND" = true ]; then
+            verify_flags+=(-expected-payload ".cache/candidate/dist/packages/linux/$ARCH")
+          fi
           config="$RUNNER_TEMP/runner.toml"
           python3 - "$config" <<'PY'
           import os, pathlib, sys
-          ref = "ghcr.io/" + os.environ["GITHUB_REPOSITORY"] + ":" + os.environ["VERSION"]
+          ref = os.environ["PUBLIC_PLUGIN_REFERENCE"]
           pathlib.Path(sys.argv[1]).write_text(
               '[[runners]]\n  executor = "instance"\n  [runners.autoscaler]\n'
               + '    plugin = "' + ref + '"\n'
           )
           PY
           runner_binary=".cache/gitlab-runner-linux-$ARCH"
-          "$runner_binary" fleeting --config "$config" install
+          if [ -f tools/public_release.py ]; then
+            "$runner_binary" fleeting --config "$config" install --upgrade
+            # List is a local version-constraint lookup; digest references are
+            # not semantic-version constraints in the pinned Runner.
+            python3 - "$config" "$reference" <<'PYREF'
+          import pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          lines = path.read_text().splitlines()
+          path.write_text('\n'.join('    plugin = "' + sys.argv[2] + '"' if line.strip().startswith('plugin =') else line for line in lines) + '\n')
+          PYREF
+          else
+            "$runner_binary" fleeting --config "$config" install
+          fi
           "$runner_binary" fleeting --config "$config" list
           go run ./tools/distribution \
             -verify-ref "ghcr.io/$GITHUB_REPOSITORY:$VERSION" \
             -expected-version "$VERSION" -expected-revision "$RELEASE_REVISION" \
-            -expected-binary "$release_dir/fleeting-plugin-aliyun" \
+            -expected-binary "$release_dir/fleeting-plugin-aliyun" "${verify_flags[@]}" \
             | tee "install-receipt-$RUNNER_IMAGE-$ARCH.json"
       - name: Download and test the public Debian package
         # Older tags predate Debian packaging and retain OCI-only verification.
@@ -113,29 +173,63 @@ jobs:
           asset="${package//\~/.}"
           printf 'Debian asset: %s (checksum filename: %s)\n' "$asset" "$package"
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"
-          curl --fail --location --silent --show-error --retry 3 "$base/$asset" -o "$release_dir/$package"
+          if [ "$CANDIDATE_BOUND" != true ]; then
+            curl --fail --location --silent --show-error --retry 3 "$base/$asset" -o "$release_dir/$package"
+          fi
           awk -v package="$package" '$2 == package { print; count++ } END { if (count != 1) exit 1 }' \
             "$release_dir/SHA256SUMS" > "$release_dir/debian.sha256"
           (cd "$release_dir" && sha256sum --check debian.sha256)
           mkdir -p "$release_dir/packages/linux/$ARCH"
           cp "$release_dir/fleeting-plugin-aliyun" "$release_dir/packages/linux/$ARCH/plugin"
-          sudo python3 tools/test-debian-lifecycle.py --disposable-host \
+          profile=()
+          if [ -f tools/public_release.py ]; then profile=(--profile install); fi
+          sudo python3 tools/test-debian-lifecycle.py --disposable-host "${profile[@]}" \
             --runner ".cache/gitlab-runner-linux-$ARCH" --packages "$release_dir"
           python3 - "$release_dir/$package" <<'PY'
           import hashlib, json, os, pathlib, sys
           package = pathlib.Path(sys.argv[1])
           receipt = {
               'version': os.environ['VERSION'], 'architecture': os.environ['ARCH'],
+              'candidate_sha': os.environ['RELEASE_REVISION'], 'manifest_sha256': os.environ.get('MANIFEST_SHA256', ''),
+              'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
               'runner_image': os.environ['RUNNER_IMAGE'],
               'package': package.name, 'package_sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
               'release_asset': package.name.replace('~', '.'),
-              'anonymous_download': True, 'native_binary_match': True, 'lifecycle': True,
+              'anonymous_download': True, 'native_binary_match': True,
+              'install_smoke': pathlib.Path('tools/public_release.py').is_file(),
+              'lifecycle': not pathlib.Path('tools/public_release.py').is_file(),
           }
           pathlib.Path('install-receipt-debian-' + os.environ['RUNNER_IMAGE'] + '-' + os.environ['ARCH'] + '.json').write_text(json.dumps(receipt, indent=2) + '\n')
           PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-install-${{ matrix.runner }}-${{ matrix.arch }}
-          path: install-receipt-*.json
+          path: |
+            install-receipt-*.json
+            download-receipt-*.json
           if-no-files-found: error
           retention-days: 7
+  gate:
+    if: always()
+    needs: install
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      candidate_bound: ${{ steps.result.outputs.candidate_bound }}
+    env:
+      INSTALL_RESULT: ${{ needs.install.result }}
+      CANDIDATE_ARTIFACT_ID: ${{ inputs.artifact_id }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+    steps:
+      - name: Require all native installations
+        id: result
+        run: |
+          test "$INSTALL_RESULT" = success
+          if [ -n "$CANDIDATE_ARTIFACT_ID" ]; then
+            test -n "$MANIFEST_SHA256"
+            printf 'candidate_bound=true\n' >> "$GITHUB_OUTPUT"
+            printf 'Verified all four public native installations against the sealed candidate.\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf 'candidate_bound=false\n' >> "$GITHUB_OUTPUT"
+            printf 'Public installation verified; candidate binding was not provided. This is not release acceptance.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi

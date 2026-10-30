@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,14 +106,18 @@ func checkInstallerRoundTrip(t *testing.T, ctx context.Context, packages, binary
 	}
 	original := remote.DefaultTransport
 	target, _ := url.Parse(server.URL)
+	var versionTagReads atomic.Int64
 	remote.DefaultTransport = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/manifests/"+version) {
+			versionTagReads.Add(1)
+		}
 		r = r.Clone(r.Context())
 		r.URL.Scheme = target.Scheme
 		r.URL.Host = target.Host
 		return original.RoundTrip(r)
 	})
 	defer func() { remote.DefaultTransport = original }()
-	ref := "registry.test/test/aliyun:" + version
+	ref := "registry.localhost/test/aliyun:" + version
 	if err := publish(ctx, ref, packages); err != nil {
 		t.Fatal(err)
 	}
@@ -153,18 +158,103 @@ func checkInstallerRoundTrip(t *testing.T, ctx context.Context, packages, binary
 		}
 	}
 	t.Setenv("FLEETING_PLUGIN_PATH", dest)
-	if err := verifyInstall(ctx, ref, version, revision, binary); err != nil {
+	if err := verifyInstall(ctx, ref, version, revision, binary, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyInstall(ctx, ref, version, "unexpected-source", binary); err == nil {
+	pinned, err := pinReference(ctx, ref, version)
+	if err != nil || !strings.Contains(pinned, "@sha256:") {
+		t.Fatal("exact release was not pinned", pinned, err)
+	}
+	pinnedDirectory := t.TempDir()
+	if err := installer.Install(ctx, pinned, installer.WithDirectory(pinnedDirectory)); err != nil {
+		t.Fatal("official installer rejected the immutable reference", err)
+	}
+	t.Setenv("FLEETING_PLUGIN_PATH", pinnedDirectory)
+	versionTagReads.Store(0)
+	if err := verifyInstall(ctx, ref, version, revision, binary, pinned, folder); err != nil {
+		t.Fatal("immutable full payload verification failed", err)
+	}
+	if versionTagReads.Load() != 0 {
+		t.Fatal("verification fetched the mutable tag after installation")
+	}
+	if runner := os.Getenv("RUNNER_BINARY"); runner != "" {
+		cliDirectory := t.TempDir()
+		config := filepath.Join(t.TempDir(), "runner.toml")
+		writeConfig := func(reference string) {
+			text := "[[runners]]\n executor = \"instance\"\n [runners.autoscaler]\n plugin = \"" + reference + "\"\n"
+			if err := os.WriteFile(config, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		invoke := func(args ...string) {
+			command := exec.CommandContext(ctx, runner, append([]string{"fleeting", "--config", config}, args...)...)
+			// .localhost selects plain HTTP in the pinned registry client. The
+			// child uses this disposable registry as its proxy, without DNS,
+			// host-file changes, trust-store changes or a privileged port.
+			command.Env = append(os.Environ(), "FLEETING_PLUGIN_PATH="+cliDirectory, "DOCKER_CONFIG="+dockerConfig,
+				"DOCKER_AUTH_CONFIG=", "REGISTRY_AUTH_FILE=", "HTTP_PROXY="+server.URL, "http_proxy="+server.URL,
+				"HTTPS_PROXY="+server.URL, "https_proxy="+server.URL, "NO_PROXY=", "no_proxy=")
+			if out, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("official Runner CLI installation: %v\n%s", err, out)
+			}
+		}
+		writeConfig(pinned)
+		invoke("install", "--upgrade")
+		writeConfig(ref) // Only the local list lookup uses a semantic version.
+		invoke("list")
+		t.Setenv("FLEETING_PLUGIN_PATH", cliDirectory)
+		if err := verifyInstall(ctx, ref, version, revision, binary, pinned, folder); err != nil {
+			t.Fatal("official Runner CLI installed a different payload", err)
+		}
+	}
+	if err := verifyInstall(ctx, ref, version, revision, binary, "", folder); err == nil {
+		t.Fatal("candidate payload was accepted without an immutable reference")
+	}
+	if err := verifyInstall(ctx, ref, version, "unexpected-source", binary, "", ""); err == nil {
 		t.Fatal("wrong installed source accepted")
 	}
 	tampered := filepath.Join(t.TempDir(), "tampered")
 	if err := os.WriteFile(tampered, []byte("different release bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyInstall(ctx, ref, version, revision, tampered); err == nil {
+	if err := verifyInstall(ctx, ref, version, revision, tampered, "", ""); err == nil {
 		t.Fatal("different release bytes accepted")
+	}
+}
+
+func TestPayloadVerificationRejectsChangedLicenseAndIncompleteInventory(t *testing.T) {
+	for _, fault := range []string{"license", "notice", "missing", "extra", "symlink"} {
+		t.Run(fault, func(t *testing.T) {
+			installed, expected := t.TempDir(), t.TempDir()
+			for _, dir := range []string{installed, expected} {
+				for _, file := range []string{"plugin", "LICENSE", "NOTICE", "licenses.tar.gz"} {
+					if err := os.WriteFile(filepath.Join(dir, file), []byte(file), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if _, err := verifyPayload(installed, expected); err != nil {
+				t.Fatal(err)
+			}
+			switch fault {
+			case "license":
+				_ = os.WriteFile(filepath.Join(installed, "LICENSE"), []byte("changed"), 0600)
+			case "notice":
+				_ = os.WriteFile(filepath.Join(installed, "NOTICE"), []byte("changed"), 0600)
+			case "missing":
+				_ = os.Remove(filepath.Join(installed, "licenses.tar.gz"))
+			case "extra":
+				_ = os.WriteFile(filepath.Join(installed, "undeclared"), []byte("extra"), 0600)
+			case "symlink":
+				_ = os.Remove(filepath.Join(installed, "NOTICE"))
+				if err := os.Symlink(filepath.Join(expected, "NOTICE"), filepath.Join(installed, "NOTICE")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := verifyPayload(installed, expected); err == nil {
+				t.Fatal("modified or incomplete OCI payload accepted")
+			}
+		})
 	}
 }
 

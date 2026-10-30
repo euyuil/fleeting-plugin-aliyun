@@ -17,6 +17,8 @@ CONFIG = Path("/etc/gitlab-runner-aliyun")
 HOME = Path("/var/lib/gitlab-runner-aliyun")
 RECEIPT = Path("/var/lib/fleeting-plugin-aliyun")
 FIXTURE = Path("/var/lib/fleeting-debian-test")
+UNIT = Path("/usr/lib/systemd/system") / SERVICE
+RUNTIME_UNIT = Path("/run/systemd/system") / SERVICE
 
 
 def run(*args, ok=True):
@@ -43,11 +45,46 @@ def snapshot():
             for directory in (CONFIG, HOME, RECEIPT) for path in directory.rglob("*") if path.is_file()}
 
 
+def cleanup_install(wrapper):
+    failures = []
+
+    def attempt(action):
+        try:
+            action()
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            failures.append(True)
+
+    # A missing unit is expected after checked purge. If still installed, every
+    # stop must succeed; later cleanup attempts still run after any failure.
+    installed = UNIT.exists()
+    for command in (("systemctl", "unmask", "--runtime", SERVICE), ("systemctl", "stop", SERVICE)):
+        attempt(lambda command=command: run(*command) if installed else subprocess.run(
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45))
+    attempt(lambda: run("dpkg", "--purge", "fleeting-plugin-aliyun"))
+    attempt(lambda: wrapper.unlink(missing_ok=True))
+    for directory in (CONFIG, HOME, RECEIPT, FIXTURE):
+        if directory.exists() or directory.is_symlink():
+            attempt(lambda directory=directory: shutil.rmtree(directory))
+
+    def remove_user():
+        status = subprocess.run(["getent", "passwd", "gitlab-runner-aliyun"], capture_output=True, timeout=15).returncode
+        if status == 0:
+            run("userdel", "gitlab-runner-aliyun")
+        elif status != 2:
+            raise RuntimeError("cannot verify disposable service identity")
+        if subprocess.run(["getent", "passwd", "gitlab-runner-aliyun"], capture_output=True, timeout=15).returncode != 2:
+            raise RuntimeError("disposable service identity remains")
+    attempt(remove_user)
+    if failures or any(path.exists() or path.is_symlink() for path in (Path(CLI), UNIT, RUNTIME_UNIT, wrapper, CONFIG, HOME, RECEIPT, FIXTURE)):
+        raise RuntimeError("public package installation cleanup is incomplete")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--disposable-host", action="store_true", required=True)
     parser.add_argument("--runner", type=Path, required=True)
     parser.add_argument("--packages", type=Path, default=Path("dist"))
+    parser.add_argument("--profile", choices=("full", "install"), default="full")
     args = parser.parse_args()
     if os.geteuid() != 0 or platform.system() != "Linux" or not Path("/run/systemd/system").is_dir():
         raise SystemExit("requires root on a disposable Linux systemd host")
@@ -109,6 +146,7 @@ while True:
     time.sleep(0.1)
 ''')
     wrapper.chmod(0o755)
+    install_pass = False
     try:
         # A local manual installation must never be overwritten by apt.
         local_unit = Path("/etc/systemd/system") / SERVICE
@@ -161,6 +199,24 @@ while True:
             run("runuser", "-u", "gitlab-runner-aliyun", "--", "touch", CONFIG / "attacker", ok=False)
             os.chdir("/root")  # inaccessible inherited cwd must not break doctor
             run(CLI, "manager", "doctor")
+            if args.profile == "install":
+                # Publication already passed the full candidate lifecycle. Check
+                # anonymous native installation and both configs without replaying
+                # the offline daemon, failure, repack, upgrade or rollback suite.
+                run(CLI, "version")
+                content, replacements = re.subn(
+                    r'(?m)^([ \t]*plugin[ \t]*=[ \t]*)"[^"\n]+"',
+                    r'\1"/usr/bin/fleeting-plugin-aliyun"', docker_config.read_text(), count=1)
+                assert replacements == 1
+                content = content.replace('key_path = "/run/secrets/worker-key"',
+                                          'key_path = "/etc/gitlab-runner-aliyun/worker.key"')
+                (CONFIG / "config.toml").write_text(content)
+                run(CLI, "manager", "doctor")
+                assert run("systemctl", "show", SERVICE, "--property=ActiveState", "--value") == "inactive"
+                run("dpkg", "--purge", "fleeting-plugin-aliyun")
+                assert not Path(CLI).exists() and not UNIT.exists()
+                install_pass = True
+                return
             (CONFIG / "config.toml").chmod(0o644)
             run(CLI, "manager", "start", ok=False)
             (CONFIG / "config.toml").chmod(0o600)
@@ -247,13 +303,18 @@ while True:
     finally:
         (FIXTURE / "work/finish").touch()
         # Only paths reserved and verified absent by this test are cleaned up.
-        subprocess.run(["systemctl", "unmask", "--runtime", SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["systemctl", "stop", SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
-        subprocess.run(["dpkg", "--purge", "fleeting-plugin-aliyun"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        wrapper.unlink(missing_ok=True)
-        for directory in (CONFIG, HOME, RECEIPT, FIXTURE):
-            shutil.rmtree(directory, ignore_errors=True)
-        subprocess.run(["userdel", "gitlab-runner-aliyun"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if args.profile == "install":
+            cleanup_install(wrapper)
+            if install_pass:
+                print("PASS: native public package bytes, installation, both configs, doctor, no implicit start and checked cleanup; no provider calls")
+        else:
+            subprocess.run(["systemctl", "unmask", "--runtime", SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["systemctl", "stop", SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            subprocess.run(["dpkg", "--purge", "fleeting-plugin-aliyun"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            wrapper.unlink(missing_ok=True)
+            for directory in (CONFIG, HOME, RECEIPT, FIXTURE):
+                shutil.rmtree(directory, ignore_errors=True)
+            subprocess.run(["userdel", "gitlab-runner-aliyun"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 if __name__ == "__main__":
