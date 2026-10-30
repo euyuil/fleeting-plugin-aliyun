@@ -65,8 +65,18 @@ def manager_diagnostic(result):
     state = result.get("manager_journal_state", "NOT_RECORDED")
     if state not in ("RECORDED", "NOT_STARTED", "UNAVAILABLE", "NOT_RECORDED"):
         return {"evidence": "INVALID"}
+    capture = result.get("manager_journal_capture")
+    quality = {}
+    if "manager_journal_capture" in result:
+        reasons = ("recorded", "not_started", "invalid_start", "ownership_unavailable", "read_failed", "no_valid_records")
+        if (not isinstance(capture, dict) or capture.get("reason") not in reasons or
+                type(capture.get("raw_truncated")) is not bool or
+                any(type(capture.get(key)) is not int or not 0 <= capture[key] <= 4 * 1024 * 1024
+                    for key in ("omitted_records", "invalid_records"))):
+            return {"evidence": "INVALID"}
+        quality["capture"] = {key: capture[key] for key in ("reason", "raw_truncated", "omitted_records", "invalid_records")}
     if state != "RECORDED":
-        return {"evidence": state}
+        return {"evidence": state, **quality}
     raw = result.get("manager_journal")
     if not isinstance(raw, str):
         return {"evidence": "INVALID"}
@@ -105,10 +115,11 @@ def manager_diagnostic(result):
             return {"evidence": "INVALID"}
         if name is None:
             continue
-        if len(records) == 8:
-            omitted += 1
-            continue
         match = re.search(r"Process exited with status ([0-9]{1,3})(?=$|[ \"\\])", message)
         code = int(match[1]) if match and int(match[1]) <= 255 else None
         records.append({"event": name, "process_exit_code": code, "outline": error_outline(message)})
-    return {"evidence": "RECORDED", "records": records, "omitted_count": omitted, "window_limited": len(lines) == 200}
+        if len(records) > 8:
+            records.pop(0)
+            omitted += 1
+    limited = len(lines) == 200 or bool(quality and (capture["raw_truncated"] or capture["omitted_records"] or capture["invalid_records"]))
+    return {"evidence": "RECORDED", "records": records, "omitted_count": omitted, "window_limited": limited, **quality}
