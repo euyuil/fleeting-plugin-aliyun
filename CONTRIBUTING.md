@@ -29,9 +29,11 @@ explicitly skip when their pinned executable is absent.
 
 `make verify-code` adds race/responsegate checks, the deliberately disabled live
 entry and actual pinned-Runner example parsing. `make verify` runs this full code
-profile plus security scans. Pre-release candidate builds retain
+profile plus security scans. Complete pre-release candidate builds retain
 `make verify-code`, `make dist`, the shared security job and all four native
-platform installations. Ordinary PR/main CI uses `make verify-fast` and the same
+platform installations. Manual `mode=jobs` debugging uses security, `verify-fast`
+and the complete sealed distribution; its real cases install the native package
+but skip the four-platform prerequisite. Ordinary PR/main CI uses `make verify-fast` and the same
 security job. A green ordinary CI run is not full distribution or live acceptance.
 For focused work, the `test`, `test-component`, `test-race`, `test-responsegate`,
 `test-live-offline`, `test-configs`, `lint`, and `security` targets remain available.
@@ -192,8 +194,9 @@ driver logs, GitLab job artifacts or fixture configuration.
 For iterative debugging, add an explicit comma-separated selector, for example
 `-f job_cases=instance/manager-crash,docker-autoscaler/upgrade`, to the manual
 `mode=jobs` command. Only selected cases run; a passing debug summary is not full
-acceptance and cannot authorize publication. Preserve failed receipts and finish
-with `-f job_cases=all` on one final candidate. See
+acceptance and cannot authorize publication, even with `-f job_cases=all`.
+Preserve failed receipts and finish with `-f mode=all` on one final candidate for
+the full code, platform, plugin and eighteen-job acceptance profile. See
 [targeted debugging](docs/job-acceptance.md#targeted-debugging-before-a-final-full-run).
 
 For a failed case, use its candidate SHA and the GitHub scenario job's UTC start

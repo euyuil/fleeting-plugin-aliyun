@@ -20,6 +20,9 @@ on:
       cases:
         type: string
         default: all
+      profile:
+        type: string
+        default: full
     secrets:
       RELEASE_ALIYUN_ACCOUNT_ID:
         required: false
@@ -60,6 +63,8 @@ jobs:
       matrix: ${{ steps.cases.outputs.matrix }}
     env:
       JOB_CASES: ${{ inputs.cases }}
+      PROFILE: ${{ inputs.profile }}
+      PHASE: ${{ inputs.phase }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -71,8 +76,8 @@ jobs:
           python3 - <<'PY'
           import json, os, sys
           sys.path.insert(0, 'tools')
-          from job_acceptance import selected_cases
-          cases = selected_cases(os.environ['JOB_CASES'])
+          from job_acceptance import workflow_profile
+          cases = workflow_profile(os.environ['PROFILE'], os.environ['PHASE'], os.environ['JOB_CASES'])
           matrix = {'include': [{'executor': executor, 'scenario': scenario} for executor, scenario in cases]}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('matrix=' + json.dumps(matrix) + '\n')
@@ -96,6 +101,7 @@ jobs:
       MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
       PHASE: ${{ inputs.phase }}
       EXECUTOR: ${{ matrix.executor }}
+      PROFILE: ${{ inputs.profile }}
       JOB_SCENARIO: ${{ matrix.scenario }}
       RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
       RELEASE_JOB_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_JOB_ACCEPTANCE_ENABLED }}
@@ -147,7 +153,7 @@ jobs:
       - name: Install the package, run a real job, and verify full teardown
         run: |
           python3 tools/job_acceptance.py run --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
-            --digest "$MANIFEST_SHA256" --phase "$PHASE" --executor "$EXECUTOR" --scenario "$JOB_SCENARIO" \
+            --digest "$MANIFEST_SHA256" --phase "$PHASE" --profile "$PROFILE" --executor "$EXECUTOR" --scenario "$JOB_SCENARIO" \
             --directory ".live/job-$PHASE-$EXECUTOR-$JOB_SCENARIO" --receipt ".cache/job-receipts/$EXECUTOR-$JOB_SCENARIO.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
@@ -172,6 +178,7 @@ jobs:
       SCENARIO_RESULT: ${{ needs.scenario.result }}
       SELECTION_RESULT: ${{ needs.selection.result }}
       JOB_CASES: ${{ inputs.cases }}
+      PROFILE: ${{ inputs.profile }}
     steps:
       - name: Require every executor and recovery scenario to have succeeded
         run: test "$SELECTION_RESULT" = success && test "$SCENARIO_RESULT" = success
@@ -198,9 +205,9 @@ jobs:
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
           operation=gate
-          if [ "$JOB_CASES" != all ]; then operation=debug-gate; fi
+          if [ "$PROFILE" = debug ]; then operation=debug-gate; else test "$PROFILE" = full; fi
           python3 tools/job_acceptance.py "$operation" --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
-            --digest "$MANIFEST_SHA256" --phase "$PHASE" --receipts .cache/job-receipts --cases "$JOB_CASES" \
+            --digest "$MANIFEST_SHA256" --phase "$PHASE" --profile "$PROFILE" --receipts .cache/job-receipts --cases "$JOB_CASES" \
             --summary .cache/job-summary/result.json
           printf 'selected_ready=true\n' >> "$GITHUB_OUTPUT"
           if [ "$operation" = gate ]; then

@@ -82,6 +82,7 @@ jobs:
       matrix: ${{ steps.source.outputs.matrix }}
       mode: ${{ steps.source.outputs.mode }}
       job_cases: ${{ steps.source.outputs.job_cases }}
+      profile: ${{ steps.source.outputs.profile }}
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
@@ -110,6 +111,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('sha=' + sha + '\nmode=' + mode + '\n')
               output.write('job_cases=' + cases + '\n')
+              output.write('profile=' + ('debug' if mode == 'jobs' else 'full') + '\n')
               output.write('matrix=' + json.dumps({'mode': list(MODES) if mode == 'all' else [MODES[0] if mode == 'jobs' else mode]}) + '\n')
           PY
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -117,11 +119,18 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Validate and build the unpublished distribution
+        env:
+          VALIDATION_PROFILE: ${{ steps.source.outputs.profile }}
         run: |
           go run ./tools/distribution -validate-version "$VERSION"
-          python3 tools/fetch-aliyun.py
-          export PATH="$GITHUB_WORKSPACE/.cache/tools:$PATH"
-          make verify-code dist VERSION="$VERSION"
+          if [ "$VALIDATION_PROFILE" = full ]; then
+            python3 tools/fetch-aliyun.py
+            export PATH="$GITHUB_WORKSPACE/.cache/tools:$PATH"
+            make verify-code dist VERSION="$VERSION"
+          else
+            test "$VALIDATION_PROFILE" = debug
+            make verify-fast dist VERSION="$VERSION"
+          fi
           mkdir -p .cache/candidate/responsegate
           cp -a dist .cache/candidate/dist
           GOFLAGS=-tags=responsegate make build VERSION="$VERSION"
@@ -141,6 +150,7 @@ jobs:
           retention-days: 7
   platforms:
     needs: build
+    if: needs.build.outputs.profile == 'full'
     uses: ./.github/workflows/verify-candidate.yml
     with:
       artifact_id: ${{ needs.build.outputs.artifact_id }}
@@ -217,7 +227,9 @@ jobs:
           retention-days: 7
   gitlab_jobs:
     if: >-
-      !cancelled() && needs.build.result == 'success' && needs.platforms.result == 'success' &&
+      !cancelled() && needs.build.result == 'success' &&
+      ((needs.build.outputs.profile == 'debug' && needs.platforms.result == 'skipped') ||
+       (needs.build.outputs.profile == 'full' && needs.platforms.result == 'success')) &&
       (needs.build.outputs.mode == 'jobs' || (needs.build.outputs.mode == 'all' && needs.scenario.result == 'success'))
     needs: [build, platforms, scenario]
     permissions:
@@ -241,6 +253,7 @@ jobs:
       version: ${{ inputs.version }}
       phase: candidate
       cases: ${{ needs.build.outputs.job_cases }}
+      profile: ${{ needs.build.outputs.profile }}
   gate:
     if: always()
     needs: [build, platforms, scenario, gitlab_jobs]
@@ -260,14 +273,20 @@ jobs:
       JOB_READY: ${{ needs.gitlab_jobs.outputs.release_ready }}
       JOB_SELECTED_READY: ${{ needs.gitlab_jobs.outputs.selected_ready }}
       JOB_CASES: ${{ needs.build.outputs.job_cases }}
+      PROFILE: ${{ needs.build.outputs.profile }}
     steps:
       - name: Require completed build and selected acceptance paths
         run: |
-          test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success
+          test "$BUILD_RESULT" = success
+          if [ "$PROFILE" = debug ]; then
+            test "$MODE" = jobs && test "$PLATFORM_RESULT" = skipped && test "$SCENARIO_RESULT" = skipped
+          else
+            test "$PROFILE" = full && test "$PLATFORM_RESULT" = success
+          fi
           if [ "$MODE" != jobs ]; then test "$SCENARIO_RESULT" = success; fi
           if [ "$MODE" = all ] || [ "$MODE" = jobs ]; then
             test "$JOB_RESULT" = success && test "$JOB_SELECTED_READY" = true
-            if [ "$MODE" = all ] || [ "$JOB_CASES" = all ]; then test "$JOB_READY" = true; fi
+            if [ "$PROFILE" = full ]; then test "$JOB_READY" = true; else test "$JOB_READY" = false; fi
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

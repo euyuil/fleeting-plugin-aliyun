@@ -41,9 +41,9 @@ def manifest():
                       "dist/SHA256SUMS": "f" * 64}}
 
 
-def receipt(executor="instance", phase="candidate", scenario="smoke"):
+def receipt(executor="instance", phase="candidate", scenario="smoke", profile="full"):
     m = manifest()
-    return {"schema_version": 3, "recovery_policy": job.recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job.job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+    return {"schema_version": 3, "validation_profile": profile, "recovery_policy": job.recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job.job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
             "candidate_sha": m["candidate_sha"], "version": m["version"], "manifest_sha256": "a" * 64,
             "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": "10", "run_attempt": "1",
             "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -52,6 +52,34 @@ def receipt(executor="instance", phase="candidate", scenario="smoke"):
 
 
 class JobAcceptanceTests(unittest.TestCase):
+    def test_full_and_debug_profiles_cannot_exchange_scope(self):
+        self.assertEqual(len(job.workflow_profile("full", "candidate", "all")), 18)
+        self.assertEqual(len(job.workflow_profile("debug", "candidate", "all")), 18)
+        self.assertEqual(job.workflow_profile("debug", "candidate", "instance/smoke"), [("instance", "smoke")])
+        for profile, phase, cases in (("debug", "public", "all"), ("full", "candidate", "instance/smoke"),
+                                      ("unknown", "candidate", "all"), ("full", "unknown", "all")):
+            with self.subTest(profile=profile, phase=phase), self.assertRaises(ValueError):
+                job.workflow_profile(profile, phase, cases)
+
+    def test_even_all_debug_cases_cannot_satisfy_full_receipt_gate(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"GITHUB_RUN_ID": "10", "GITHUB_RUN_ATTEMPT": "1"}), \
+                patch.object(job, "verify", return_value=manifest()):
+            root = Path(temp)
+            args = SimpleNamespace(root=root, receipts=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev",
+                                   phase="candidate", cases="all", operation="debug-gate")
+            for executor, scenario in job.selected_cases():
+                (root / f"{executor}-{scenario}.json").write_text(json.dumps(receipt(executor, scenario=scenario, profile="debug")))
+            job.debug_gate(args)
+            summary = job.acceptance_summary(args)
+            self.assertEqual((summary["validation_profile"], summary["full_suite"], summary["release_ready"]), ("debug", False, False))
+            self.assertEqual(summary["fixture_config_sha256"], "1" * 64)
+            self.assertEqual(summary["receipt_schema_version"], 3)
+            with self.assertRaises(ValueError):
+                job.gate(args)
+            args.phase = "public"
+            with self.assertRaises(ValueError):
+                job.debug_gate(args)
+
     def test_explicit_selection_rejects_unknown_duplicates_and_control_characters(self):
         self.assertEqual(len(job.selected_cases()), 18)
         self.assertEqual(job.selected_cases("instance/manager-crash,docker-autoscaler/upgrade"),
@@ -79,7 +107,7 @@ class JobAcceptanceTests(unittest.TestCase):
             args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate", receipts=root,
                                    cases="instance/manager-crash,docker-autoscaler/upgrade", operation="debug-gate")
             for executor, scenario in job.selected_cases(args.cases):
-                (root / f"{executor}-{scenario}.json").write_text(json.dumps(receipt(executor, scenario=scenario)))
+                (root / f"{executor}-{scenario}.json").write_text(json.dumps(receipt(executor, scenario=scenario, profile="debug")))
             job.debug_gate(args)
             summary = job.acceptance_summary(args)
             self.assertEqual(summary["scope"], "selected-cases")
@@ -181,7 +209,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_receipts_reject_stale_foreign_or_failed_evidence(self):
         good = receipt()
         job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1")
-        changes = {"schema_version": 2, "recovery_policy": "legacy", "result": "FAIL", "cleanup_result": "FAIL", "leftover_resources": False, "candidate_sha": "f" * 40,
+        changes = {"schema_version": 2, "validation_profile": "debug", "recovery_policy": "legacy", "result": "FAIL", "cleanup_result": "FAIL", "leftover_resources": False, "candidate_sha": "f" * 40,
                    "version": "0.1.0", "manifest_sha256": "f" * 64, "phase": "public", "executor": "docker-autoscaler",
                    "manager_mode": "process", "run_id": "11", "run_attempt": "2", "distribution_source": "anonymous-release",
                    "plugin_sha256": "f" * 64, "package_sha256": "f" * 64, "fixture_config_sha256": "", "gitlab_config_sha256": None}
