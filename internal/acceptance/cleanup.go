@@ -69,6 +69,8 @@ type Ledger struct {
 	Instances            []Resource `json:"instances"`
 	CleanupResult        string     `json:"cleanup_result"`
 	Leftovers            []string   `json:"leftover_resources"`
+
+	LastNormalRelease *normalReleaseObservation `json:"last_normal_release_observation,omitempty"`
 }
 
 func (l *Ledger) Save() error {

@@ -449,6 +449,26 @@ forced shutdown after an otherwise passing scenario still fails acceptance.
 A resource cleanup failure still prevents a passing aggregate result while
 the earlier failure records remain intact.
 
+The last completed normal-release observation is frozen before emergency cleanup.
+It records the deadline scope, last executing phase, elapsed time and, when
+available, the last complete round of capacity/member/ECS counts, history quietness,
+stable-zero count and associated-resource verification state. Sample age and span
+describe sequential reads; this is not an atomic cloud snapshot. A partial round
+does not replace a prior complete sample. If no round completed, sample evidence
+is explicitly unrecorded. Final cleanup deletion flags cannot rewrite this earlier observation.
+This record belongs to the most recent release call, whose result may be PASS
+even if a later job fails elsewhere. Public projection allows only fixed enums,
+bounded counts and durations; raw resource identities are excluded.
+
+Normal release still requires two stable zero-capacity observations and verified
+associated-resource absence within three minutes. Its own confirmation deadline
+is consistently classified as `FAIL_INFRASTRUCTURE`, whether expiry is observed
+during a read or a polling wait, with explicit `normal_release` scope. This means
+release was not confirmed before the observation deadline; it does not establish
+an ESS outage or a provider defect. Parent cancellation/deadlines and independent
+operation deadlines remain distinct, retaining the original API error chain.
+No deadline, assertion, resource budget, retry or cleanup mutation is relaxed.
+
 After attempting to stop its owned packaged Manager, the driver captures up to
 200 journal entries from the current run, with a 128-KiB private evidence limit.
 The public diagnostic projects only fixed taskscaler preparation, health and
