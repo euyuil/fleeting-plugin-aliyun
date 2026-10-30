@@ -27,6 +27,29 @@ EXECUTORS = ("instance", "docker-autoscaler")
 PHASES = ("candidate", "public")
 
 
+def selected_cases(value="all"):
+    allowed = {f"{executor}/{scenario}" for executor in EXECUTORS for scenario in JOB_SCENARIOS}
+    if value == "all":
+        return [(executor, scenario) for executor in EXECUTORS for scenario in JOB_SCENARIOS]
+    if not isinstance(value, str) or len(value) > 2048 or any(char in value for char in "\r\n\x00"):
+        raise ValueError("invalid explicit job case selection")
+    cases = [item.strip() for item in value.split(",")]
+    if not cases or len(cases) != len(set(cases)) or any(case not in allowed for case in cases):
+        raise ValueError("job selection requires unique executor/scenario pairs")
+    return [tuple(case.split("/")) for case in cases]
+
+
+def workflow_cases(value, mode):
+    # An explicitly empty manual jobs selector must never expand paid coverage.
+    # Reusable release callers have no debug input and retain their full gate.
+    if value == "" and mode != "jobs":
+        value = "all"
+    selected_cases(value)
+    if mode != "jobs" and value != "all":
+        raise ValueError("targeted job selection is restricted to jobs debug mode")
+    return value
+
+
 def job_timing(scenario, now):
     if scenario not in JOB_SCENARIOS:
         raise ValueError("unknown job acceptance scenario")
@@ -411,27 +434,47 @@ def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, a
             raise ValueError("job receipt lacks a configuration binding")
 
 
-def gate(args):
+def validate_receipts(args, cases):
     manifest = verify(args.root, args.digest, args.sha, args.version)
     paths = list(args.receipts.glob("*.json"))
-    expected = {f"{executor}-{scenario}.json" for executor in EXECUTORS for scenario in JOB_SCENARIOS}
+    expected = {f"{executor}-{scenario}.json" for executor, scenario in cases}
     if {p.name for p in paths} != expected:
-        raise ValueError("all exact executor/scenario receipts are required")
+        raise ValueError("all exact selected executor/scenario receipts are required")
     configs = set()
-    for executor in EXECUTORS:
-        for scenario in JOB_SCENARIOS:
-            receipt = json.loads((args.receipts / f"{executor}-{scenario}.json").read_text())
-            check_receipt(receipt, manifest, args.digest, args.phase, executor, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], scenario)
-            configs.add((receipt["fixture_config_sha256"], receipt["gitlab_config_sha256"]))
+    for executor, scenario in cases:
+        receipt = json.loads((args.receipts / f"{executor}-{scenario}.json").read_text())
+        check_receipt(receipt, manifest, args.digest, args.phase, executor, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], scenario)
+        configs.add((receipt["fixture_config_sha256"], receipt["gitlab_config_sha256"]))
     if len(configs) != 1:
         raise ValueError("executor jobs used different fixture configurations")
+
+
+def gate(args):
+    # Release callers always require all eighteen cases, regardless of any debug
+    # selector supplied by an interactive caller or an earlier workflow step.
+    validate_receipts(args, selected_cases())
+
+
+def debug_gate(args):
+    validate_receipts(args, selected_cases(args.cases))
+
+
+def acceptance_summary(args):
+    full = args.operation == "gate"
+    selected = selected_cases() if full else selected_cases(args.cases)
+    keys = ["/".join(case) for case in selected]
+    return {"schema_version": 1, "result": "PASS", "scope": "full-suite" if full else "selected-cases",
+            "full_suite": full, "release_ready": full, "candidate_sha": args.sha, "version": args.version,
+            "manifest_sha256": args.digest, "phase": args.phase, "run_id": os.environ["GITHUB_RUN_ID"],
+            "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "selected_cases": keys,
+            "omitted_cases": ["/".join(case) for case in selected_cases() if case not in selected]}
 
 
 def main():
     os.umask(0o077)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("preflight", "run", "gate"))
+    parser.add_argument("operation", choices=("preflight", "run", "gate", "debug-gate"))
     parser.add_argument("--root", type=Path)
     parser.add_argument("--digest")
     parser.add_argument("--sha")
@@ -442,23 +485,29 @@ def main():
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--receipts", type=Path)
+    parser.add_argument("--cases", default="all", help="debug only: all or comma-separated executor/scenario pairs")
+    parser.add_argument("--summary", type=Path)
     parser.add_argument("--driver", type=Path, default=Path("bin/aliyun-acceptance"))
     parser.add_argument("--read-only", action="store_true")
     args = parser.parse_args()
+    if args.cases != "all" and args.operation != "debug-gate":
+        parser.error("only debug-gate accepts a selected-case list; the full gate always requires all cases")
     if args.read_only and args.operation != "preflight":
         parser.error("--read-only applies only to configuration preflight")
     if args.operation != "preflight" and any(getattr(args, field) is None for field in ("root", "digest", "sha", "version", "phase")):
         parser.error("run and gate require a complete candidate identity and phase")
     if args.operation == "run" and any(getattr(args, field) is None for field in ("executor", "directory", "receipt")):
         parser.error("run requires an executor and private evidence and public receipt paths")
-    if args.operation == "gate" and args.receipts is None:
+    if args.operation in ("gate", "debug-gate") and args.receipts is None:
         parser.error("gate requires the executor receipt directory")
     if args.operation == "preflight":
         configuration(read_only=args.read_only)
         if args.version:
             require_newer(args.version)
-    elif args.operation == "gate":
-        gate(args)
+    elif args.operation in ("gate", "debug-gate"):
+        (gate if args.operation == "gate" else debug_gate)(args)
+        if args.summary:
+            write_json(args.summary, acceptance_summary(args))
     else:
         run(args)
 

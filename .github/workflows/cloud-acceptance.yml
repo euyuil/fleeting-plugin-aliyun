@@ -53,6 +53,10 @@ on:
         type: choice
         default: all
         options: [all, jobs, cloud-smoke, cloud-scale, cloud-restart, cloud-create-restart, cloud-remove-restart, cloud-increase-response-loss]
+      job_cases:
+        description: "Jobs debug only: all, or comma-separated executor/scenario pairs"
+        type: string
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -77,10 +81,12 @@ jobs:
       candidate_sha: ${{ steps.source.outputs.sha }}
       matrix: ${{ steps.source.outputs.matrix }}
       mode: ${{ steps.source.outputs.mode }}
+      job_cases: ${{ steps.source.outputs.job_cases }}
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
       MODE: ${{ inputs.mode || 'all' }}
+      JOB_CASES: ${{ inputs.job_cases }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -93,14 +99,17 @@ jobs:
           import json, os, subprocess, sys
           sys.path.insert(0, 'tools')
           from release_candidate import MODES, revision
+          from job_acceptance import workflow_cases
           sha = revision(os.environ['CANDIDATE_SHA'])
           mode = os.environ['MODE']
           if mode not in ('all', 'jobs', *MODES):
               raise SystemExit('unknown cloud acceptance mode')
+          cases = workflow_cases(os.environ['JOB_CASES'], mode)
           subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], check=True)
           subprocess.run(['git', 'checkout', '--detach', sha], check=True)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('sha=' + sha + '\nmode=' + mode + '\n')
+              output.write('job_cases=' + cases + '\n')
               output.write('matrix=' + json.dumps({'mode': list(MODES) if mode == 'all' else [MODES[0] if mode == 'jobs' else mode]}) + '\n')
           PY
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -231,6 +240,7 @@ jobs:
       candidate_sha: ${{ needs.build.outputs.candidate_sha }}
       version: ${{ inputs.version }}
       phase: candidate
+      cases: ${{ needs.build.outputs.job_cases }}
   gate:
     if: always()
     needs: [build, platforms, scenario, gitlab_jobs]
@@ -248,13 +258,16 @@ jobs:
       SCENARIO_RESULT: ${{ needs.scenario.result }}
       JOB_RESULT: ${{ needs.gitlab_jobs.result }}
       JOB_READY: ${{ needs.gitlab_jobs.outputs.release_ready }}
+      JOB_SELECTED_READY: ${{ needs.gitlab_jobs.outputs.selected_ready }}
+      JOB_CASES: ${{ needs.build.outputs.job_cases }}
     steps:
       - name: Require completed build and selected acceptance paths
         run: |
           test "$BUILD_RESULT" = success && test "$PLATFORM_RESULT" = success
           if [ "$MODE" != jobs ]; then test "$SCENARIO_RESULT" = success; fi
           if [ "$MODE" = all ] || [ "$MODE" = jobs ]; then
-            test "$JOB_RESULT" = success && test "$JOB_READY" = true
+            test "$JOB_RESULT" = success && test "$JOB_SELECTED_READY" = true
+            if [ "$MODE" = all ] || [ "$JOB_CASES" = all ]; then test "$JOB_READY" = true; fi
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

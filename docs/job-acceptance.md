@@ -78,6 +78,29 @@ require all eighteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
+### Targeted debugging before a final full run
+
+Manual `cloud-acceptance.yml` runs in `mode=jobs` may select explicit cases with
+`job_cases`, for example `instance/manager-crash,docker-autoscaler/upgrade`.
+The default `all` retains the complete eighteen-case matrix. Cases remain serial
+on the existing dedicated project and Runner, with a fresh disposable Manager
+and cloud fixture per case. The existing fail-fast policy remains: a failed or
+unconfirmed-cleanup case cancels queued cases so no later fixture is created
+while an earlier Manager or pool might remain active. Each case keeps its
+original assertions and creation budget; canceled cases remain unrun for the
+next targeted round.
+
+During debugging, select failed or previously unrun cases and omit cases that
+already passed. Every new run still builds and verifies its own sealed candidate;
+its gate requires exactly the selected receipts from that run and attempt, with
+matching source, distribution and configuration. Historical receipts cannot fill
+in omitted cases. The separate `debug-gate` emits a `selected-cases` summary with
+the explicit omissions and `release_ready=false`, even if every selected case
+passes. It cannot satisfy the full `gate`, which always requires all eighteen.
+Targeted selection is rejected outside manual jobs mode, including release's
+complete pre-publication path. After fixing the discovered issues, run `all`
+once on the final candidate to establish complete same-candidate coverage.
+
 The Go job driver retries GitLab GET transport failures, including interrupted
 response bodies, up to three attempts with one- and two-second waits. Each
 attempt retains the existing twenty-second HTTP timeout and the caller's

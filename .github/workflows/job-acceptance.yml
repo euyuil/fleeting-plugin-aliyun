@@ -17,6 +17,9 @@ on:
       phase:
         required: true
         type: string
+      cases:
+        type: string
+        default: all
     secrets:
       RELEASE_ALIYUN_ACCOUNT_ID:
         required: false
@@ -39,6 +42,8 @@ on:
     outputs:
       release_ready:
         value: ${{ jobs.gate.outputs.release_ready }}
+      selected_ready:
+        value: ${{ jobs.gate.outputs.selected_ready }}
 permissions:
   contents: read
 # The caller owns aliyun-pre-release-acceptance for this entire workflow.
@@ -47,7 +52,33 @@ defaults:
   run:
     shell: bash
 jobs:
+  selection:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.cases.outputs.matrix }}
+    env:
+      JOB_CASES: ${{ inputs.cases }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - name: Select explicit serial cases
+        id: cases
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, 'tools')
+          from job_acceptance import selected_cases
+          cases = selected_cases(os.environ['JOB_CASES'])
+          matrix = {'include': [{'executor': executor, 'scenario': scenario} for executor, scenario in cases]}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps(matrix) + '\n')
+          PY
   scenario:
+    needs: selection
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: ${{ matrix.scenario == 'manager-crash' && 80 || 60 }}
@@ -58,9 +89,7 @@ jobs:
     strategy:
       max-parallel: 1
       fail-fast: true
-      matrix:
-        executor: [instance, docker-autoscaler]
-        scenario: [smoke, failure, cancel, timeout, capacity, drain, worker-loss, manager-crash, upgrade]
+      matrix: ${{ fromJSON(needs.selection.outputs.matrix) }}
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -129,20 +158,23 @@ jobs:
           retention-days: 7
   gate:
     if: always()
-    needs: scenario
+    needs: [selection, scenario]
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       release_ready: ${{ steps.result.outputs.release_ready }}
+      selected_ready: ${{ steps.result.outputs.selected_ready }}
     env:
       VERSION: ${{ inputs.version }}
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
       PHASE: ${{ inputs.phase }}
       SCENARIO_RESULT: ${{ needs.scenario.result }}
+      SELECTION_RESULT: ${{ needs.selection.result }}
+      JOB_CASES: ${{ inputs.cases }}
     steps:
       - name: Require every executor and recovery scenario to have succeeded
-        run: test "$SCENARIO_RESULT" = success
+        run: test "$SELECTION_RESULT" = success && test "$SCENARIO_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.candidate_sha }}
@@ -165,6 +197,20 @@ jobs:
         run: |
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
-          python3 tools/job_acceptance.py gate --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
-            --digest "$MANIFEST_SHA256" --phase "$PHASE" --receipts .cache/job-receipts
-          printf 'release_ready=true\n' >> "$GITHUB_OUTPUT"
+          operation=gate
+          if [ "$JOB_CASES" != all ]; then operation=debug-gate; fi
+          python3 tools/job_acceptance.py "$operation" --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
+            --digest "$MANIFEST_SHA256" --phase "$PHASE" --receipts .cache/job-receipts --cases "$JOB_CASES" \
+            --summary .cache/job-summary/result.json
+          printf 'selected_ready=true\n' >> "$GITHUB_OUTPUT"
+          if [ "$operation" = gate ]; then
+            printf 'release_ready=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'release_ready=false\n' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: job-summary-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}
+          path: .cache/job-summary/result.json
+          if-no-files-found: error
+          retention-days: 7
