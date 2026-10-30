@@ -1,4 +1,5 @@
 import base64
+import http.client
 import io
 import json
 from pathlib import Path
@@ -31,6 +32,8 @@ class FixtureServer:
         elif path == "/repository/branches/acceptance%2F" + CANDIDATE:
             if sha is None:
                 self.error(request, 403 if self.fault == "denied" else 404)
+            if self.created and self.fault == "lost-response-readback":
+                self.error(request, 503)
             data = {"name": "acceptance/" + CANDIDATE, "commit": {"id": sha}}
         elif path == "/repository/commits" and request.get_method() == "POST":
             body = json.loads(request.data)
@@ -38,7 +41,7 @@ class FixtureServer:
             if self.fault == "write-denied":
                 self.error(request, 403)
             self.created = True
-            if self.fault == "lost-response":
+            if self.fault in {"lost-response", "lost-response-readback"}:
                 raise urllib.error.URLError("private endpoint and credential")
             data = {"id": CREATED}
         elif path == "/repository/commits/" + CREATED:
@@ -83,6 +86,11 @@ class FixtureServer:
 
 
 class FixtureTests(unittest.TestCase):
+    def setUp(self):
+        sleep = patch.object(fixture.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+
     def prepare(self, server):
         with patch.object(fixture.urllib.request, "build_opener", return_value=server):
             return fixture.prepare(CONFIG, CANDIDATE, "synthetic-token")
@@ -115,6 +123,72 @@ class FixtureTests(unittest.TestCase):
         server = FixtureServer(fault="lost-response")
         self.assertEqual(self.prepare(server)["fixture_sha"], CREATED)
         self.assertEqual(len(server.posts), 1)
+
+    def test_uncertain_post_and_failed_readback_both_remain_observable(self):
+        server = FixtureServer(fault="lost-response-readback")
+        with self.assertRaises(fixture.GitLabError) as caught:
+            self.prepare(server)
+        self.assertEqual(len(server.posts), 1)
+        diagnostic = caught.exception.diagnostic()
+        self.assertEqual(diagnostic["write_outcome"], "unconfirmed")
+        self.assertEqual([(r["method"], r["operation"], r["kind"], r["attempts"])
+                          for r in diagnostic["requests"]], [("POST", "commit", "transport", 1), ("GET", "branch", "http", 3)])
+        self.assertNotIn("private", json.dumps(diagnostic))
+
+    def test_get_retries_only_transient_reads_and_remains_bounded(self):
+        faults = [urllib.error.URLError(TimeoutError("private timeout")),
+                  http.client.IncompleteRead(b"private response"),
+                  *(urllib.error.HTTPError("https://private.example", status, "private", {}, None)
+                    for status in (429, 502, 503, 504))]
+        for fault in faults:
+            with self.subTest(fault=type(fault).__name__):
+                client = fixture.GitLab(CONFIG, "synthetic-token")
+                client.opener = Mock()
+                client.opener.open.side_effect = [fault, io.BytesIO(b"{}")]
+                self.assertEqual(client.request(""), {})
+                self.assertEqual(client.opener.open.call_count, 2)
+        client.opener.open.reset_mock()
+        client.opener.open.side_effect = urllib.error.URLError("private endpoint and token")
+        self.sleep.reset_mock()
+        with self.assertRaises(fixture.GitLabError) as caught:
+            client.request("")
+        self.assertEqual(client.opener.open.call_count, 3)
+        self.assertEqual([call.args for call in self.sleep.call_args_list], [(1,), (2,)])
+        self.assertEqual(caught.exception.diagnostic()["requests"][0]["attempts"], 3)
+        self.assertNotIn("private", json.dumps(caught.exception.diagnostic()))
+
+    def test_post_auth_redirect_and_validation_failures_are_not_retried(self):
+        failures = [("GET", urllib.error.HTTPError("https://private.example", status, "private", {}, None))
+                    for status in (301, 302, 400, 401, 403, 404, 500)]
+        failures += [("POST", urllib.error.URLError("private endpoint")),
+                     ("POST", urllib.error.HTTPError("https://private.example", 503, "private", {}, None))]
+        for method, failure in failures:
+            with self.subTest(method=method, status=getattr(failure, "code", 0)):
+                self.sleep.reset_mock()
+                client = fixture.GitLab(CONFIG, "synthetic-token")
+                client.opener = Mock()
+                client.opener.open.side_effect = failure
+                with self.assertRaises(fixture.GitLabError) as caught:
+                    client.request("/repository/commits", {} if method == "POST" else None)
+                self.assertEqual(client.opener.open.call_count, 1)
+                self.sleep.assert_not_called()
+                self.assertNotIn("private", json.dumps(caught.exception.diagnostic()))
+        for data in (b"private invalid JSON", b"x" * (128 * 1024 + 1)):
+            client.opener.open.reset_mock()
+            client.opener.open.side_effect = None
+            client.opener.open.return_value = io.BytesIO(data)
+            with self.assertRaises(fixture.GitLabError) as caught:
+                client.request("")
+            self.assertEqual(caught.exception.kind, "validation")
+            self.assertEqual(client.opener.open.call_count, 1)
+
+    def test_diagnostic_constructor_drops_unknown_labels_and_boolean_numbers(self):
+        error = fixture.GitLabError(True, operation=["private"], method="private", attempts=True,
+                                    transport=["private"], kind=["private"])
+        diagnostic = error.diagnostic()
+        self.assertEqual(diagnostic["requests"][0], {"operation": "unknown", "method": "unknown", "kind": "unknown",
+                                                   "http_status": None, "transport": None, "attempts": 1})
+        self.assertNotIn("private", str(error) + json.dumps(diagnostic))
 
     def test_foreign_or_unavailable_fixture_fails_closed(self):
         for fault in ("public", "moved-base", "denied", "write-denied", "wrong-parent", "wrong-message", "wrong-content",

@@ -1,8 +1,10 @@
 """Pin the reviewed job fixture through the dedicated project's existing PAT."""
 import base64
+import http.client
 import json
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,12 +12,34 @@ import urllib.request
 from release_candidate import revision
 
 FILES = (".gitlab-ci.yml", "smoke.sh")
+OPERATIONS = {"project", "branch", "tree", "file", "commit", "unknown"}
+RETRY_STATUSES = {429, 502, 503, 504}
 
 
 class GitLabError(ValueError):
-    def __init__(self, status=0):
-        self.status = status
-        super().__init__(f"GitLab fixture request failed (HTTP {status})")
+    def __init__(self, status=0, *, operation="unknown", method="unknown", attempts=1,
+                 transport="other", kind=None):
+        valid = type(status) is int and (status == 0 or 100 <= status <= 599)
+        self.status = status if valid else 0
+        self.operation = operation if isinstance(operation, str) and operation in OPERATIONS else "unknown"
+        self.method = method if isinstance(method, str) and method in {"GET", "POST"} else "unknown"
+        self.attempts = attempts if type(attempts) is int and 1 <= attempts <= 3 else 1
+        self.kind = kind if isinstance(kind, str) and kind in {"validation", "unknown"} else (
+            "http" if valid and status else "transport" if valid else "unknown")
+        self.transport = transport if isinstance(transport, str) and transport in {"timeout", "connection", "incomplete_response", "other"} else "other"
+        self.prior_write = None
+        super().__init__("GitLab fixture request failed")
+
+    def request_diagnostic(self):
+        return {"operation": self.operation, "method": self.method, "kind": self.kind,
+                "http_status": self.status if self.kind == "http" else None,
+                "transport": self.transport if self.kind == "transport" else None,
+                "attempts": self.attempts}
+
+    def diagnostic(self):
+        records = [self.prior_write.request_diagnostic()] if isinstance(self.prior_write, GitLabError) else []
+        records.append(self.request_diagnostic())
+        return {"requests": records, "write_outcome": "unconfirmed" if self.prior_write is not None or self.method == "POST" else "not_reported"}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -36,21 +60,38 @@ class GitLab:
         data = None if body is None else json.dumps(body).encode()
         request = urllib.request.Request(self.base + path, data=data,
                                          headers={"PRIVATE-TOKEN": self.token, "Content-Type": "application/json"})
-        try:
-            with self.opener.open(request, timeout=30) as response:
-                data = response.read(128 * 1024 + 1)
-        except urllib.error.HTTPError as error:
-            raise GitLabError(error.code) from None
-        except (OSError, urllib.error.URLError):
-            raise GitLabError() from None
+        method = request.get_method()
+        operation = next((label for prefix, label in (("/repository/branches/", "branch"),
+            ("/repository/tree", "tree"), ("/repository/files/", "file"), ("/repository/commits", "commit"))
+            if path.startswith(prefix)), "project" if path == "" else "unknown")
+        maximum = 3 if method == "GET" else 1
+        for attempt in range(1, maximum + 1):
+            try:
+                with self.opener.open(request, timeout=30) as response:
+                    data = response.read(128 * 1024 + 1)
+                break
+            except urllib.error.HTTPError as error:
+                status = error.code
+                error.close()
+                failure = GitLabError(status, operation=operation, method=method, attempts=attempt)
+                retry = type(status) is int and status in RETRY_STATUSES
+            except (OSError, urllib.error.URLError, http.client.IncompleteRead) as error:
+                reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                transport = "incomplete_response" if isinstance(error, http.client.IncompleteRead) else (
+                    "timeout" if isinstance(reason, TimeoutError) else "connection")
+                failure = GitLabError(operation=operation, method=method, attempts=attempt, transport=transport)
+                retry = True
+            if not retry or attempt == maximum:
+                raise failure from None
+            time.sleep(attempt)
         if len(data) > 128 * 1024:
-            raise ValueError("GitLab fixture response exceeds the fixed limit")
+            raise GitLabError(operation=operation, method=method, attempts=attempt, kind="validation")
         if raw:
             return data
         try:
             return json.loads(data)
         except (ValueError, UnicodeError):
-            raise ValueError("invalid GitLab fixture response") from None
+            raise GitLabError(operation=operation, method=method, attempts=attempt, kind="validation") from None
 
     def branch(self, name):
         try:
@@ -106,27 +147,35 @@ def prepare(config, candidate_sha, token):
     branch = "acceptance/" + candidate_sha
     message = "test: pin acceptance fixture for " + candidate_sha
     sha = client.branch(branch)
-    if sha is None:
-        # One atomic commit creates a new branch from the pinned base. No force,
-        # delete, arbitrary paths, conflicting ref overwrite, or uncertain retry.
-        body = {"branch": branch, "start_sha": config["fixture_sha"], "commit_message": message,
-                "actions": [{"action": "update", "file_path": name, "encoding": "base64",
-                             "content": base64.b64encode(expected[name]).decode()}
-                            for name in FILES if base[name] != expected[name]]}
-        try:
-            client.request("/repository/commits", body)
-        except GitLabError:
-            # Recover a lost response or a concurrent identical create only by
-            # reading and validating the final branch; never repeat the POST.
-            if client.branch(branch) is None:
-                raise
-        sha = client.branch(branch)
+    write_failure = None
+    try:
         if sha is None:
-            raise ValueError("created GitLab fixture branch is missing")
-    commit = client.request("/repository/commits/" + sha)
-    if (commit.get("id") != sha or commit.get("parent_ids") != [config["fixture_sha"]] or
-            commit.get("message", "").rstrip("\n") != message or client.files(sha) != expected or client.tree(sha) != base_tree):
-        raise ValueError("GitLab fixture commit differs from the reviewed files and base")
-    if client.branch(branch) != sha:
-        raise ValueError("GitLab fixture branch changed during verification")
+            # One atomic commit creates a new branch from the pinned base.
+            body = {"branch": branch, "start_sha": config["fixture_sha"], "commit_message": message,
+                    "actions": [{"action": "update", "file_path": name, "encoding": "base64",
+                                 "content": base64.b64encode(expected[name]).decode()}
+                                for name in FILES if base[name] != expected[name]]}
+            try:
+                client.request("/repository/commits", body)
+            except (GitLabError, ValueError) as error:
+                # Reconcile an uncertain write exclusively through exact reads.
+                write_failure = error if isinstance(error, GitLabError) else GitLabError(
+                    operation="commit", method="POST", kind="validation")
+            sha = client.branch(branch)
+            if sha is None:
+                if write_failure is not None:
+                    raise write_failure
+                raise ValueError("created GitLab fixture branch is missing")
+        commit = client.request("/repository/commits/" + sha)
+        if (commit.get("id") != sha or commit.get("parent_ids") != [config["fixture_sha"]] or
+                commit.get("message", "").rstrip("\n") != message or client.files(sha) != expected or client.tree(sha) != base_tree):
+            raise ValueError("GitLab fixture commit differs from the reviewed files and base")
+        if client.branch(branch) != sha:
+            raise ValueError("GitLab fixture branch changed during verification")
+    except Exception as error:
+        if write_failure is not None and error is not write_failure:
+            failure = error if isinstance(error, GitLabError) else GitLabError(kind="validation")
+            failure.prior_write = write_failure
+            raise failure from None
+        raise
     return {**config, "fixture_ref": branch, "fixture_sha": sha}

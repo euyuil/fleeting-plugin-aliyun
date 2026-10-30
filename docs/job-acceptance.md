@@ -90,6 +90,17 @@ with `public_ready=true`, `full_suite=false` and `release_ready=false`. Full,
 debug and public-smoke profiles cannot exchange receipts. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
+GitLab fixture preparation precedes package installation and cloud creation.
+Its failure artifact is a separate, run/attempt/case/candidate-bound preflight
+record, with zero started jobs and cleanup marked `NOT_STARTED`; it cannot
+satisfy a job receipt gate. Only fixed request operations, methods, transport
+categories, HTTP statuses and attempt counts are published. GET requests permit
+at most three attempts for transport failures and HTTP 429/502/503/504, with
+one- and two-second backoffs and the existing per-attempt socket timeout.
+POST is never retried. Uncertain commit creation is reconciled through the
+existing exact branch, commit, file and tree readbacks; if readback also fails,
+both sanitized failures are retained without claiming that no write occurred.
+
 ### Targeted debugging before a final full run
 
 Manual `cloud-acceptance.yml` runs in `mode=jobs` may select explicit cases with

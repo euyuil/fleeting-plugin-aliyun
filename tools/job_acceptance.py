@@ -18,7 +18,7 @@ from cloud_fixture import JOB_SCENARIOS, Cloud, Fixture, labels, preflight, requ
 from cloud_diagnostics import api_error, diagnostic_error, driver_diagnostic, duration_ms, source_error_templates
 from debian_package import debian_version
 from debian_upgrade import baseline, fetch_baseline, require_newer, verify_package
-from gitlab_fixture import prepare as prepare_gitlab_fixture
+from gitlab_fixture import GitLabError, prepare as prepare_gitlab_fixture
 from job_diagnostics import outcome as job_outcome
 from manager_diagnostics import manager_diagnostic
 from release_candidate import digest, revision, verify, write_json
@@ -382,7 +382,28 @@ def run(args):
     manifest = verify(args.root, args.digest, args.sha, args.version)
     if args.scenario == "upgrade":
         require_newer(manifest["version"])
-    gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"])
+    try:
+        gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"])
+    except BaseException as error:
+        # This separate failure record cannot satisfy a normal job receipt gate.
+        # No package installation or cloud creation has started at this boundary.
+        record = {"schema_version": 1, "evidence_kind": "gitlab_fixture_preflight_failure", "result": "FAIL",
+                  "stage": "gitlab_fixture_prepare", "candidate_sha": args.sha, "version": args.version,
+                  "manifest_sha256": args.digest, "phase": args.phase, "executor": args.executor,
+                  "job_scenario": args.scenario, "validation_profile": getattr(args, "profile", "full"),
+                  "configured_gitlab_config_sha256": config_digest(gitlab), "fixture_config_sha256": config_digest(config),
+                  "runtime_fixture_resolved": False, "jobs_started": 0, "cloud_resource_creation_started": False,
+                  "cleanup_result": "NOT_STARTED", "diagnostics": error.diagnostic() if isinstance(error, GitLabError)
+                  else {"error": diagnostic_error(error), "write_outcome": "not_reported"}}
+        for key, variable in (("run_id", "GITHUB_RUN_ID"), ("run_attempt", "GITHUB_RUN_ATTEMPT")):
+            value = os.environ.get(variable, "")
+            record[key] = value if re.fullmatch(r"[1-9][0-9]*", value) else None
+        print(json.dumps({"job_preflight_diagnostic": record}), flush=True)
+        try:
+            write_json(args.receipt, record)
+        except Exception:
+            print(json.dumps({"job_preflight_evidence_write": "FAIL"}), flush=True)
+        raise
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     packages = install_package(args.root, manifest, args.phase, args.directory, args.scenario)
     timing = job_timing(args.scenario, datetime.now(timezone.utc))
