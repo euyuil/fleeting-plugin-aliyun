@@ -46,6 +46,8 @@ type Result struct {
 	Errors             []string        `json:"errors,omitempty"`
 	Failures           []jobFailure    `json:"failures,omitempty"`
 	FailuresOmitted    int             `json:"failures_omitted"`
+	ManagerLogState    string          `json:"manager_journal_state,omitempty"`
+	ManagerLog         string          `json:"manager_journal"`
 	JobScenario        string          `json:"job_scenario"`
 	Jobs               []JobEvidence   `json:"jobs"`
 	CapacityVerified   bool            `json:"capacity_verified"`
@@ -304,6 +306,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			forced, err := service.stop(stopCtx)
+			captureManagerJournal(&result, service)
 			if err != nil {
 				return err
 			}
