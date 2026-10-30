@@ -584,9 +584,23 @@ func RunnerConfig(url, token, region, group, user, key string, options smokeOpti
 }
 
 func liveFailure(err error) string {
+	var violation productViolation
 	var cloudError *aliyun.Error
+	var operation *operationError
+	if errors.As(err, &violation) {
+		return "FAIL_PRODUCT"
+	}
 	if errors.As(err, &cloudError) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return "FAIL_INFRASTRUCTURE"
 	}
-	return "FAIL_PRODUCT"
+	if errors.As(err, &operation) && operation.service == "gitlab" {
+		return "FAIL_INFRASTRUCTURE"
+	}
+	return "FAIL_UNCLASSIFIED"
 }
+
+// Only observed contract violations carry product attribution. An untyped
+// error can originate in the harness; it still blocks acceptance until triaged.
+type productViolation string
+
+func (e productViolation) Error() string { return string(e) }

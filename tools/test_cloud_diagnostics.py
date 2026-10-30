@@ -10,6 +10,19 @@ def marker(event, scope="scenario", phase="ssh", elapsed=0, **fields):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_unclassified_failure_is_preserved_without_exposing_private_errors(self):
+        result = driver_diagnostic({"result": "FAIL_UNCLASSIFIED", "errors": ["synthetic-private"]}, 1, "")
+        self.assertEqual(result["result"], "FAIL_UNCLASSIFIED")
+        self.assertNotIn("synthetic-private", json.dumps(result))
+
+    def test_product_violation_literals_remain_public_without_private_values(self):
+        source = ('return productViolation("actual ECS instance is not Spot")\n'
+                  'return productViolation(fmt.Sprintf("instance creation budget %d exceeded, including replacements", budget))')
+        log = "actual ECS instance is not Spot\ninstance creation budget 9 exceeded, including replacements\nsynthetic-private-id"
+        actual = matching_error_templates(log, source)
+        self.assertEqual(actual, ["actual ECS instance is not Spot", "instance creation budget %d exceeded, including replacements"])
+        self.assertNotIn("synthetic-private", json.dumps(actual))
+
     def test_auto_release_error_uses_an_exact_public_code(self):
         code = "InvalidAutoReleaseTime.Malformed"
         result = api_error("ecs", "ModifyInstanceAutoReleaseTime", code)

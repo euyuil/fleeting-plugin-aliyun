@@ -160,7 +160,7 @@ func TestLiveObservationSeparatesInfrastructureAndProductFailures(t *testing.T) 
 			t.Fatal("infrastructure failure called product failure", err)
 		}
 	}
-	if liveFailure(errors.New("actual worker is not Spot")) != "FAIL_PRODUCT" {
+	if liveFailure(productViolation("actual worker is not Spot")) != "FAIL_PRODUCT" {
 		t.Fatal("purchase policy violation is not a product failure")
 	}
 }
