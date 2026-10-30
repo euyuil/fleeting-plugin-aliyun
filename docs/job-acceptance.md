@@ -61,10 +61,18 @@ The second job must use a fresh nonce, pipeline, job and worker, return the norm
 success artifact, and then release normally. Emergency cleanup remains separate
 and cannot make failed recovery pass.
 
-Recovery drivers have a 40-minute execution deadline and a 60-minute hosted job
+Recovery drivers have a 40-minute execution budget and a 60-minute hosted job
 deadline, except `manager-crash`, which allows 50 and 80 minutes respectively for
 GitLab's server-side job timeout and bounded shutdown/cleanup. Smoke and upgrade use a
-20-minute driver deadline. The serial eighteen-case phase permits thirty-six cumulative workers,
+20-minute execution budget. Before cloud fixture creation, the orchestrator fixes
+one start time, execution deadline and resource expiry. Fixture setup consumes
+the same execution budget; starting the Go driver cannot extend it. Resource
+expiry is the execution deadline plus forty minutes, rounded down to the minute:
+at most sixty minutes for smoke/upgrade, eighty for ordinary recovery, and ninety
+for Manager crash. This separate, immutable cost-protection deadline leaves more
+than thirty minutes of ECS API lead time even for a late recovery worker.
+Normal release and inline cleanup still happen immediately when the case ends.
+The serial eighteen-case phase permits thirty-six cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
 require all eighteen schema-v2 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
@@ -216,8 +224,15 @@ a fifteen-minute job timeout and waits for GitLab to fail it with
 `server_timeout_running` or `no_updates_running`; cancellation, script timeout
 and apparent success are rejected. GitLab documents these
 [server-side failure thresholds](https://docs.gitlab.com/ci/jobs/job_troubleshooting/#job-dropped-after-being-stuck-or-exceeding-its-timeout).
-The driver remains bounded to fifty minutes and retains the one-hour fixture
-expiry and worker auto-release protections.
+The execution remains bounded to fifty minutes including fixture setup. Its
+resource-expiry protection is fixed before setup at at most ninety minutes.
+The driver checks each real worker's automatic release setting, sets a missing
+deadline explicitly, and confirms it through `DescribeInstances` before
+recording protection. An accepted API write alone is insufficient. ESS inherits
+only a subset of launch-template parameters, so a template's `AutoReleaseTime`
+is not evidence of an actual instance deadline. A previously established valid
+deadline is retained without extension. Plugin-only acceptance keeps its legacy
+one-hour worker deadline and separate janitor eligibility marker.
 
 The one-hour STS session starts before setup. Slow setup or an execution deadline
 can exhaust credentials during inline cleanup; that cleanup fails closed and

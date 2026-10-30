@@ -65,6 +65,7 @@ type Ledger struct {
 	Attempt              string     `json:"github_run_attempt"`
 	StartedAt            time.Time  `json:"started_at"`
 	ExpiresAt            time.Time  `json:"expires_at"`
+	WorkerExpiresAt      time.Time  `json:"worker_expires_at,omitzero"`
 	Instances            []Resource `json:"instances"`
 	CleanupResult        string     `json:"cleanup_result"`
 	Leftovers            []string   `json:"leftover_resources"`

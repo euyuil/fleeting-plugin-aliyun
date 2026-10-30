@@ -27,6 +27,16 @@ EXECUTORS = ("instance", "docker-autoscaler")
 PHASES = ("candidate", "public")
 
 
+def job_timing(scenario, now):
+    if scenario not in JOB_SCENARIOS:
+        raise ValueError("unknown job acceptance scenario")
+    budget = 20 if scenario in ("smoke", "upgrade") else 50 if scenario == "manager-crash" else 40
+    deadline = now + timedelta(minutes=budget)
+    expires = (deadline + timedelta(minutes=40)).replace(second=0, microsecond=0)
+    return {key: value.strftime("%Y-%m-%dT%H:%M:%SZ") for key, value in
+            (("ACCEPTANCE_STARTED_AT", now), ("ACCEPTANCE_DEADLINE_AT", deadline), ("ACCEPTANCE_EXPIRES_AT", expires))}
+
+
 def configuration(env=os.environ, *, read_only=False):
     preflight(env, read_only=read_only)
     if not read_only and env.get("RELEASE_JOB_ACCEPTANCE_ENABLED") != "true":
@@ -285,6 +295,11 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
                GITLAB_FIXTURE_SHA=gitlab["fixture_sha"], GITLAB_EXPECTED_RUNNER_ID=gitlab["runner_id"], GITLAB_RUNNER_TAG=gitlab["runner_tag"],
                GITLAB_API_TOKEN=os.environ["RELEASE_GITLAB_API_TOKEN"], GITLAB_RUNNER_TOKEN=os.environ["RELEASE_GITLAB_RUNNER_TOKEN"],
                ACCEPTANCE_OUTPUT=str((fixture.directory / "evidence").resolve()))
+    env.update(fixture.state["job_timing"])
+    remaining = (datetime.strptime(env["ACCEPTANCE_DEADLINE_AT"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                 - datetime.now(timezone.utc)).total_seconds()
+    if remaining <= 0:
+        raise ValueError("fixed job acceptance execution deadline expired during setup")
     if scenario == "upgrade":
         if packages is None or packages[1] is None:
             raise ValueError("upgrade requires both verified Debian artifacts")
@@ -298,7 +313,7 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
             process = subprocess.Popen([str(binary.resolve()), "smoke"], env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             fixture.state["driver_group"] = process.pid
             fixture.save()
-            code = process.wait(timeout=(30 if scenario in ("smoke", "upgrade") else 60 if scenario == "manager-crash" else 50) * 60)
+            code = process.wait(timeout=remaining + 10 * 60)
             fixture.driver_exit_code = code
         finally:
             if process is not None:
@@ -326,10 +341,13 @@ def run(args):
     gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"])
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     packages = install_package(args.root, manifest, args.phase, args.directory, args.scenario)
-    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timing = job_timing(args.scenario, datetime.now(timezone.utc))
+    expires = timing["ACCEPTANCE_EXPIRES_AT"]
     mode = f"job-{args.phase}-{args.executor}" + ("" if args.scenario == "smoke" else "-" + args.scenario)
     tags = labels(os.environ["GITHUB_REPOSITORY"], args.sha, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], mode, expires)
     fixture = Fixture(Cloud(config["fixture"]["region"]), args.directory / "fixture", tags)
+    fixture.state["job_timing"] = timing
+    fixture.save()
     address = subprocess.check_output(["curl", "-4", "--fail", "--silent", "--show-error", "--max-time", "15", "https://api.ipify.org"], text=True).strip()
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
     status = cleanup = "FAIL"
