@@ -13,8 +13,11 @@ type workerLossSequence struct {
 	loseWorker func(context.Context, JobEvidence) error
 }
 
+const workerLossPolicy = "observed-worker-loss-v1"
+
 func (s workerLossSequence) run(ctx context.Context) error {
 	r := s.result
+	r.RecoveryPolicy = workerLossPolicy
 	first, err := s.start(ctx, "worker-loss")
 	if err != nil {
 		return err
@@ -41,6 +44,7 @@ func (s workerLossSequence) run(ctx context.Context) error {
 		return err
 	}
 	first.LossInjected = true
+	first.LossObserved = true
 	if err := s.wait(ctx, first); err != nil {
 		return err
 	}
@@ -137,7 +141,24 @@ func injectWorkerLoss(parent context.Context, cloud *aliyun.Client, ledger *Ledg
 	// ForceStop models abrupt loss, outside the plugin's RemoveInstances path.
 	// Any failure is fatal to acceptance; never select another deletion target.
 	var out struct{ RequestId string }
-	return cloud.API.Call(ctx, "ecs", "DeleteInstance", map[string]string{
+	if err := cloud.API.Call(ctx, "ecs", "DeleteInstance", map[string]string{
 		"RegionId": cloud.Region, "InstanceId": e.InstanceID, "Force": "true", "ForceStop": "true",
-	}, &out)
+	}, &out); err != nil {
+		return err
+	}
+	// A successful mutation response alone does not prove worker loss. Confirm
+	// absence of this exact inventoried instance before interpreting the job's
+	// subsequent failure; never select a replacement or retry the deletion.
+	for {
+		instances, err := cloud.Instances(ctx, []string{e.InstanceID})
+		if err != nil {
+			return err
+		}
+		if _, exists := instances[e.InstanceID]; !exists {
+			return nil
+		}
+		if err := aliyun.Wait(ctx, time.Second); err != nil {
+			return err
+		}
+	}
 }

@@ -42,7 +42,7 @@ Every executor runs nine independently bounded scenarios:
 | `capacity` | Two concurrent successful jobs, with a third queued | Third job succeeds on a fresh worker while the retained job continues | 3 |
 | `drain` | Running job completes while `manager stop` drains the service | Success after an explicit Manager restart | 2 |
 | `worker-loss` | Abruptly delete the checkpointed worker; require a proven loss outcome and drain at most one replacement | Success on a fresh worker using the same Manager | 3 |
-| `manager-crash` | Kill the owned Manager unit; require automatic restart and GitLab server-side job failure | Success on a fresh worker with the original Runner identity | 2 |
+| `manager-crash` | Kill the owned Manager unit; require automatic restart and orphan release before harness job finalization | Success on a fresh worker with the original Runner identity | 2 |
 | `upgrade` | Install and configure the pinned published package, upgrade, roll back, and upgrade again; run a successful job | None | 1 |
 
 The script checkpoint binds the nonce, scenario, job ID and IMDS worker ID.
@@ -62,19 +62,19 @@ success artifact, and then release normally. Emergency cleanup remains separate
 and cannot make failed recovery pass.
 
 Recovery drivers have a 40-minute execution budget and a 60-minute hosted job
-deadline, except `manager-crash`, which allows 50 and 80 minutes respectively for
-GitLab's server-side job timeout and bounded shutdown/cleanup. Smoke and upgrade use a
+deadline. Crash recovery has the same budget; it does not wait for GitLab's
+natural lost-job timeout. Smoke and upgrade use a
 20-minute execution budget. Before cloud fixture creation, the orchestrator fixes
 one start time, execution deadline and resource expiry. Fixture setup consumes
 the same execution budget; starting the Go driver cannot extend it. Resource
 expiry is the execution deadline plus forty minutes, rounded down to the minute:
-at most sixty minutes for smoke/upgrade, eighty for ordinary recovery, and ninety
-for Manager crash. This separate, immutable cost-protection deadline leaves more
+at most sixty minutes for smoke/upgrade and eighty for recovery, including Manager
+crash. This separate, immutable cost-protection deadline leaves more
 than thirty minutes of ECS API lead time even for a late recovery worker.
 Normal release and inline cleanup still happen immediately when the case ends.
 The serial eighteen-case phase permits thirty-six cumulative workers,
 with at most two active workers per fixture. Both candidate and public phases
-require all eighteen schema-v2 receipts; a smoke receipt cannot substitute for a
+require all eighteen schema-v3 receipts; a smoke receipt cannot substitute for a
 recovery case. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
@@ -204,13 +204,12 @@ running Spot status. This injects loss outside the plugin's scale-in path.
 The original Manager must remain alive, and GitLab must report the original job
 as failed with `runner_system_failure`, without cancellation, retries or opening
 the job barrier. For `instance` only, the pinned Runner can classify missing SSH
-exit status as `script_failure`. That variant additionally requires the exact
-terminal Runner error line proving missing remote exit status/signal. It may
-include the pinned connector's keepalive-probe timeout wrapper: the duration must
-be canonical Go duration text and at least the connector's 30-second minimum,
-and the wrapped error must still report exit code zero and missing remote exit
-status/signal. Other keepalive causes do not qualify. An ordinary
-script failure, an echoed command, or a continued trace fragment cannot pass.
+exit status as `script_failure`. This variant requires independently confirmed
+absence of the exact running, inventoried worker after the injected deletion,
+with the job's nonce-bound barrier still closed. The failure must occur after
+injection; cancellation, a prior failure, an opened barrier, a different worker,
+and unknown failure reasons cannot pass. Exact Runner error wording and
+keepalive durations remain diagnostic and do not decide the outcome.
 Before a follow-up pipeline is submitted, read-only observation
 must prove zero group demand/capacity, quiet activities and absence of the worker
 and its associated resources. ESS retains desired capacity after disappearance
@@ -242,13 +241,26 @@ the entire owned systemd unit, including plugin subprocesses. It never invokes
 one additional automatic restart, no original Manager process, and the same
 Runner system ID and configuration. A restart loop or any later restart fails.
 
-The killed Runner cannot report the first job's final result. This fixture uses
-a fifteen-minute job timeout and waits for GitLab to fail it with
-`server_timeout_running` or `no_updates_running`; cancellation, script timeout
-and apparent success are rejected. GitLab documents these
-[server-side failure thresholds](https://docs.gitlab.com/ci/jobs/job_troubleshooting/#job-dropped-after-being-stuck-or-exceeding-its-timeout).
-The execution remains bounded to fifty minutes including fixture setup. Its
-resource-expiry protection is fixed before setup at at most ninety minutes.
+Immediately after automatic restart, the driver observes normal release within
+three minutes: zero group desired/total/pending/removing capacity, quiet history,
+two stable observations, and absence of the exact orphan worker and its disks/
+ENIs. No harness cancellation, scale-in or resource deletion may precede this
+proof. Only one cumulative worker may have existed at this boundary.
+
+It persists `orphan_release_verified` and the `orphan-release-before-finalize-v1`
+policy before canceling the interrupted pipeline. If the exact original job
+enters `canceling`, it force-cancels only that job with `force=true`. Both the
+pipeline and its sole original job must reach actual `canceled` within a separate
+two-minute deadline; API acceptance and `canceling` are insufficient. Writes
+are never retried. Permission errors, changed identities and unexpected terminal
+outcomes fail closed. `finalization_source=harness_after_recovery` records this
+harness action separately from resource recovery. Generic job waits still require
+a live worker and do not accept this crash-only released-worker path.
+
+This proves packaged Manager and cloud-resource recovery, not GitLab's natural
+server-side lost-job classification or resumption of the interrupted job. The
+execution is bounded to forty minutes including setup, with immutable resource
+expiry at most eighty minutes after setup begins.
 The driver checks each real worker's automatic release setting, sets a missing
 deadline explicitly, and confirms it through `DescribeInstances` before
 recording protection. An accepted API write alone is insufficient. ESS inherits
@@ -277,9 +289,11 @@ Alibaba account, OIDC role, cleanup regions and independent janitor. The
 plugin-only fixture configuration is separate. Add these Environment secrets:
 
 - `RELEASE_GITLAB_API_TOKEN`: project-scoped fine-grained PAT, permitted to
-  create/read/update pipelines and read jobs, job artifacts, the project,
+  create/read/update pipelines, read/update jobs, and read job artifacts, the project,
   repository files/branches/commits and its dedicated runner. Fixture provisioning
-  needs Commit Create on this project. Do not grant User or Global permissions.
+  needs Commit Create on this project. Job Update permits bounded finalization of
+  the already-recovered crash job; it does not authorize canceling unrelated jobs.
+  Do not grant User or Global permissions.
 - `RELEASE_GITLAB_RUNNER_TOKEN`: the persistent project's Runner authentication
   token. Reuse this Runner identity for every temporary Manager.
 - `RELEASE_GITLAB_CONFIG`: the exact private project, runner and pinned fixture base:

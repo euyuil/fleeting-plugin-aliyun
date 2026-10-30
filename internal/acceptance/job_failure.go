@@ -58,6 +58,7 @@ var gitlabOperations = []struct {
 	{regexp.MustCompile(`^/projects/[^/]+/pipelines/[0-9]+$`), "pipeline_status"},
 	{regexp.MustCompile(`^/projects/[^/]+/pipelines/[0-9]+/jobs(?:\?.*)?$`), "pipeline_jobs"},
 	{regexp.MustCompile(`^/projects/[^/]+/pipelines/[0-9]+/cancel$`), "pipeline_cancel"},
+	{regexp.MustCompile(`^/projects/[^/]+/jobs/[0-9]+/cancel$`), "job_cancel"},
 	{regexp.MustCompile(`^/projects/[^/]+/jobs/[0-9]+/trace$`), "job_trace"},
 	{regexp.MustCompile(`^/projects/[^/]+/jobs/[0-9]+/artifacts/result\.json$`), "job_artifact"},
 }

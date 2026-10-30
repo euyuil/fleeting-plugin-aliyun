@@ -53,5 +53,7 @@ leaves the barrier closed and deletes the verified worker, then requires an
 verified failure, resource reconciliation and a fresh successful job.
 The [Manager-crash case](../../../docs/job-acceptance.md#manager-crash-during-a-real-job)
 uses a separate fifteen-minute job timeout. The barrier stays closed while the
-driver verifies the service's automatic restart, GitLab's server-side failure
-classification, resource recovery, and a fresh successful job.
+driver verifies the service's automatic restart and normal orphan release before
+finalizing the interrupted GitLab job. A fresh successful job must then run on the
+recovered Manager and a new worker. See the linked procedure for the bounded
+cancellation and required Job Update permission.

@@ -169,7 +169,7 @@ func (s capacitySequence) poll(ctx context.Context, e *JobEvidence) error {
 		e.Status = "running"
 		return nil
 	}
-	if pipe.Status != j.Status || j.Runner.ID != s.runnerID || !expectedJobOutcome(*e) {
+	if pipe.Status != j.Status || j.Runner.ID != s.runnerID || !expectedJobOutcome(*e, s.result.Executor) {
 		return errors.New("capacity job did not finish through its released barrier")
 	}
 	var raw []byte

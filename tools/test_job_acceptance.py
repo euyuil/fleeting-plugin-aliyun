@@ -43,7 +43,7 @@ def manifest():
 
 def receipt(executor="instance", phase="candidate", scenario="smoke"):
     m = manifest()
-    return {"schema_version": 2, "job_scenario": scenario, "job_count": len(job.job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+    return {"schema_version": 3, "recovery_policy": job.recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job.job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
             "candidate_sha": m["candidate_sha"], "version": m["version"], "manifest_sha256": "a" * 64,
             "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": "10", "run_attempt": "1",
             "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -114,7 +114,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_fixed_timing_has_full_ecs_lead_time_for_late_workers(self):
         started = datetime(2026, 1, 1, 8, 0, 45, tzinfo=timezone.utc)
         for scenario in job.JOB_SCENARIOS:
-            budget = 20 if scenario in ("smoke", "upgrade") else 50 if scenario == "manager-crash" else 40
+            budget = 20 if scenario in ("smoke", "upgrade") else 40
             timing = {key: datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
                       for key, value in job.job_timing(scenario, started).items()}
             self.assertEqual(timing["ACCEPTANCE_STARTED_AT"], started)
@@ -181,7 +181,7 @@ class JobAcceptanceTests(unittest.TestCase):
     def test_receipts_reject_stale_foreign_or_failed_evidence(self):
         good = receipt()
         job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1")
-        changes = {"result": "FAIL", "cleanup_result": "FAIL", "leftover_resources": False, "candidate_sha": "f" * 40,
+        changes = {"schema_version": 2, "recovery_policy": "legacy", "result": "FAIL", "cleanup_result": "FAIL", "leftover_resources": False, "candidate_sha": "f" * 40,
                    "version": "0.1.0", "manifest_sha256": "f" * 64, "phase": "public", "executor": "docker-autoscaler",
                    "manager_mode": "process", "run_id": "11", "run_attempt": "2", "distribution_source": "anonymous-release",
                    "plugin_sha256": "f" * 64, "package_sha256": "f" * 64, "fixture_config_sha256": "", "gitlab_config_sha256": None}
@@ -250,10 +250,10 @@ class JobAcceptanceTests(unittest.TestCase):
             job.check_result(capacity, manifest(), gitlab, "instance", lock, "10", "1", "capacity")
 
         loss = copy.deepcopy(result)
-        loss.update(job_scenario="worker-loss", creation_budget=3, normal_release=False, worker_loss_verified=True)
+        loss.update(job_scenario="worker-loss", creation_budget=3, normal_release=False, worker_loss_verified=True, recovery_policy=job.recovery_policy("worker-loss"))
         loss["jobs"].insert(0, {**result["jobs"][0], "scenario": "worker-loss", "status": "failed", "failure_reason": "runner_system_failure",
                                 "pipeline_id": 1, "job_id": 2, "nonce": "0" * 48, "instance_id": "i-worker0", "checkpoint": True,
-                                "loss_injected": True, "normal_release": False, "control_released": False})
+                                "loss_injected": True, "loss_observed": True, "normal_release": False, "control_released": False})
         loss["instances"].insert(0, {**result["instances"][0], "instance_id": "i-worker0"})
         job.check_result(loss, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
         replacement = copy.deepcopy(loss)
@@ -280,7 +280,7 @@ class JobAcceptanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             job.check_result({**result, "worker_loss_replacement_id": "i-replacement"}, manifest(), gitlab, "instance", lock, "10", "1")
         ssh_loss = copy.deepcopy(loss)
-        ssh_loss["jobs"][0].update(ssh_transport_loss=True, failure_reason="script_failure")
+        ssh_loss["jobs"][0].update(ssh_transport_loss=False, failure_reason="script_failure")
         job.check_result(ssh_loss, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
         ssh_loss["executor"] = "docker-autoscaler"
         with self.assertRaises(ValueError):
@@ -290,8 +290,10 @@ class JobAcceptanceTests(unittest.TestCase):
                        lambda value: value["jobs"][0].update(loss_injected=False),
                        lambda value: value["jobs"][0].update(normal_release=True),
                        lambda value: value["jobs"][0].update(control_released=True),
-                       lambda value: value["jobs"][0].update(failure_reason="script_failure"),
-                       lambda value: value["jobs"][1].update(loss_injected=True)):
+                       lambda value: value["jobs"][0].update(loss_observed=False),
+                       lambda value: value.update(recovery_policy="legacy"),
+                       lambda value: value["jobs"][0].update(failure_reason="unknown_failure"),
+                       lambda value: value["jobs"][1].update(loss_injected=True, loss_observed=True)):
             broken = copy.deepcopy(loss)
             change(broken)
             with self.assertRaises(ValueError):
@@ -314,16 +316,20 @@ class JobAcceptanceTests(unittest.TestCase):
                 job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", "drain")
 
         crash = copy.deepcopy(drain)
-        crash.update(job_scenario="manager-crash", crash_verified=True)
-        crash["jobs"][0].update(scenario="manager-crash", status="failed", failure_reason="server_timeout_running", control_released=False, crash_injected=True)
-        for reason in ("server_timeout_running", "no_updates_running"):
+        crash.update(job_scenario="manager-crash", crash_verified=True, orphan_release_verified=True, recovery_policy=job.recovery_policy("manager-crash"))
+        crash["jobs"][0].update(scenario="manager-crash", status="canceled", failure_reason="", control_released=False, crash_injected=True, cancel_requested=True, finalization_source="harness_after_recovery")
+        for reason in ("", "job_canceled"):
             crash["jobs"][0]["failure_reason"] = reason
             job.check_result(crash, manifest(), gitlab, "instance", lock, "10", "1", "manager-crash")
         for change in (lambda value: value.update(crash_verified=False),
                        lambda value: value["jobs"][0].update(crash_injected=False),
                        lambda value: value["jobs"][0].update(control_released=True),
                        lambda value: value["jobs"][0].update(manager_pid=124),
-                       lambda value: value["jobs"][0].update(failure_reason="job_execution_timeout"),
+                       lambda value: value["jobs"][0].update(status="canceling"),
+                       lambda value: value.update(orphan_release_verified=False),
+                       lambda value: value.update(recovery_policy="legacy"),
+                       lambda value: value["jobs"][0].update(cancel_requested=False),
+                       lambda value: value["jobs"][0].update(finalization_source=""),
                        lambda value: value["jobs"][1].update(crash_injected=True)):
             broken = copy.deepcopy(crash)
             change(broken)
@@ -350,7 +356,7 @@ class JobAcceptanceTests(unittest.TestCase):
         for scenario in ("failure", "cancel", "timeout", "capacity", "drain", "worker-loss", "manager-crash"):
             good = receipt(scenario=scenario)
             job.check_receipt(good, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
-            for key, value in (("schema_version", 1), ("job_count", 1), ("job_count", True), ("job_scenario", "smoke")):
+            for key, value in (("schema_version", 1), ("schema_version", 2), ("recovery_policy", "legacy"), ("job_count", 1), ("job_count", True), ("job_scenario", "smoke")):
                 with self.subTest(scenario=scenario, key=key), self.assertRaises(ValueError):
                     job.check_receipt({**good, key: value}, manifest(), "a" * 64, "candidate", "instance", "10", "1", scenario)
 
