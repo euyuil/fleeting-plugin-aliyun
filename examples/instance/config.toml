@@ -13,8 +13,56 @@ concurrent = 1
     capacity_per_instance = 1
     max_use_count = 1
     max_instances = 1
-    instance_acquire_timeout = "10m"
-    instance_ready_command = "timeout 300 sh -c 'until test -f /var/lib/fleeting-worker/ready; do sleep 2; done; git --version && gitlab-runner --version'"
+    instance_acquire_timeout = "15m"
+    instance_ready_command = '''
+status=0
+timeout 600 sh <<'FLEETING_WORKER_READY' || status=$?
+test ! -L /var/lib/fleeting-worker || exit 209
+while :; do
+  if test -e /var/lib/fleeting-worker; then
+    test -d /var/lib/fleeting-worker && test "$(stat -c %u /var/lib/fleeting-worker)" = 0 || exit 209
+  fi
+  for marker in ready failed phase; do
+    test ! -L "/var/lib/fleeting-worker/$marker" || exit 209
+    if test -e "/var/lib/fleeting-worker/$marker"; then
+      test -f "/var/lib/fleeting-worker/$marker" && test "$(stat -c %u "/var/lib/fleeting-worker/$marker")" = 0 || exit 209
+    fi
+  done
+  if test -e /var/lib/fleeting-worker/failed || test -L /var/lib/fleeting-worker/failed; then
+    test -f /var/lib/fleeting-worker/failed && test ! -L /var/lib/fleeting-worker/failed || exit 209
+    phase=$(head -c 2 /var/lib/fleeting-worker/failed)
+    case "$phase" in
+      1|2|3|4|5|6|7|8) exit $((200 + phase)) ;;
+      *) exit 209 ;;
+    esac
+  fi
+  if test -L /var/lib/fleeting-worker/ready; then exit 209; fi
+  if test -f /var/lib/fleeting-worker/ready; then break; fi
+  sleep 2
+done
+git --version || exit 231
+gitlab-runner --version || exit 232
+FLEETING_WORKER_READY
+if test "$status" -eq 124; then
+  test ! -L /var/lib/fleeting-worker && test -d /var/lib/fleeting-worker && test "$(stat -c %u /var/lib/fleeting-worker)" = 0 || exit 229
+  for marker in ready failed phase; do
+    test ! -L "/var/lib/fleeting-worker/$marker" || exit 229
+    if test -e "/var/lib/fleeting-worker/$marker"; then
+      test -f "/var/lib/fleeting-worker/$marker" && test "$(stat -c %u "/var/lib/fleeting-worker/$marker")" = 0 || exit 229
+    fi
+  done
+  if test -f /var/lib/fleeting-worker/ready; then exit 234; fi
+  phase=
+  if test -f /var/lib/fleeting-worker/phase && test ! -L /var/lib/fleeting-worker/phase; then
+    phase=$(head -c 2 /var/lib/fleeting-worker/phase 2>/dev/null || :)
+  fi
+  case "$phase" in
+    1|2|3|4|5|6|7|8) exit $((220 + phase)) ;;
+    *) exit 229 ;;
+  esac
+fi
+exit "$status"
+'''
     delete_instances_on_shutdown = true
     [runners.autoscaler.plugin_config]
       region = "cn-hangzhou"

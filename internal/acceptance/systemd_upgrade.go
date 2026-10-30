@@ -21,6 +21,28 @@ type packageUpgrade struct {
 	RollbackVerified       bool   `json:"rollback_verified"`
 }
 
+func managerExample(installed, candidate string, upgrade bool) ([]byte, error) {
+	path := installed
+	if upgrade {
+		// Supply a candidate-compatible configuration to the published baseline.
+		// Its exact template is checked against the finally installed package.
+		path = candidate
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.New("acceptance package example is missing")
+	}
+	return raw, nil
+}
+
+func verifyInstalledManagerExample(path string, expected []byte) error {
+	actual, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(actual, expected) {
+		return errors.New("installed candidate example differs from the supplied upgrade configuration template")
+	}
+	return nil
+}
+
 func upgradeBaseline() (version, packageHash, binaryHash string, err error) {
 	var pin struct {
 		Version       string

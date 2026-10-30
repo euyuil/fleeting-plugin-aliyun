@@ -35,7 +35,8 @@ class BootstrapPathTests(unittest.TestCase):
                        RUNNER_VERSION="19.5.1", RUNNER_SHA256="synthetic", GIT_PACKAGE_VERSION="synthetic",
                        CURL_PACKAGE_VERSION="synthetic", CA_PACKAGE_VERSION="synthetic", SSH_PACKAGE_VERSION="synthetic",
                        COREUTILS_PACKAGE_VERSION="synthetic")
-            result = subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True)
+            source = script.read_text().replace("/var/lib/fleeting-worker", str(root / "state"))
+            result = subprocess.run(["sh"], input=source, env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Unsafe worker SSH directory", result.stderr)
             self.assertFalse((outside / "authorized_keys").exists())

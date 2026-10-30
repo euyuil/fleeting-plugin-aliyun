@@ -160,6 +160,7 @@ class JobAcceptanceTests(unittest.TestCase):
                 path.chmod(0o700)
             release = root / "os-release"
             script = Path("infra/bootstrap-job-worker.sh").read_text().replace("/etc/os-release", str(release))
+            script = script.replace("/var/lib/fleeting-worker", str(root / "state"))
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"], "TEST_CALL_LOG": str(observed),
                    "PACKAGE_SNAPSHOT": "20261027T000000Z", "INSTALL_DOCKER": "false"}
             for system, version, codename in (("debian", "26.04", "resolute"), ("ubuntu", "24.04", "noble"), ("ubuntu", "26.04", "noble")):

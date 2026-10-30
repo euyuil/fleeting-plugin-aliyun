@@ -30,7 +30,9 @@ versions (`GIT_PACKAGE_VERSION`, `CURL_PACKAGE_VERSION`, `CA_PACKAGE_VERSION`,
 `SSH_PACKAGE_VERSION`, `COREUTILS_PACKAGE_VERSION`). Use a fixed signed package
 repository snapshot appropriate to the selected base image. The script checks
 tools and permissions before writing the readiness marker. Include `timeout`
-in the base/toolchain. No Manager/PAT/cloud credentials enter the worker image. Existing authorized
+in the base/toolchain. Its root-owned phase and failure markers follow the
+[Linux readiness contract](../docs/operations.md#linux-worker-readiness); job
+users must not own or replace them. No Manager/PAT/cloud credentials enter the worker image. Existing authorized
 keys are preserved, and the user's home is resolved from passwd. Runner downloads
 use a unique temporary file. Bake the image without active job-user processes;
 the bootstrap rejects linked SSH directories and unexpected home/key-file owners.

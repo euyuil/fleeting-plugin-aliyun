@@ -14,6 +14,26 @@ EVENTS = {
     "acquire heartbeat failure": "acquire_heartbeat_failure",
     "backing off scale up due to ready up failures": "readiness_backoff",
 }
+BOOTSTRAP_PHASES = {1: "ubuntu_packages", 2: "docker_install", 3: "docker_start", 4: "base_packages",
+                    5: "ssh_setup", 6: "runner_download", 7: "runner_verification", 8: "bootstrap_probes"}
+
+
+def bootstrap_diagnostic(name, code, message):
+    # These codes belong only to the shipped ready-command protocol. Never
+    # interpret a connector error or publish the untrusted worker status file.
+    if name != "ready_up_preparation_failed" or "ready command:" not in message or code is None:
+        return None
+    if 201 <= code <= 208:
+        return {"phase": BOOTSTRAP_PHASES[code - 200], "outcome": "failed"}
+    if 221 <= code <= 228:
+        return {"phase_observed": BOOTSTRAP_PHASES[code - 220], "outcome": "deadline"}
+    if code in (209, 229):
+        return {"phase" if code == 209 else "phase_observed": "unknown", "outcome": "failed" if code == 209 else "deadline"}
+    if code in (231, 232, 233):
+        return {"phase": {231: "git_probe", 232: "runner_probe", 233: "docker_probe"}[code], "outcome": "failed"}
+    if code == 234:
+        return {"phase_observed": "ready_marker_present", "outcome": "deadline"}
+    return None
 
 
 def bounded_json(text):
@@ -117,7 +137,11 @@ def manager_diagnostic(result):
             continue
         match = re.search(r"Process exited with status ([0-9]{1,3})(?=$|[ \"\\])", message)
         code = int(match[1]) if match and int(match[1]) <= 255 else None
-        records.append({"event": name, "process_exit_code": code, "outline": error_outline(message)})
+        record = {"event": name, "process_exit_code": code, "outline": error_outline(message)}
+        bootstrap = bootstrap_diagnostic(name, code, message)
+        if bootstrap is not None:
+            record["bootstrap"] = bootstrap
+        records.append(record)
         if len(records) > 8:
             records.pop(0)
             omitted += 1

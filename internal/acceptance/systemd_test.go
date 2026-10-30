@@ -35,6 +35,16 @@ func TestPackagedAcceptanceUsesShippedExamples(t *testing.T) {
 		if pool["token"] != "synthetic-token" || pool["shell"] != "sh" || autoscaler["delete_instances_on_shutdown"] != true || !strings.Contains(autoscaler["instance_ready_command"].(string), "/var/lib/fleeting-worker/ready") {
 			t.Fatal("package behavior was not preserved")
 		}
+		var fallback map[string]any
+		if _, err := toml.Decode(RunnerConfig("https://gitlab.example.test", "synthetic-token", "test-region", "test-group", "root", "/synthetic/key", o), &fallback); err != nil {
+			t.Fatal(err)
+		}
+		fallbackPool := fallback["runners"].([]map[string]any)[0]["autoscaler"].(map[string]any)
+		if autoscaler["instance_acquire_timeout"] != "15m" || fallbackPool["instance_acquire_timeout"] != "15m" ||
+			strings.TrimSpace(autoscaler["instance_ready_command"].(string)) != strings.TrimSpace(fallbackPool["instance_ready_command"].(string)) ||
+			!strings.Contains(autoscaler["instance_ready_command"].(string), "timeout 600 sh") {
+			t.Fatal("shipped and fallback cold-worker readiness policies differ")
+		}
 		if _, err := packagedRunnerConfig([]byte(strings.Replace(string(input), "max_instances = 1", "max_instances = 2", 1)), "", "", "", "", "", o); err == nil {
 			t.Fatal("unbounded package example accepted")
 		}

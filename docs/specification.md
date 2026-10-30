@@ -390,49 +390,22 @@ Validate missing fields, unsupported combinations, and obvious misspellings. Det
 
 ### 9.2 Minimal Runner Configuration Example
 
-This target template uses a locally built plugin for a disposable Linux smoke test. Validate parsing and actual field behavior with the pinned Runner, and replace placeholders. **Do not assume Runner TOML expands these placeholders automatically.** `instance_acquire_timeout` was introduced in Runner 18.1; provide an appropriate template if supporting earlier releases. This does not establish the plugin's overall minimum supported Runner version.
+The maintained examples can be adapted for a disposable Linux smoke test. Validate parsing and actual field behavior with the pinned Runner, and replace placeholders. **Do not assume Runner TOML expands these placeholders automatically.** `instance_acquire_timeout` was introduced in Runner 18.1; provide an appropriate template if supporting earlier releases. This does not establish the plugin's overall minimum supported Runner version.
 
-```toml
-concurrent = 1
+Use the maintained [Linux Instance](../examples/instance/config.toml) or
+[Docker Autoscaler](../examples/docker-autoscaler/config.toml) example rather
+than a second copied template. For a local disposable smoke test, replace the
+OCI plugin reference with the locally installed plugin binary and use the
+bounded test group and temporary key. The [Linux readiness contract](operations.md#linux-worker-readiness)
+defines the finite waits, required probes and fixed bootstrap diagnostics.
 
-[[runners]]
-  name = "aliyun-fleeting-smoke"
-  url = "https://gitlab.com"
-  token = "REPLACE_WITH_PROJECT_RUNNER_AUTH_TOKEN"
-  executor = "instance"
-
-  [runners.autoscaler]
-    plugin = "fleeting-plugin-aliyun"
-    capacity_per_instance = 1
-    max_use_count = 1
-    max_instances = 1
-    instance_acquire_timeout = "10m"
-    instance_ready_command = "timeout 300 sh -c 'until test -f /var/lib/fleeting-worker/ready; do sleep 2; done; git --version && gitlab-runner --version'"
-    delete_instances_on_shutdown = true
-
-    [runners.autoscaler.plugin_config]
-      region = "REPLACE_WITH_REGION"
-      scaling_group_id = "REPLACE_WITH_DEDICATED_SCALING_GROUP_ID"
-
-    [runners.autoscaler.connector_config]
-      protocol = "ssh"
-      username = "REPLACE_WITH_WORKER_USER"
-      key_path = "/absolute/path/to/temporary/private-key"
-      use_static_credentials = true
-      use_external_addr = true
-
-    [[runners.autoscaler.policy]]
-      idle_count = 0
-      idle_time = "1m"
-      preemptive_mode = false
-```
 
 Constraints:
 
 - Set `max_instances=1` in both Runner and cloud configuration. Do not rely on a default of zero, which may mean unlimited.
 - `max_use_count=1` and single-job capacity make the worker disposable.
 - `preemptive_mode` governs Runner job acquisition / capacity preparation; it is not a Spot setting.
-- The readiness command waits for the bootstrap marker within a bound, then checks tools. The image must include `timeout`; successful bootstrap or image preparation must create the marker. Do not fail immediately because SSH is available before installation finishes. A timeout ends the run and triggers cleanup rather than unlimited rebuilding.
+- The readiness command waits for successful bootstrap within a bound, then checks tools. SSH availability alone is insufficient. Runner may replace a worker after readiness failure; acceptance separately caps cumulative creation and performs independent cleanup.
 - `use_external_addr` neither creates a public address nor proves reachability.
 - `delete_instances_on_shutdown` is an explicit policy for a dedicated test group, not a setting to apply mechanically to shared user groups.
 - These settings do not replace independent cleanup. [S04][S05]
