@@ -325,6 +325,16 @@ forced shutdown after an otherwise passing scenario still fails acceptance.
 A resource cleanup failure still prevents a passing aggregate result while
 the earlier failure records remain intact.
 
+After attempting to stop its owned packaged Manager, the driver captures up to
+200 journal entries from the current run, with a 128-KiB private evidence limit.
+The public diagnostic projects only fixed taskscaler preparation, health and
+removal events, bounded process exit codes, and allowlisted error-word outlines.
+It retains at most eight events and reports omitted events and a full journal
+window explicitly. Missing, unreadable or malformed evidence remains distinct
+from a recorded window with no matching events. Raw journal messages and their
+identities stay in the private driver result; the receipt upload does not include
+them. Diagnostic collection cannot change the scenario verdict or prevent cleanup.
+
 The fixture job has a 20-minute timeout to include ordinary preparation. The
 shipped Manager examples retain their readiness and acquisition deadlines;
 installation failure or an exceeded deadline fails acceptance. The one-Mbps

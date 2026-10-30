@@ -20,6 +20,7 @@ from debian_package import debian_version
 from debian_upgrade import baseline, fetch_baseline, require_newer, verify_package
 from gitlab_fixture import prepare as prepare_gitlab_fixture
 from job_diagnostics import outcome as job_outcome
+from manager_diagnostics import manager_diagnostic
 from release_candidate import digest, revision, verify, write_json
 
 EXECUTORS = ("instance", "docker-autoscaler")
@@ -243,6 +244,7 @@ def result_diagnostic(result, code):
     jobs = result.get("jobs")
     diagnostic["jobs"] = [job_outcome(value) for value in jobs[:3]] if isinstance(jobs, list) else []
     diagnostic["failures"] = failure_diagnostics(result)
+    diagnostic["manager"] = manager_diagnostic(result)
     return diagnostic
 
 
