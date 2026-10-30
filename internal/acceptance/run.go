@@ -44,6 +44,8 @@ type Result struct {
 	NormalRelease      bool            `json:"normal_release"`
 	Missing            []string        `json:"missing_configuration,omitempty"`
 	Errors             []string        `json:"errors,omitempty"`
+	Failures           []jobFailure    `json:"failures,omitempty"`
+	FailuresOmitted    int             `json:"failures_omitted"`
 	JobScenario        string          `json:"job_scenario"`
 	Jobs               []JobEvidence   `json:"jobs"`
 	CapacityVerified   bool            `json:"capacity_verified"`
@@ -52,6 +54,7 @@ type Result struct {
 	CrashVerified      bool            `json:"crash_verified"`
 	Upgrade            *packageUpgrade `json:"upgrade"`
 	FinishedAt         time.Time       `json:"finished_at"`
+	activeJob          int
 }
 
 func Missing(get func(string) string) []string {
@@ -104,17 +107,17 @@ func Run(ctx context.Context, dir string) (result Result) {
 		result.FinishedAt = time.Now().UTC()
 		if err := WriteJSON(filepath.Join(dir, "result.json"), result); err != nil {
 			result.Result = "FAIL_INFRASTRUCTURE"
-			result.Errors = append(result.Errors, "cannot persist final evidence")
+			result.recordFailure("evidence_write", errors.New("cannot persist final evidence"))
 		}
 	}()
 	if _, e := os.Stat(result.Ledger.Path); e == nil {
 		writeFinal = false
 		result.Result = "FAIL_INFRASTRUCTURE"
-		result.Errors = []string{"existing run ledger is preserved; recover it or use a new run attempt"}
+		result.recordFailure("preflight", errors.New("existing run ledger is preserved; recover it or use a new run attempt"))
 		return result
 	} else if !errors.Is(e, os.ErrNotExist) {
 		result.Result = "FAIL_INFRASTRUCTURE"
-		result.Errors = []string{"cannot inspect existing run evidence"}
+		result.recordFailure("preflight", errors.New("cannot inspect existing run evidence"))
 		return result
 	}
 	result.Missing = Missing(get)
@@ -122,11 +125,12 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	if get("RUN_LIVE_ACCEPTANCE") != "1" {
-		result.Errors = []string{"RUN_LIVE_ACCEPTANCE must equal 1"}
+		result.recordFailure("preflight", errors.New("RUN_LIVE_ACCEPTANCE must equal 1"))
 		return result
 	}
 	result.Result = "FAIL_INFRASTRUCTURE"
-	fail := func(err error) { result.Errors = append(result.Errors, err.Error()) }
+	stage := "preflight"
+	fail := func(err error) { result.recordFailure(stage, err) }
 	options, err := readSmokeOptions(get)
 	if err != nil {
 		fail(err)
@@ -203,7 +207,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	defer sdk.Close()
-	cloud := &aliyun.Client{API: sdk, Region: result.Region, GroupID: result.GroupID}
+	cloud := &aliyun.Client{API: jobDiagnosticAPI{sdk}, Region: result.Region, GroupID: result.GroupID}
 	group, err := cloud.Group(ctx)
 	if err != nil {
 		fail(err)
@@ -284,7 +288,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		defer cancel()
 		if e := Cleanup(cleanupCtx, cloud, &result.Ledger, false); e != nil {
 			result.Result = "CLEANUP_FAILED"
-			fail(e)
+			result.recordFailure("resource_cleanup", e)
 		}
 		return result
 	}
@@ -301,8 +305,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 			}
 			service = nil
 			if forced {
-				result.Result = "FAIL_PRODUCT"
-				fail(errors.New("packaged Manager did not complete a healthy graceful shutdown"))
+				result.forcedManagerStop()
 			}
 		}
 		if manager != nil && manager.Process != nil {
@@ -320,7 +323,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 	defer func() {
 		if err := stopManager(); err != nil {
 			result.Result = "CLEANUP_FAILED"
-			fail(err)
+			result.recordFailure("manager_stop", err)
 			return // Never delete workers while the service may still write capacity.
 		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -334,7 +337,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		}
 		if err := Cleanup(cleanupCtx, cloud, &result.Ledger, false); err != nil {
 			result.Result = "CLEANUP_FAILED"
-			fail(err)
+			result.recordFailure("resource_cleanup", err)
 		}
 		if result.Result == "PASS" {
 			if e := verifyJobSequence(&result); e != nil {
@@ -344,9 +347,10 @@ func Run(ctx context.Context, dir string) (result Result) {
 		}
 		if e := WriteJSON(filepath.Join(dir, "ledger.json"), result.Ledger); e != nil {
 			result.Result = "FAIL_INFRASTRUCTURE"
-			fail(errors.New("cannot persist resource evidence"))
+			result.recordFailure("evidence_write", errors.New("cannot persist resource evidence"))
 		}
 	}()
+	stage = "manager_prepare"
 	privateDir, err := os.MkdirTemp(dir, "manager-")
 	if err != nil {
 		fail(err)
@@ -491,6 +495,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 			return WaitForNormalRelease(ctx, cloud, &result.Ledger, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID"))
 		},
 	}
+	stage = "job_sequence"
 	if options.scenario == "manager-crash" {
 		err = (crashSequence{jobSequence: sequence, crash: service.crash}).run(ctx)
 	} else if options.scenario == "worker-loss" {

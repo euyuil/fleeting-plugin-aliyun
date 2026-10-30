@@ -2,7 +2,7 @@
 import json
 import unittest
 
-from cloud_diagnostics import CloudOperationError, api_error, diagnostic_error, driver_diagnostic, phase_diagnostics
+from cloud_diagnostics import CloudOperationError, api_error, diagnostic_error, driver_diagnostic, matching_error_templates, phase_diagnostics
 
 
 def marker(event, scope="scenario", phase="ssh", elapsed=0, **fields):
@@ -10,6 +10,15 @@ def marker(event, scope="scenario", phase="ssh", elapsed=0, **fields):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_formatted_errors_keep_static_suffixes_and_never_values(self):
+        source = ('fmt.Sprintf("GitLab API HTTP %d", status)\n'
+                  'fmt.Errorf("member %s is not verified as releasable by ESS", id)\n'
+                  'fmt.Errorf("%v: %w", first, second)')
+        templates = matching_error_templates("GitLab API HTTP 503\nmember synthetic-private-id is not verified as releasable by ESS", source)
+        self.assertEqual(templates, ["GitLab API HTTP %d", "member %s is not verified as releasable by ESS"])
+        self.assertNotIn("synthetic-private", json.dumps(templates))
+        self.assertEqual(matching_error_templates("member private-id has an unrelated error", source), [])
+
     def test_scenario_and_cleanup_failures_keep_their_own_phase_and_error(self):
         log = (marker("phase", phase="observe_before_ssh") +
                marker("api_error", phase="observe_before_ssh", elapsed=10, service="ecs", action="DescribeInstances", code="Forbidden.RAM") +
@@ -29,6 +38,19 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(cleanup["result"], "FAIL")
         self.assertEqual(cleanup["phases"]["driver_cleanup"]["api_errors"][0]["code"], "IdempotentParameterMismatch")
         self.assertNotIn("IdempotentParameterMismatch", json.dumps(scenario))
+
+    def test_empty_prefix_template_cannot_move_an_error_into_a_clean_phase(self):
+        template = "%w: request_id=%s page=%d row=%d missing_instance_id=%t missing_group_id=%t lifecycle=%q"
+        log = (marker("phase", phase="observe_before_ssh") +
+               'incomplete identity: request_id=private page=1 row=0 missing_instance_id=true missing_group_id=false lifecycle="Pending"\n' +
+               marker("result", phase="observe_before_ssh", elapsed=10, result="FAIL") +
+               marker("phase", "cleanup", "driver_cleanup", 11) + "ordinary cleanup progress\n" +
+               marker("result", "cleanup", "driver_cleanup", 20, result="PASS"))
+        actual = phase_diagnostics(log, [template])
+        self.assertEqual(actual["scenario"]["phases"]["observe_before_ssh"]["matched_error_templates"], [template])
+        self.assertEqual(actual["cleanup"]["phases"]["driver_cleanup"]["matched_error_templates"], [])
+        self.assertEqual(actual["cleanup"]["result"], "PASS")
+        self.assertNotIn("private", json.dumps(actual))
 
     def test_partial_trace_stays_unknown_and_retries_aggregate(self):
         log = (marker("phase", phase="connect_info") + marker("phase", elapsed=5) +

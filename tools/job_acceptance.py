@@ -15,7 +15,7 @@ import urllib.request
 
 from cloud_config import config_digest, decode, fixture_config
 from cloud_fixture import JOB_SCENARIOS, Cloud, Fixture, labels, preflight, require_linux, stop_process_group
-from cloud_diagnostics import diagnostic_error, driver_diagnostic, duration_ms
+from cloud_diagnostics import api_error, diagnostic_error, driver_diagnostic, duration_ms, source_error_templates
 from debian_package import debian_version
 from debian_upgrade import baseline, fetch_baseline, require_newer, verify_package
 from gitlab_fixture import prepare as prepare_gitlab_fixture
@@ -193,11 +193,49 @@ def manager_fenced():
             raise ValueError("systemd Manager termination and startup fence are not confirmed")
 
 
+FAILURE_STAGES = {"preflight", "manager_prepare", "job_sequence", "manager_stop", "resource_cleanup", "evidence_write"}
+FAILURE_KINDS = {"unknown", "canceled", "deadline", "cloud_api", "gitlab_http", "unexpected_eof", "eof", "json_decode", "filesystem"}
+GITLAB_OPERATIONS = {"runner_verify", "runner_details", "project_runners", "project_jobs", "fixture_commit", "pipeline_create",
+                     "pipeline_status", "pipeline_jobs", "pipeline_cancel", "job_trace", "job_artifact"}
+
+
+def failure_diagnostics(result):
+    if "failures_omitted" not in result:
+        return {"evidence": "NOT_RECORDED"}
+    values, omitted = result.get("failures", []), result["failures_omitted"]
+    if not isinstance(values, list) or type(omitted) is not int or not 0 <= omitted <= 1_000_000:
+        return {"evidence": "INVALID"}
+    errors = result.get("errors", [])
+    errors = errors if isinstance(errors, list) else []
+    records = []
+    for index, value in enumerate(values[:8]):
+        value = value if isinstance(value, dict) else {}
+        def choice(field, allowed):
+            raw = value.get(field)
+            return raw if isinstance(raw, str) and raw in allowed else "unknown"
+        job_index, status = value.get("job_index"), value.get("http_status")
+        kind = choice("kind", FAILURE_KINDS)
+        cloud = api_error(value.get("service"), value.get("operation"), value.get("cloud_code"))
+        service = choice("service", {"ecs", "ess", "sts", "gitlab"})
+        records.append({"stage": choice("stage", FAILURE_STAGES), "kind": kind,
+                        "job_index": job_index if type(job_index) is int and 1 <= job_index <= 3 else None,
+                        "service": service,
+                        "operation": choice("operation", GITLAB_OPERATIONS) if service == "gitlab" else cloud["action"],
+                        "method": choice("method", {"GET", "POST", "PUT", "PATCH", "DELETE"}),
+                        "http_status": status if kind == "gitlab_http" and type(status) is int and 100 <= status <= 599 else None,
+                        "cloud_code": cloud["code"] if kind == "cloud_api" else None,
+                        "matched_error_templates": source_error_templates(errors[index])
+                        if index < len(errors) and isinstance(errors[index], str) else []})
+    return {"evidence": "RECORDED", "records": records, "unknown_count": sum(row["kind"] == "unknown" for row in records),
+            "omitted_count": min(1_000_000, omitted + max(0, len(values) - 8))}
+
+
 def result_diagnostic(result, code):
     diagnostic = driver_diagnostic({"result": result.get("result"), "resources": result}, code,
                                    json.dumps(result.get("errors", [])))
     jobs = result.get("jobs")
     diagnostic["jobs"] = [job_outcome(value) for value in jobs[:3]] if isinstance(jobs, list) else []
+    diagnostic["failures"] = failure_diagnostics(result)
     return diagnostic
 
 

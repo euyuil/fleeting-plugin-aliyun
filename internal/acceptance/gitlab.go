@@ -27,7 +27,12 @@ func (e *gitlabHTTPError) Error() string { return fmt.Sprintf("GitLab API HTTP %
 func (g gitlab) request(ctx context.Context, method, path string, body, out any) error {
 	return g.requestAPI(ctx, method, "/projects/"+url.PathEscape(g.project)+path, body, out)
 }
-func (g gitlab) requestAPI(ctx context.Context, method, path string, body, out any) error {
+func (g gitlab) requestAPI(ctx context.Context, method, path string, body, out any) (resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			resultErr = &operationError{service: "gitlab", operation: gitlabOperation(path), method: method, err: resultErr}
+		}
+	}()
 	var b []byte
 	var err error
 	if body != nil {
