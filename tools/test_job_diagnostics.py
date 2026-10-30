@@ -138,6 +138,42 @@ class JobDiagnosticTests(unittest.TestCase):
         self.assertEqual(result["terminal_errors"][0]["connector_exit_code"], 0)
         self.assertNotIn("30s", json.dumps(result))
 
+    def test_canceled_job_retains_preparation_failure_without_terminal_error(self):
+        client = Client()
+        client.pipeline["status"] = client.jobs[0]["status"] = "canceled"
+        client.jobs[0]["failure_reason"] = ""
+        client.trace = ("2026-01-01T00:00:00.123456Z 00E \x1b[0K\x1b[31;1m"
+                        "ERROR: Preparation failed: acquiring instance: dial tcp 192.0.2.1:22: "
+                        "connect: connection refused private-project private-token\x1b[0;m\r\n"
+                        "00O Will be retried in 3s ...\n").encode()
+        result = inspect(client)
+        self.assertEqual(result["job"]["status"], "canceled")
+        trace = result["trace"]
+        self.assertFalse(trace["terminal_error_seen"])
+        self.assertEqual(trace["terminal_errors"], [])
+        self.assertTrue(trace["preparation_error_seen"])
+        self.assertEqual(trace["preparation_errors"], [{"connector_exit_code": None, "words": [
+            "ERROR", "Preparation", "failed", "acquiring", "instance", "dial", "tcp", "?",
+            "connect", "connection", "refused", "?",
+        ]}])
+        for private in ("192", "private", "3s", FIXTURE):
+            self.assertNotIn(private, json.dumps(result))
+
+    def test_preparation_errors_are_anchored_bounded_and_redacted(self):
+        line = "ERROR: Preparation failed: ssh handshake failed private.example.invalid token-private 123456"
+        result = diagnostic.trace_diagnostic((line + "\n").encode() * 10)
+        self.assertTrue(result["preparation_error_seen"])
+        self.assertEqual(len(result["preparation_errors"]), 4)
+        for item in result["preparation_errors"]:
+            self.assertTrue(set(item["words"]) <= diagnostic.ERROR_WORDS | {"?"})
+            self.assertIsNone(item["connector_exit_code"])
+        for private in ("private", "example", "123456"):
+            self.assertNotIn(private, json.dumps(result))
+        for prefix in ("$ echo ", "01+ ", "unrelated "):
+            result = diagnostic.trace_diagnostic((prefix + line).encode())
+            self.assertFalse(result["preparation_error_seen"])
+            self.assertEqual(result["preparation_errors"], [])
+
     def test_cli_failure_never_prints_exception_or_private_api_fields(self):
         args = ["job_diagnostics.py", "--sha", SHA, "--executor", "instance", "--scenario", "worker-loss",
                 "--started-at", START, "--completed-at", END]
