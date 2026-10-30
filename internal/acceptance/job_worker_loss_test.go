@@ -63,6 +63,43 @@ func TestWorkerLossAcceptsPinnedSSHTransportClassification(t *testing.T) {
 	}
 }
 
+func TestWorkerLossDrainsOneReplacementBeforeFreshRecovery(t *testing.T) {
+	for _, executor := range []string{"instance", "docker-autoscaler"} {
+		t.Run(executor, func(t *testing.T) {
+			s, events := fakeWorkerLoss(t, executor, "ess-replacement")
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			if err := s.run(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if events() != "create1,delete,replace,release,create2,release" ||
+				s.result.LossReplacementID != "i-replacement" || len(s.result.Instances) != 3 {
+				t.Fatal("replacement was not reconciled before fresh recovery", events())
+			}
+			for _, change := range []func(*Result){
+				func(r *Result) { r.LossReplacementID = "" },
+				func(r *Result) { r.LossReplacementID = r.Jobs[0].InstanceID },
+				func(r *Result) { r.LossReplacementID = r.Jobs[1].InstanceID },
+				func(r *Result) { r.LossReplacementID = "i-unknown" },
+				func(r *Result) { r.CreationBudget = 4 },
+				func(r *Result) { r.InstanceLimit = 2 },
+				func(r *Result) { r.Instances[1].DeletionVerified = false },
+				func(r *Result) { r.Instances[1].SpotVerified = false },
+				func(r *Result) { r.Instances[1].InventoryComplete = false },
+				func(r *Result) { r.Instances[1].UnsafeDiskPolicy = true },
+				func(r *Result) { r.Instances[1] = r.Instances[0] },
+			} {
+				copy := *s.result
+				copy.Instances = append([]Resource(nil), s.result.Instances...)
+				change(&copy)
+				if verifyJobSequence(&copy) == nil {
+					t.Fatal("unbound or incomplete replacement evidence accepted")
+				}
+			}
+		})
+	}
+}
+
 const keepaliveTransportLossLine = "ERROR: Job failed: ssh connection closed by keepalive (keepalive probe timed out after 30s): run exit (exit code: 0): wait: remote command exited without exit status or exit signal"
 
 func TestWorkerLossKeepaliveErrorRequiresPinnedCanonicalTimeoutAndMissingExit(t *testing.T) {
@@ -90,7 +127,7 @@ func TestWorkerLossKeepaliveErrorRequiresPinnedCanonicalTimeoutAndMissingExit(t 
 }
 
 func TestWorkerLossRejectsWrongFailureOrIncompleteRecovery(t *testing.T) {
-	for _, fault := range []string{"early-failure", "no-checkpoint", "delete-error", "no-loss", "script-failure", "spoof-transport", "continued-transport", "spoof-keepalive", "continued-keepalive", "canceled", "unexpected-success", "manager-restart", "leak", "replacement", "second-failure", "same-worker"} {
+	for _, fault := range []string{"early-failure", "no-checkpoint", "delete-error", "no-loss", "script-failure", "spoof-transport", "continued-transport", "spoof-keepalive", "continued-keepalive", "canceled", "unexpected-success", "manager-restart", "leak", "replacement", "replacement-leak", "two-replacements", "late-replacement", "reuse-replacement", "second-failure", "same-worker"} {
 		t.Run(fault, func(t *testing.T) {
 			s, _ := fakeWorkerLoss(t, "instance", fault)
 			ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
@@ -107,7 +144,7 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 	var mu sync.Mutex
 	var events, nonces []string
 	lost, releases := false, 0
-	r := &Result{Ledger: Ledger{ManagerPID: 123, InstanceLimit: 1, CreationBudget: 2}, JobScenario: "worker-loss", FixtureSHA: strings.Repeat("a", 40), Executor: executor}
+	r := &Result{Ledger: Ledger{ManagerPID: 123, InstanceLimit: 1, CreationBudget: 3}, JobScenario: "worker-loss", FixtureSHA: strings.Repeat("a", 40), Executor: executor}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -117,6 +154,14 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 			if len(nonces) == 1 && (!lost || releases != 1) {
 				http.Error(w, "premature recovery", 409)
 				return
+			}
+			if len(nonces) == 1 {
+				for _, instance := range r.Instances {
+					if !instance.DeletionVerified {
+						http.Error(w, "recovery preceded resource release", 409)
+						return
+					}
+				}
 			}
 			var body struct{ Variables []struct{ Key, Value string } }
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -183,6 +228,9 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 			if fault == "same-worker" {
 				id = "i-worker0"
 			}
+			if fault == "reuse-replacement" {
+				id = "i-replacement"
+			}
 			write(Artifact{Nonce: nonces[index], FixtureSHA: r.FixtureSHA, InstanceID: id, RunnerID: 2,
 				CheckoutOK: true, CommandOK: true, Executor: executor, ContainerDetected: &container, IsolationOK: true})
 		default:
@@ -204,8 +252,24 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 		observe: func(context.Context) error {
 			mu.Lock()
 			defer mu.Unlock()
-			if len(r.Instances) < len(nonces) {
-				r.Instances = append(r.Instances, Resource{InstanceID: "i-worker" + strconv.Itoa(len(nonces)-1), SpotVerified: true, InventoryComplete: true})
+			id := "i-worker" + strconv.Itoa(len(nonces)-1)
+			known := false
+			for _, instance := range r.Instances {
+				known = known || instance.InstanceID == id
+			}
+			if !known {
+				r.Instances = append(r.Instances, Resource{InstanceID: id, SpotVerified: true, InventoryComplete: true})
+			}
+			if lost && releases == 0 && len(r.Instances) == 1 &&
+				(fault == "ess-replacement" || fault == "replacement-leak" || fault == "two-replacements" || fault == "reuse-replacement") {
+				r.Instances = append(r.Instances, Resource{InstanceID: "i-replacement", SpotVerified: true, InventoryComplete: true})
+				events = append(events, "replace")
+				if fault == "two-replacements" {
+					r.Instances = append(r.Instances, Resource{InstanceID: "i-extra", SpotVerified: true, InventoryComplete: true})
+				}
+			}
+			if fault == "late-replacement" && len(nonces) == 2 && len(r.Instances) == 2 {
+				r.Instances = append(r.Instances, Resource{InstanceID: "i-late", SpotVerified: true, InventoryComplete: true})
 			}
 			return nil
 		},
@@ -221,7 +285,7 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 			releases++
 			events = append(events, "release")
 			for i := range r.Instances {
-				r.Instances[i].DeletionVerified = true
+				r.Instances[i].DeletionVerified = fault != "replacement-leak" || r.Instances[i].InstanceID != "i-replacement"
 			}
 			return nil
 		},

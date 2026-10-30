@@ -98,7 +98,22 @@ func verifyJobSequence(r *Result) error {
 	if r.JobScenario == "manager-crash" && (!r.CrashVerified || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
 		return errors.New("crash scenario lacks automatic restart proof")
 	}
-	if len(r.Jobs) != len(cases) || len(r.Instances) != len(cases) || r.CreationBudget != len(cases) || r.ManagerPID <= 0 {
+	budget, workerCount := len(cases), len(cases)
+	if r.JobScenario == "worker-loss" {
+		budget = 3
+		if r.InstanceLimit != 1 {
+			return errors.New("worker loss exceeded its concurrent worker limit")
+		}
+		if r.LossReplacementID != "" {
+			if !regexp.MustCompile("^i-[a-zA-Z0-9]+$").MatchString(r.LossReplacementID) {
+				return errors.New("worker loss replacement identity is invalid")
+			}
+			workerCount++
+		}
+	} else if r.LossReplacementID != "" {
+		return errors.New("replacement evidence belongs only to worker loss")
+	}
+	if len(r.Jobs) != len(cases) || len(r.Instances) != workerCount || r.CreationBudget != budget || r.ManagerPID <= 0 {
 		return errors.New("job sequence lacks its exact job and worker budget")
 	}
 	pipelines, jobs, workers, nonces := map[int64]bool{}, map[int64]bool{}, map[string]bool{}, map[string]bool{}
@@ -115,10 +130,18 @@ func verifyJobSequence(r *Result) error {
 		}
 		pipelines[e.PipelineID], jobs[e.JobID], workers[e.InstanceID], nonces[e.Nonce] = true, true, true, true
 	}
+	if r.LossReplacementID != "" {
+		if workers[r.LossReplacementID] {
+			return errors.New("recovery job reused a drained replacement")
+		}
+		workers[r.LossReplacementID] = true
+	}
+	observed := map[string]bool{}
 	for _, instance := range r.Instances {
-		if !workers[instance.InstanceID] || !instance.SpotVerified || !instance.InventoryComplete || !instance.DeletionVerified {
+		if observed[instance.InstanceID] || !workers[instance.InstanceID] || !instance.SpotVerified || !instance.InventoryComplete || !instance.DeletionVerified || instance.UnsafeDiskPolicy {
 			return errors.New("job sequence lacks complete Spot worker release evidence")
 		}
+		observed[instance.InstanceID] = true
 	}
 	return nil
 }

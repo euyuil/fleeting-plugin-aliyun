@@ -178,12 +178,35 @@ class JobAcceptanceTests(unittest.TestCase):
             job.check_result(capacity, manifest(), gitlab, "instance", lock, "10", "1", "capacity")
 
         loss = copy.deepcopy(result)
-        loss.update(job_scenario="worker-loss", creation_budget=2, normal_release=False, worker_loss_verified=True)
+        loss.update(job_scenario="worker-loss", creation_budget=3, normal_release=False, worker_loss_verified=True)
         loss["jobs"].insert(0, {**result["jobs"][0], "scenario": "worker-loss", "status": "failed", "failure_reason": "runner_system_failure",
                                 "pipeline_id": 1, "job_id": 2, "nonce": "0" * 48, "instance_id": "i-worker0", "checkpoint": True,
                                 "loss_injected": True, "normal_release": False, "control_released": False})
         loss["instances"].insert(0, {**result["instances"][0], "instance_id": "i-worker0"})
         job.check_result(loss, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
+        replacement = copy.deepcopy(loss)
+        replacement["worker_loss_replacement_id"] = "i-replacement"
+        replacement["instances"].append({**result["instances"][0], "instance_id": "i-replacement"})
+        job.check_result(replacement, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
+        for change in (lambda value: value.update(worker_loss_replacement_id=""),
+                       lambda value: value.update(worker_loss_replacement_id="i-worker0"),
+                       lambda value: value.update(worker_loss_replacement_id="i-worker1"),
+                       lambda value: value.update(worker_loss_replacement_id="i-unobserved"),
+                       lambda value: value.update(worker_loss_replacement_id=True),
+                       lambda value: value.update(creation_budget=4),
+                       lambda value: value.update(instance_limit=2),
+                       lambda value: value["instances"][-1].update(deletion_verified=False),
+                       lambda value: value["instances"][-1].update(spot_verified=False),
+                       lambda value: value["instances"][-1].update(inventory_complete=False),
+                       lambda value: value["instances"][-1].update(unsafe_disk_policy=True),
+                       lambda value: value["instances"][-1].update(instance_id="i-worker0"),
+                       lambda value: value["instances"].append({**value["instances"][-1], "instance_id": "i-extra"})):
+            broken = copy.deepcopy(replacement)
+            change(broken)
+            with self.assertRaises(ValueError):
+                job.check_result(broken, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")
+        with self.assertRaises(ValueError):
+            job.check_result({**result, "worker_loss_replacement_id": "i-replacement"}, manifest(), gitlab, "instance", lock, "10", "1")
         ssh_loss = copy.deepcopy(loss)
         ssh_loss["jobs"][0].update(ssh_transport_loss=True, failure_reason="script_failure")
         job.check_result(ssh_loss, manifest(), gitlab, "instance", lock, "10", "1", "worker-loss")

@@ -124,7 +124,7 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
                 "runner_sha256": lock["runner"]["sha256"]["linux-amd64"], "runner_version": lock["runner"]["version"],
                 "gitlab_fixture_sha": gitlab["fixture_sha"], "gitlab_project_id": gitlab["project_id"], "gitlab_runner_id": int(gitlab["runner_id"]),
                 "github_run_id": run_id, "github_run_attempt": attempt, "instance_limit": 2 if scenario == "capacity" else 1,
-                "creation_budget": len(cases), "evidence_incomplete": False}
+                "creation_budget": 3 if scenario == "worker-loss" else len(cases), "evidence_incomplete": False}
     if scenario == "capacity":
         expected["capacity_verified"] = True
     if scenario == "drain":
@@ -144,9 +144,13 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
             raise ValueError("job lacks the pinned previous-release upgrade and rollback proof")
     if any(type(result.get(k)) is not int or result[k] <= 0 for k in ("gitlab_pipeline_id", "gitlab_job_id")):
         raise ValueError("job evidence lacks concrete pipeline and job identities")
+    replacement = result.get("worker_loss_replacement_id", "")
+    if not isinstance(replacement, str) or (replacement and (scenario != "worker-loss" or not re.fullmatch(r"i-[a-zA-Z0-9]+", replacement))):
+        raise ValueError("unexpected worker-loss replacement identity")
     instances = result.get("instances")
-    if (not isinstance(instances, list) or len(instances) != len(cases) or "leftover_resources" not in result or result["leftover_resources"] or result.get("errors")
-            or any(not isinstance(row, dict) or any(row.get(k) is not True for k in ("spot_verified", "inventory_complete", "deletion_verified")) for row in instances)):
+    if (not isinstance(instances, list) or len(instances) != len(cases) + bool(replacement) or "leftover_resources" not in result or result["leftover_resources"] or result.get("errors")
+            or any(not isinstance(row, dict) or row.get("unsafe_disk_policy", False) is not False or
+                   any(row.get(k) is not True for k in ("spot_verified", "inventory_complete", "deletion_verified")) for row in instances)):
         raise ValueError("job evidence lacks the exact Spot worker and deletion proof")
     steps = result.get("jobs")
     if not isinstance(steps, list) or len(steps) != len(cases) or type(result.get("manager_pid")) is not int or result["manager_pid"] <= 0:
@@ -180,7 +184,10 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
             if not valid or value in seen[key]:
                 raise ValueError("missing or reused job sequence identity")
             seen[key].add(value)
-    if (seen["instance_id"] != {row.get("instance_id") for row in instances} or
+    if replacement in seen["instance_id"]:
+        raise ValueError("recovery job reused a drained replacement")
+    expected_workers = seen["instance_id"] | ({replacement} if replacement else set())
+    if (expected_workers != {row.get("instance_id") for row in instances} or
             result["gitlab_pipeline_id"] != steps[-1]["pipeline_id"] or result["gitlab_job_id"] != steps[-1]["job_id"]):
         raise ValueError("job sequence differs from the final job or observed workers")
 

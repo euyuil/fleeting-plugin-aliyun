@@ -51,6 +51,7 @@ type Result struct {
 	CapacityVerified   bool            `json:"capacity_verified"`
 	DrainVerified      bool            `json:"drain_verified"`
 	WorkerLossVerified bool            `json:"worker_loss_verified"`
+	LossReplacementID  string          `json:"worker_loss_replacement_id,omitempty"`
 	CrashVerified      bool            `json:"crash_verified"`
 	Upgrade            *packageUpgrade `json:"upgrade"`
 	FinishedAt         time.Time       `json:"finished_at"`
@@ -73,6 +74,9 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "capacity" {
 		budget, limit = 3, 2
+	}
+	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "worker-loss" {
+		budget = 3
 	}
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "manager-crash" {
 		duration = 50 * time.Minute

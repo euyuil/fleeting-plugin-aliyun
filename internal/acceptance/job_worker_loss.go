@@ -49,8 +49,8 @@ func (s workerLossSequence) run(ctx context.Context) error {
 	if err := s.release(ctx); err != nil {
 		return err
 	}
-	if len(r.Instances) != 1 {
-		return errors.New("worker loss created an unrequested replacement")
+	if err := recordWorkerLossRelease(r, first.InstanceID); err != nil {
+		return err
 	}
 	r.WorkerLossVerified = true
 	if err := s.checkManager(ctx); err != nil {
@@ -71,6 +71,32 @@ func (s workerLossSequence) run(ctx context.Context) error {
 	}
 	second.NormalRelease = true
 	return verifyJobSequence(r)
+}
+
+// ESS retains desired capacity after disappearance and may replace the lost
+// worker. Only one replacement is allowed, and Runner must drain it before a
+// recovery pipeline is submitted. This function records that read-only boundary.
+func recordWorkerLossRelease(r *Result, lostID string) error {
+	if len(r.Instances) < 1 || len(r.Instances) > 2 || r.LossReplacementID != "" {
+		return errors.New("worker loss exceeded its pre-recovery worker budget")
+	}
+	seen := map[string]bool{}
+	replacement := ""
+	for _, instance := range r.Instances {
+		if instance.InstanceID == "" || seen[instance.InstanceID] || !instance.SpotVerified ||
+			!instance.InventoryComplete || !instance.DeletionVerified || instance.UnsafeDiskPolicy {
+			return errors.New("worker loss lacks complete pre-recovery release evidence")
+		}
+		seen[instance.InstanceID] = true
+		if instance.InstanceID != lostID {
+			replacement = instance.InstanceID
+		}
+	}
+	if !seen[lostID] {
+		return errors.New("worker loss inventory does not contain the injected target")
+	}
+	r.LossReplacementID = replacement
+	return nil
 }
 
 func injectWorkerLoss(parent context.Context, cloud *aliyun.Client, ledger *Ledger, e JobEvidence) error {
