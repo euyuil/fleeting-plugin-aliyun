@@ -55,6 +55,8 @@ type Result struct {
 	WorkerLossVerified bool            `json:"worker_loss_verified"`
 	LossReplacementID  string          `json:"worker_loss_replacement_id,omitempty"`
 	CrashVerified      bool            `json:"crash_verified"`
+	OrphanReleased     bool            `json:"orphan_release_verified"`
+	RecoveryPolicy     string          `json:"recovery_policy,omitempty"`
 	Upgrade            *packageUpgrade `json:"upgrade"`
 	FinishedAt         time.Time       `json:"finished_at"`
 	activeJob          int
@@ -511,7 +513,9 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	stage = "job_sequence"
 	if options.scenario == "manager-crash" {
-		err = (crashSequence{jobSequence: sequence, crash: service.crash}).run(ctx)
+		err = (crashSequence{jobSequence: sequence, crash: service.crash, persist: func() error {
+			return WriteJSON(filepath.Join(dir, "result.json"), result)
+		}}).run(ctx)
 	} else if options.scenario == "worker-loss" {
 		err = (workerLossSequence{jobSequence: sequence, loseWorker: func(ctx context.Context, e JobEvidence) error {
 			return injectWorkerLoss(ctx, cloud, &result.Ledger, e)

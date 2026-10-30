@@ -53,7 +53,7 @@ def workflow_cases(value, mode):
 def job_timing(scenario, now):
     if scenario not in JOB_SCENARIOS:
         raise ValueError("unknown job acceptance scenario")
-    budget = 20 if scenario in ("smoke", "upgrade") else 50 if scenario == "manager-crash" else 40
+    budget = 20 if scenario in ("smoke", "upgrade") else 40
     deadline = now + timedelta(minutes=budget)
     expires = (deadline + timedelta(minutes=40)).replace(second=0, microsecond=0)
     return {key: value.strftime("%Y-%m-%dT%H:%M:%SZ") for key, value in
@@ -149,6 +149,10 @@ def upgrade_receipt(scenario):
     return {"upgrade_from_version": pin["version"], "upgrade_from_package_sha256": pin["package_sha256"]} if pin else {}
 
 
+def recovery_policy(scenario):
+    return {"manager-crash": "orphan-release-before-finalize-v1", "worker-loss": "observed-worker-loss-v1"}.get(scenario, "standard-v1")
+
+
 def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scenario="smoke"):
     cases = job_cases(scenario)
     expected = {"result": "PASS", "cleanup_result": "PASS", "normal_release": scenario != "worker-loss",
@@ -164,9 +168,9 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
     if scenario == "drain":
         expected["drain_verified"] = True
     if scenario == "worker-loss":
-        expected["worker_loss_verified"] = True
+        expected.update(worker_loss_verified=True, recovery_policy=recovery_policy(scenario))
     if scenario == "manager-crash":
-        expected["crash_verified"] = True
+        expected.update(crash_verified=True, orphan_release_verified=True, recovery_policy=recovery_policy(scenario))
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result[k] != v for k, v in expected.items()):
         raise ValueError("job did not produce a passing bound systemd acceptance result")
     if scenario == "upgrade":
@@ -196,19 +200,20 @@ def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scen
         injected = scenario == "worker-loss" and index == 0
         status, reason = {"smoke": ("success", ""), "capacity": ("success", ""), "drain": ("success", ""), "failure": ("failed", "script_failure"),
                           "worker-loss": ("failed", "runner_system_failure"),
-                          "manager-crash": ("failed", "server_timeout_running"),
+                          "manager-crash": ("canceled", None),
                           "cancel": ("canceled", None), "timeout": ("failed", "job_execution_timeout")}[case]
-        if isinstance(step, dict) and injected and executor == "instance" and step.get("ssh_transport_loss") is True and step.get("failure_reason") == "script_failure":
+        if isinstance(step, dict) and injected and executor == "instance" and step.get("failure_reason") == "script_failure":
             reason = "script_failure"
-        if isinstance(step, dict) and case == "manager-crash" and step.get("failure_reason") == "no_updates_running":
-            reason = "no_updates_running"
         if (not isinstance(step, dict) or step.get("scenario") != case or step.get("status") != status or
                 (reason is not None and step.get("failure_reason") != reason) or step.get("normal_release") is not (not injected) or
-                step.get("loss_injected", False) is not injected or (injected and step.get("control_released") is not False) or
+                step.get("loss_injected", False) is not injected or step.get("loss_observed", False) is not injected or (injected and step.get("control_released") is not False) or
                 step.get("crash_injected", False) is not (case == "manager-crash") or (case == "manager-crash" and step.get("control_released") is not False) or
                 (step.get("ssh_transport_loss", False) is not False and (not injected or executor != "instance" or step["ssh_transport_loss"] is not True)) or
                 not manager_matches or
-                step.get("cancel_requested") is not (case == "cancel") or (case != "smoke" and step.get("checkpoint") is not True) or
+                step.get("cancel_requested") is not (case in ("cancel", "manager-crash")) or
+                step.get("finalization_source", "") != ("harness_after_recovery" if case == "manager-crash" else "") or
+                (step.get("force_cancel_requested", False) is not False and (case != "manager-crash" or step["force_cancel_requested"] is not True)) or
+                (case != "smoke" and step.get("checkpoint") is not True) or
                 (case in ("capacity", "drain") and step.get("control_released") is not True)):
             raise ValueError("unexpected job outcome, restart or incomplete normal release")
         for key in seen:
@@ -237,7 +242,7 @@ def manager_fenced():
 FAILURE_STAGES = {"preflight", "manager_prepare", "job_sequence", "manager_stop", "resource_cleanup", "evidence_write"}
 FAILURE_KINDS = {"unknown", "canceled", "deadline", "cloud_api", "gitlab_http", "unexpected_eof", "eof", "json_decode", "filesystem"}
 GITLAB_OPERATIONS = {"runner_verify", "runner_details", "project_runners", "project_jobs", "fixture_commit", "pipeline_create",
-                     "pipeline_status", "pipeline_jobs", "pipeline_cancel", "job_trace", "job_artifact"}
+                     "pipeline_status", "pipeline_jobs", "pipeline_cancel", "job_cancel", "job_trace", "job_artifact"}
 
 
 def failure_diagnostics(result):
@@ -278,6 +283,8 @@ def result_diagnostic(result, code):
     diagnostic["jobs"] = [job_outcome(value) for value in jobs[:3]] if isinstance(jobs, list) else []
     diagnostic["failures"] = failure_diagnostics(result)
     diagnostic["manager"] = manager_diagnostic(result)
+    diagnostic["recovery_policy"] = result.get("recovery_policy") if result.get("recovery_policy") in {recovery_policy("manager-crash"), recovery_policy("worker-loss")} else None
+    diagnostic["orphan_release_verified"] = result.get("orphan_release_verified") if type(result.get("orphan_release_verified")) is bool else None
     return diagnostic
 
 
@@ -403,7 +410,7 @@ def run(args):
         # Keep both failures observable even if receipt persistence fails. Public
         # diagnostics contain only allowlisted facts, never raw state or errors.
         print(json.dumps({"job_orchestration_diagnostic": diagnostics}), flush=True)
-        write_json(args.receipt, {"schema_version": 2, "result": status, "cleanup_result": cleanup,
+        write_json(args.receipt, {"schema_version": 3, "recovery_policy": recovery_policy(args.scenario), "result": status, "cleanup_result": cleanup,
                    "job_scenario": args.scenario, "job_count": len(job_cases(args.scenario)),
                    "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                    "phase": args.phase, "executor": args.executor, "manager_mode": "systemd",
@@ -422,7 +429,7 @@ def run(args):
 
 
 def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke"):
-    expected = {"schema_version": 2, "job_scenario": scenario, "job_count": len(job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+    expected = {"schema_version": 3, "recovery_policy": recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"], "manifest_sha256": manifest_digest,
                 "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": run_id, "run_attempt": attempt,
                 "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",

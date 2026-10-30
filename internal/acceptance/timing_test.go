@@ -7,7 +7,7 @@ import (
 
 func TestFixedJobTimingIncludesSetupAndCannotRollForward(t *testing.T) {
 	started := time.Date(2026, 1, 1, 8, 0, 45, 0, time.UTC)
-	for scenario, minutes := range map[string]int{"smoke": 20, "upgrade": 20, "failure": 40, "cancel": 40, "timeout": 40, "capacity": 40, "drain": 40, "worker-loss": 40, "manager-crash": 50} {
+	for scenario, minutes := range map[string]int{"smoke": 20, "upgrade": 20, "failure": 40, "cancel": 40, "timeout": 40, "capacity": 40, "drain": 40, "worker-loss": 40, "manager-crash": 40} {
 		t.Run(scenario, func(t *testing.T) {
 			deadline := started.Add(time.Duration(minutes) * time.Minute)
 			expires := deadline.Add(40 * time.Minute).Truncate(time.Minute)

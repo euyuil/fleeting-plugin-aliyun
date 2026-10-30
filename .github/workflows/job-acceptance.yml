@@ -81,7 +81,7 @@ jobs:
     needs: selection
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
-    timeout-minutes: ${{ matrix.scenario == 'manager-crash' && 80 || 60 }}
+    timeout-minutes: 60
     environment: aliyun-pre-release
     permissions:
       contents: read

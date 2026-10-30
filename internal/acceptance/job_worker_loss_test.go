@@ -29,6 +29,8 @@ func TestWorkerLossThenSuccessfulJob(t *testing.T) {
 		}
 		for _, change := range []func(*Result){
 			func(r *Result) { r.WorkerLossVerified = false },
+			func(r *Result) { r.RecoveryPolicy = "legacy" },
+			func(r *Result) { r.Jobs[0].LossObserved = false },
 			func(r *Result) { r.Jobs[0].LossInjected = false },
 			func(r *Result) { r.Jobs[0].NormalRelease = true },
 			func(r *Result) { r.Jobs[1].LossInjected = true },
@@ -43,8 +45,8 @@ func TestWorkerLossThenSuccessfulJob(t *testing.T) {
 	}
 }
 
-func TestWorkerLossAcceptsPinnedSSHTransportClassification(t *testing.T) {
-	for _, fault := range []string{"ssh-loss", "ssh-keepalive-loss"} {
+func TestWorkerLossUsesConfirmedLossInsteadOfTraceWording(t *testing.T) {
+	for _, fault := range []string{"script-failure", "ssh-loss", "ssh-keepalive-loss", "spoof-transport", "continued-transport", "spoof-keepalive", "continued-keepalive"} {
 		t.Run(fault, func(t *testing.T) {
 			s, _ := fakeWorkerLoss(t, "instance", fault)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -52,8 +54,8 @@ func TestWorkerLossAcceptsPinnedSSHTransportClassification(t *testing.T) {
 			if err := s.run(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if !s.result.Jobs[0].SSHTransportLoss || s.result.Jobs[0].FailureReason != "script_failure" {
-				t.Fatal("missing explicit transport-loss evidence")
+			if !s.result.Jobs[0].LossObserved || s.result.Jobs[0].FailureReason != "script_failure" {
+				t.Fatal("missing confirmed worker-loss evidence")
 			}
 			s.result.Executor = "docker-autoscaler"
 			if verifyJobSequence(s.result) == nil {
@@ -127,7 +129,7 @@ func TestWorkerLossKeepaliveErrorRequiresPinnedCanonicalTimeoutAndMissingExit(t 
 }
 
 func TestWorkerLossRejectsWrongFailureOrIncompleteRecovery(t *testing.T) {
-	for _, fault := range []string{"early-failure", "no-checkpoint", "delete-error", "no-loss", "script-failure", "spoof-transport", "continued-transport", "spoof-keepalive", "continued-keepalive", "canceled", "unexpected-success", "manager-restart", "leak", "replacement", "replacement-leak", "two-replacements", "late-replacement", "reuse-replacement", "second-failure", "same-worker"} {
+	for _, fault := range []string{"early-failure", "no-checkpoint", "delete-error", "no-loss", "canceled", "unexpected-success", "manager-restart", "leak", "replacement", "replacement-leak", "two-replacements", "late-replacement", "reuse-replacement", "second-failure", "same-worker"} {
 		t.Run(fault, func(t *testing.T) {
 			s, _ := fakeWorkerLoss(t, "instance", fault)
 			ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
@@ -303,21 +305,25 @@ func fakeWorkerLoss(t *testing.T, executor, fault string) (workerLossSequence, f
 }
 
 type lossInjectionAPI struct {
-	base  *acceptanceAPI
-	calls []map[string]string
-	err   error
+	base        *acceptanceAPI
+	calls       []map[string]string
+	err         error
+	keepPresent bool
 }
 
 func (a *lossInjectionAPI) Call(ctx context.Context, service, action string, q map[string]string, out any) error {
 	if action == "DeleteInstance" {
 		a.calls = append(a.calls, q)
+		if a.err == nil && !a.keepPresent {
+			delete(a.base.fake.Instances, q["InstanceId"])
+		}
 		return a.err
 	}
 	return a.base.Call(ctx, service, action, q, out)
 }
 
 func TestLossInjectionIsBoundedToTheInventoriedOwnedSpotWorker(t *testing.T) {
-	for _, fault := range []string{"", "foreign-owner", "attached", "another-member", "incomplete", "unsafe-disk", "wrong-worker", "on-demand", "stopped", "no-checkpoint", "ambiguous-response"} {
+	for _, fault := range []string{"", "foreign-owner", "attached", "another-member", "incomplete", "unsafe-disk", "wrong-worker", "on-demand", "stopped", "no-checkpoint", "ambiguous-response", "still-present"} {
 		t.Run(fault, func(t *testing.T) {
 			cloud, base, ledger := fixture()
 			base.fake.Group.MaxSize = 1
@@ -358,12 +364,16 @@ func TestLossInjectionIsBoundedToTheInventoriedOwnedSpotWorker(t *testing.T) {
 				e.Checkpoint = false
 			case "ambiguous-response":
 				api.err = errors.New("response lost")
+			case "still-present":
+				api.keepPresent = true
 			}
-			err := injectWorkerLoss(context.Background(), cloud, ledger, e)
+			ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+			defer cancel()
+			err := injectWorkerLoss(ctx, cloud, ledger, e)
 			if (err == nil) != (fault == "") {
 				t.Fatal("unexpected injection result", err)
 			}
-			if fault == "" || fault == "ambiguous-response" {
+			if fault == "" || fault == "ambiguous-response" || fault == "still-present" {
 				want := []map[string]string{{"RegionId": cloud.Region, "InstanceId": "i-worker", "Force": "true", "ForceStop": "true"}}
 				if !reflect.DeepEqual(api.calls, want) {
 					t.Fatal("wrong deletion target or retry", api.calls)

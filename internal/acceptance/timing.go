@@ -9,8 +9,6 @@ func jobExecutionBudget(scenario string) time.Duration {
 	switch scenario {
 	case "", "smoke", "upgrade":
 		return 20 * time.Minute
-	case "manager-crash":
-		return 50 * time.Minute
 	default:
 		return 40 * time.Minute
 	}

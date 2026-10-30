@@ -12,11 +12,11 @@ from cloud_fixture import JOB_SCENARIOS
 from gitlab_fixture import GitLab, GitLabError
 from release_candidate import revision
 
-STATUSES = {"created", "pending", "preparing", "running", "success", "failed", "canceled", "skipped", "manual", "scheduled"}
+STATUSES = {"created", "pending", "preparing", "running", "canceling", "success", "failed", "canceled", "skipped", "manual", "scheduled"}
 REASONS = {"", "script_failure", "runner_system_failure", "job_execution_timeout", "stuck_or_timeout_failure",
            "api_failure", "unknown_failure", "runner_unsupported", "scheduler_failure", "trace_size_exceeded",
            "runner_service_shutdown", "no_updates_running", "server_timeout_running", "missing_dependency_failure"}
-FLAGS = ("checkpoint", "cancel_requested", "loss_injected", "ssh_transport_loss", "control_released", "crash_injected", "normal_release")
+FLAGS = ("checkpoint", "cancel_requested", "loss_injected", "ssh_transport_loss", "control_released", "crash_injected", "loss_observed", "force_cancel_requested", "normal_release")
 HEADER = re.compile(r"^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z )?[0-9a-f]{2}[OE] ")
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -73,7 +73,8 @@ def outcome(job):
     if not isinstance(job, dict):
         return {"status": "unknown", "failure_reason": "unknown"}
     return {"status": allowed(job.get("status"), STATUSES), "failure_reason": allowed(job.get("failure_reason", ""), REASONS),
-            **{key: job[key] if type(job.get(key)) is bool else None for key in FLAGS}}
+            **{key: job[key] if type(job.get(key)) is bool else None for key in FLAGS},
+            "finalization_source": job.get("finalization_source", "") if job.get("finalization_source", "") in ("", "harness_after_recovery") else "unknown"}
 
 
 def trace_diagnostic(raw):

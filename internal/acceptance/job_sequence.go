@@ -31,6 +31,9 @@ type JobEvidence struct {
 	ControlReleased  bool   `json:"control_released"`
 	LossInjected     bool   `json:"loss_injected"`
 	CrashInjected    bool   `json:"crash_injected"`
+	LossObserved     bool   `json:"loss_observed"`
+	ForceCanceled    bool   `json:"force_cancel_requested"`
+	Finalization     string `json:"finalization_source,omitempty"`
 	SSHTransportLoss bool   `json:"ssh_transport_loss"`
 	NormalRelease    bool   `json:"normal_release"`
 }
@@ -53,14 +56,14 @@ func jobCases(scenario string) []string {
 	return []string{scenario, "smoke"}
 }
 
-func expectedJobOutcome(e JobEvidence) bool {
+func expectedJobOutcome(e JobEvidence, executor string) bool {
 	switch e.Scenario {
 	case "manager-crash":
-		serverDrop := e.FailureReason == "server_timeout_running" || e.FailureReason == "no_updates_running"
-		return e.Checkpoint && e.CrashInjected && !e.ControlReleased && e.Status == "failed" && serverDrop && !e.CancelRequested
+		return e.Checkpoint && e.CrashInjected && !e.ControlReleased && e.Status == "canceled" &&
+			e.CancelRequested && e.NormalRelease && e.Finalization == "harness_after_recovery"
 	case "worker-loss":
-		failure := e.FailureReason == "runner_system_failure" || (e.FailureReason == "script_failure" && e.SSHTransportLoss)
-		return e.Checkpoint && e.LossInjected && !e.ControlReleased && e.Status == "failed" && failure && !e.CancelRequested
+		failure := e.FailureReason == "runner_system_failure" || (executor == "instance" && e.FailureReason == "script_failure")
+		return e.Checkpoint && e.LossInjected && e.LossObserved && !e.ControlReleased && e.Status == "failed" && failure && !e.CancelRequested
 	case "capacity", "drain":
 		return e.Checkpoint && e.ControlReleased && e.Status == "success" && e.FailureReason == "" && !e.CancelRequested
 	case "smoke":
@@ -85,7 +88,8 @@ func verifyJobSequence(r *Result) error {
 			return errors.New("job sequence lacks the real previous-release upgrade proof")
 		}
 	}
-	if r.JobScenario == "worker-loss" && !r.WorkerLossVerified {
+	if r.JobScenario == "worker-loss" && (!r.WorkerLossVerified || r.RecoveryPolicy != workerLossPolicy || len(r.Jobs) != 2 ||
+		(r.Executor != "instance" && r.Jobs[0].FailureReason == "script_failure")) {
 		return errors.New("worker loss lacks reconciliation proof")
 	}
 	if r.JobScenario == "capacity" && (!r.CapacityVerified || r.InstanceLimit != 2) {
@@ -95,7 +99,7 @@ func verifyJobSequence(r *Result) error {
 	if r.JobScenario == "drain" && (!r.DrainVerified || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
 		return errors.New("drain scenario lacks graceful stop and distinct restart proof")
 	}
-	if r.JobScenario == "manager-crash" && (!r.CrashVerified || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
+	if r.JobScenario == "manager-crash" && (!r.CrashVerified || !r.OrphanReleased || r.RecoveryPolicy != crashRecoveryPolicy || len(r.Jobs) != 2 || r.Jobs[0].ManagerPID <= 0 || r.Jobs[0].ManagerPID == r.ManagerPID) {
 		return errors.New("crash scenario lacks automatic restart proof")
 	}
 	budget, workerCount := len(cases), len(cases)
@@ -121,8 +125,9 @@ func verifyJobSequence(r *Result) error {
 		managerMatches := e.ManagerPID == r.ManagerPID || ((r.JobScenario == "drain" || r.JobScenario == "manager-crash") && i == 0)
 		injected := r.JobScenario == "worker-loss" && i == 0
 		normalRelease := !injected
-		if e.Scenario != cases[i] || !expectedJobOutcome(e) || e.NormalRelease != normalRelease || e.LossInjected != injected || !managerMatches ||
+		if e.Scenario != cases[i] || !expectedJobOutcome(e, r.Executor) || e.NormalRelease != normalRelease || e.LossInjected != injected || !managerMatches ||
 			e.CrashInjected != (r.JobScenario == "manager-crash" && i == 0) ||
+			e.LossObserved != injected || ((e.ForceCanceled || e.Finalization != "") && !(r.JobScenario == "manager-crash" && i == 0)) ||
 			(e.SSHTransportLoss && (!injected || r.Executor != "instance")) ||
 			e.PipelineID <= 0 || e.JobID <= 0 || e.InstanceID == "" || !regexp.MustCompile(`^[0-9a-f]{48}$`).MatchString(e.Nonce) ||
 			pipelines[e.PipelineID] || jobs[e.JobID] || workers[e.InstanceID] || nonces[e.Nonce] {
@@ -259,7 +264,7 @@ func (s jobSequence) wait(ctx context.Context, e *JobEvidence) error {
 			}
 			if terminalJob(pipe.Status) && terminalJob(j.Status) {
 				e.Status, e.FailureReason = j.Status, j.FailureReason
-				if j.Runner.ID != s.runnerID || pipe.Status != j.Status || !expectedJobOutcome(*e) {
+				if j.Runner.ID != s.runnerID || pipe.Status != j.Status || !expectedJobOutcome(*e, s.result.Executor) {
 					return errors.New("job did not reach the intended terminal outcome")
 				}
 				if e.Scenario == "smoke" {
