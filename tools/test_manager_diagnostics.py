@@ -66,6 +66,15 @@ class ManagerDiagnosticTests(unittest.TestCase):
             message = "ERROR: ready up preparation failed err=ready command: Process exited with status " + code + " subsystem=taskscaler"
             self.assertIsNone(manager_diagnostic(result(message))["records"][0]["process_exit_code"])
 
+    def test_brackets_and_escaped_quotes_in_log_values_are_not_structural_depth(self):
+        error = 'private "quoted" \\ ' + "[{" * 100
+        for message in (json.dumps({"msg": "ready up preparation failed", "subsystem": "taskscaler", "err": error}),
+                        "ERROR: ready up preparation failed err=" + error + " subsystem=taskscaler"):
+            value = manager_diagnostic(result(message))
+            self.assertEqual(value["evidence"], "RECORDED")
+            self.assertEqual(value["records"][0]["event"], "ready_up_preparation_failed")
+            self.assertNotIn("private", json.dumps(value))
+
     def test_nested_malformed_evidence_cannot_mask_the_original_driver_failure(self):
         nested = "[" * 10000 + "0" + "]" * 10000
         for raw in (nested, result(nested)["manager_journal"]):

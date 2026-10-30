@@ -16,10 +16,35 @@ EVENTS = {
 }
 
 
+def bounded_json(text):
+    # Interpreter JSON recursion limits vary. Bound structural nesting ourselves;
+    # brackets in quoted log messages and escaped quotes do not affect depth.
+    if not text.lstrip().startswith(("{", "[")):
+        return json.loads(text)
+    depth, quoted, escaped = 0, False, False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > 32:
+                raise RecursionError("Manager JSON nesting exceeds its fixed limit")
+        elif char in "]}":
+            depth -= 1
+    return json.loads(text)
+
+
 def event(message):
     """Recognize the pinned Runner's default text or JSON formatter."""
     try:
-        fields = json.loads(message)
+        fields = bounded_json(message)
     except ValueError:
         fields = None
     if isinstance(fields, dict):
@@ -56,7 +81,7 @@ def manager_diagnostic(result):
     records, omitted = [], 0
     for line in lines:
         try:
-            entry = json.loads(line)
+            entry = bounded_json(line)
         except (ValueError, RecursionError):
             return {"evidence": "INVALID"}
         if not isinstance(entry, dict):

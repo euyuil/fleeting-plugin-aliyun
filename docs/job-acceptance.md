@@ -331,7 +331,8 @@ The public diagnostic projects only fixed taskscaler preparation, health and
 removal events, bounded process exit codes, and allowlisted error-word outlines.
 It retains at most eight events and reports omitted events and a full journal
 window explicitly. Missing, unreadable or malformed evidence remains distinct
-from a recorded window with no matching events. Raw journal messages and their
+from a recorded window with no matching events. JSON nesting is limited to 32
+levels independently of the Python interpreter. Raw journal messages and their
 identities stay in the private driver result; the receipt upload does not include
 them. Diagnostic collection cannot change the scenario verdict or prevent cleanup.
 
