@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -51,6 +52,65 @@ def receipt(executor="instance", phase="candidate", scenario="smoke"):
 
 
 class JobAcceptanceTests(unittest.TestCase):
+    def test_explicit_selection_rejects_unknown_duplicates_and_control_characters(self):
+        self.assertEqual(len(job.selected_cases()), 18)
+        self.assertEqual(job.selected_cases("instance/manager-crash,docker-autoscaler/upgrade"),
+                         [("instance", "manager-crash"), ("docker-autoscaler", "upgrade")])
+        for value in ("", "instance", "all,instance/smoke", "instance/smoke,instance/smoke", "docker/smoke",
+                      "instance/unknown", "instance/smoke,", "instance/smoke\n", None, True, ["instance/smoke"]):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                job.selected_cases(value)
+
+    def test_empty_debug_selector_never_expands_to_a_paid_full_run(self):
+        self.assertEqual(job.workflow_cases("all", "jobs"), "all")
+        self.assertEqual(job.workflow_cases("instance/manager-crash", "jobs"), "instance/manager-crash")
+        for value in ("", " ", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                job.workflow_cases(value, "jobs")
+        self.assertEqual(job.workflow_cases("", "all"), "all")
+        for mode in ("all", "cloud-smoke"):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                job.workflow_cases("instance/smoke", mode)
+
+    def test_debug_receipts_never_satisfy_full_gate_or_reuse_other_attempts(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"GITHUB_RUN_ID": "10", "GITHUB_RUN_ATTEMPT": "1"}), \
+                patch.object(job, "verify", return_value=manifest()):
+            root = Path(temp)
+            args = SimpleNamespace(root=root, digest="a" * 64, sha="c" * 40, version="0.1.0-dev", phase="candidate", receipts=root,
+                                   cases="instance/manager-crash,docker-autoscaler/upgrade", operation="debug-gate")
+            for executor, scenario in job.selected_cases(args.cases):
+                (root / f"{executor}-{scenario}.json").write_text(json.dumps(receipt(executor, scenario=scenario)))
+            job.debug_gate(args)
+            summary = job.acceptance_summary(args)
+            self.assertEqual(summary["scope"], "selected-cases")
+            self.assertIs(summary["full_suite"], False)
+            self.assertIs(summary["release_ready"], False)
+            self.assertEqual(len(summary["omitted_cases"]), 16)
+            with self.assertRaises(ValueError):
+                job.gate(args)
+            path = root / "instance-manager-crash.json"
+            good = json.loads(path.read_text())
+            for key, value in (("candidate_sha", "f" * 40), ("run_id", "11"), ("run_attempt", "2"), ("result", "FAIL")):
+                path.write_text(json.dumps({**good, key: value}))
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    job.debug_gate(args)
+            path.write_text(json.dumps(good))
+            extra = root / "instance-smoke.json"
+            extra.write_text(json.dumps(receipt()))
+            with self.assertRaises(ValueError):
+                job.debug_gate(args)
+            extra.unlink()
+            path.unlink()
+            with self.assertRaises(ValueError):
+                job.debug_gate(args)
+
+    def test_selected_case_cli_cannot_change_the_full_gate_or_launch_a_different_job(self):
+        for operation in ("gate", "run", "preflight"):
+            result = subprocess.run([sys.executable, "tools/job_acceptance.py", operation, "--cases", "instance/smoke"],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("only debug-gate accepts", result.stderr)
+
     def test_fixed_timing_has_full_ecs_lead_time_for_late_workers(self):
         started = datetime(2026, 1, 1, 8, 0, 45, tzinfo=timezone.utc)
         for scenario in job.JOB_SCENARIOS:

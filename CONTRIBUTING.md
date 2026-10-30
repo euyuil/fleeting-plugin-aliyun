@@ -182,6 +182,13 @@ The candidate version must be newer than the published upgrade baseline; see
 Inspect all eighteen sanitized scenario receipts and the final gate. Do not upload private
 driver logs, GitLab job artifacts or fixture configuration.
 
+For iterative debugging, add an explicit comma-separated selector, for example
+`-f job_cases=instance/manager-crash,docker-autoscaler/upgrade`, to the manual
+`mode=jobs` command. Only selected cases run; a passing debug summary is not full
+acceptance and cannot authorize publication. Preserve failed receipts and finish
+with `-f job_cases=all` on one final candidate. See
+[targeted debugging](docs/job-acceptance.md#targeted-debugging-before-a-final-full-run).
+
 For a failed case, use its candidate SHA and the GitHub scenario job's UTC start
 and completion times to read the corresponding GitLab outcome:
 
