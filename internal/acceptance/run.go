@@ -397,7 +397,8 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	if options.manager == "systemd" {
-		example, e := os.ReadFile(filepath.Join("/usr/share/doc/fleeting-plugin-aliyun/examples", options.executor, "config.toml"))
+		installedExample := filepath.Join("/usr/share/doc/fleeting-plugin-aliyun/examples", options.executor, "config.toml")
+		example, e := managerExample(installedExample, filepath.Join("examples", options.executor, "config.toml"), options.scenario == "upgrade")
 		if e != nil {
 			fail(errors.New("installed package example is missing"))
 			return result
@@ -424,6 +425,10 @@ func Run(ctx context.Context, dir string) (result Result) {
 			result.Upgrade, err = service.upgrade(ctx, get("ACCEPTANCE_CANDIDATE_PACKAGE"), get("ACCEPTANCE_CANDIDATE_PACKAGE_SHA256"),
 				get("ACCEPTANCE_PREVIOUS_PACKAGE"), options.version, binary)
 			if err != nil {
+				fail(err)
+				return result
+			}
+			if err = verifyInstalledManagerExample(installedExample, example); err != nil {
 				fail(err)
 				return result
 			}
@@ -548,8 +553,61 @@ func Run(ctx context.Context, dir string) (result Result) {
 	result.NormalRelease = options.scenario != "worker-loss"
 	return result
 }
+
+const workerReadinessCommand = `status=0
+timeout 600 sh <<'FLEETING_WORKER_READY' || status=$?
+test ! -L /var/lib/fleeting-worker || exit 209
+while :; do
+  if test -e /var/lib/fleeting-worker; then
+    test -d /var/lib/fleeting-worker && test "$(stat -c %u /var/lib/fleeting-worker)" = 0 || exit 209
+  fi
+  for marker in ready failed phase; do
+    test ! -L "/var/lib/fleeting-worker/$marker" || exit 209
+    if test -e "/var/lib/fleeting-worker/$marker"; then
+      test -f "/var/lib/fleeting-worker/$marker" && test "$(stat -c %u "/var/lib/fleeting-worker/$marker")" = 0 || exit 209
+    fi
+  done
+  if test -e /var/lib/fleeting-worker/failed || test -L /var/lib/fleeting-worker/failed; then
+    test -f /var/lib/fleeting-worker/failed && test ! -L /var/lib/fleeting-worker/failed || exit 209
+    phase=$(head -c 2 /var/lib/fleeting-worker/failed)
+    case "$phase" in
+      1|2|3|4|5|6|7|8) exit $((200 + phase)) ;;
+      *) exit 209 ;;
+    esac
+  fi
+  if test -L /var/lib/fleeting-worker/ready; then exit 209; fi
+  if test -f /var/lib/fleeting-worker/ready; then break; fi
+  sleep 2
+done
+git --version || exit 231
+gitlab-runner --version || exit 232
+FLEETING_WORKER_READY
+if test "$status" -eq 124; then
+  test ! -L /var/lib/fleeting-worker && test -d /var/lib/fleeting-worker && test "$(stat -c %u /var/lib/fleeting-worker)" = 0 || exit 229
+  for marker in ready failed phase; do
+    test ! -L "/var/lib/fleeting-worker/$marker" || exit 229
+    if test -e "/var/lib/fleeting-worker/$marker"; then
+      test -f "/var/lib/fleeting-worker/$marker" && test "$(stat -c %u "/var/lib/fleeting-worker/$marker")" = 0 || exit 229
+    fi
+  done
+  if test -f /var/lib/fleeting-worker/ready; then exit 234; fi
+  phase=
+  if test -f /var/lib/fleeting-worker/phase && test ! -L /var/lib/fleeting-worker/phase; then
+    phase=$(head -c 2 /var/lib/fleeting-worker/phase 2>/dev/null || :)
+  fi
+  case "$phase" in
+    1|2|3|4|5|6|7|8) exit $((220 + phase)) ;;
+    *) exit 229 ;;
+  esac
+fi
+exit "$status"`
+
 func RunnerConfig(url, token, region, group, user, key string, options smokeOptions) string {
 	q := strconv.Quote
+	ready := workerReadinessCommand
+	if options.executor == "docker-autoscaler" {
+		ready = strings.Replace(ready, "\nFLEETING_WORKER_READY\n", "\ndocker info || exit 233\nFLEETING_WORKER_READY\n", 1)
+	}
 	config := fmt.Sprintf(`concurrent = 1
 [[runners]]
  name = "aliyun-fleeting-smoke"
@@ -564,8 +622,8 @@ func RunnerConfig(url, token, region, group, user, key string, options smokeOpti
  capacity_per_instance = 1
  max_use_count = 1
  max_instances = 1
- instance_acquire_timeout = "10m"
- instance_ready_command = "timeout 300 sh -c 'until test -f /var/lib/fleeting-worker/ready; do sleep 2; done; git --version && gitlab-runner --version'"
+ instance_acquire_timeout = "15m"
+ instance_ready_command = %s
  delete_instances_on_shutdown = true
  [runners.autoscaler.plugin_config]
  region = %s
@@ -580,9 +638,8 @@ func RunnerConfig(url, token, region, group, user, key string, options smokeOpti
  idle_count = 0
  idle_time = "1m"
  preemptive_mode = false
-`, q(url), q(token), q(options.executor), q(options.reference), q(region), q(group), q(user), q(key))
+`, q(url), q(token), q(options.executor), q(options.reference), q(ready), q(region), q(group), q(user), q(key))
 	if options.executor == "docker-autoscaler" {
-		config = strings.Replace(config, "gitlab-runner --version'", "gitlab-runner --version && docker info'", 1)
 		config += "\n [runners.docker]\n image = " + q(options.image) + "\n privileged = false\n"
 	}
 	return config

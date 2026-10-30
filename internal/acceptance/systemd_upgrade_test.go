@@ -2,10 +2,55 @@ package acceptance
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestUpgradeUsesCandidateCompatibleTemplateAndChecksItsInstallation(t *testing.T) {
+	dir := t.TempDir()
+	installed, candidate := filepath.Join(dir, "installed.toml"), filepath.Join(dir, "candidate.toml")
+	old, next := []byte("baseline readiness policy"), []byte("candidate cold readiness policy")
+	if err := os.WriteFile(installed, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, next, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, upgrade := range []bool{false, true} {
+		got, err := managerExample(installed, candidate, upgrade)
+		want := old
+		if upgrade {
+			want = next
+		}
+		if err != nil || string(got) != string(want) {
+			t.Fatal("wrong template source", upgrade, err)
+		}
+	}
+	if verifyInstalledManagerExample(installed, next) == nil {
+		t.Fatal("baseline or substituted template accepted as the installed candidate")
+	}
+	if err := os.WriteFile(installed, next, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyInstalledManagerExample(installed, next); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(candidate); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := managerExample(installed, candidate, true); err == nil {
+		t.Fatal("missing candidate template accepted")
+	}
+	if err := os.Remove(installed); err != nil {
+		t.Fatal(err)
+	}
+	if verifyInstalledManagerExample(installed, next) == nil {
+		t.Fatal("missing installed candidate example accepted")
+	}
+}
 
 func TestUpgradeRequiresReleasedArtifactAndPreservedState(t *testing.T) {
 	t.Chdir("../..")

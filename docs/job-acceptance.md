@@ -82,6 +82,17 @@ at most sixty minutes for smoke/upgrade and eighty for recovery, including Manag
 crash. This separate, immutable cost-protection deadline leaves more
 than thirty minutes of ECS API lead time even for a late recovery worker.
 Normal release and inline cleanup still happen immediately when the case ends.
+The [Linux readiness policy](operations.md#linux-worker-readiness) allows cold
+bootstrap within a 600-second ready command and 15-minute acquisition window,
+and exposes only fixed bootstrap phase/failure codes. It does not extend the
+20/40-minute scenario deadlines, immutable expiry, cumulative creation limits,
+checkpoint requirements or release/cleanup assertions.
+For `upgrade`, the published baseline is configured with the candidate-compatible
+example from the exact candidate checkout. After the actual upgrade, rollback
+and final upgrade preserve that configured state, the installed candidate
+package example must match those captured template bytes before Manager start.
+This validates migration of a supplied compatible configuration; it does not
+claim migration of the baseline package's original default template.
 The serial eighteen-case phase permits thirty-six cumulative workers,
 with at most two active workers per fixture. The full candidate gate requires all
 eighteen schema-v3 receipts; a smoke receipt cannot substitute for a recovery case.

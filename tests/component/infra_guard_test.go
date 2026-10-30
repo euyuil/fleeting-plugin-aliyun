@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,8 @@ func TestBootstrapRejectsPrivateKeyBeforePackageChanges(t *testing.T) {
 	cmd.Env = append(os.Environ(), "PATH="+root+string(os.PathListSeparator)+os.Getenv("PATH"), "TEST_UNEXPECTED_MUTATION="+marker, "RUNNER_VERSION=19.5.1", "RUNNER_SHA256=synthetic", "WORKER_PUBLIC_KEY=-----BEGIN PRIVATE KEY-----", "GIT_PACKAGE_VERSION=synthetic", "CURL_PACKAGE_VERSION=synthetic", "CA_PACKAGE_VERSION=synthetic", "SSH_PACKAGE_VERSION=synthetic", "COREUTILS_PACKAGE_VERSION=synthetic")
 	if out, err := cmd.CombinedOutput(); err == nil {
 		t.Fatal("private key admitted", string(out))
+	} else if !strings.Contains(string(out), "Provide one OpenSSH public key, never a private key.") {
+		t.Fatal("bootstrap did not reach the intended private-key rejection", string(out))
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("package change preceded public-key validation")

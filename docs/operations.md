@@ -76,6 +76,52 @@ network; do not open a public administration port to all addresses. See
 [ADR 0003](adr/0003-state-and-connections.md) for the pinned connector's server
 identity verification limits.
 
+## Linux worker readiness
+
+The two Linux examples allow up to 600 seconds for the ready command and
+15 minutes for acquisition. These are finite connection/readiness policies,
+not changes to pool capacity or instance lifetime. The command requires the
+ready marker and successful Git/Runner probes, plus Docker for that executor.
+Readiness still fails if any probe fails or the command deadline expires.
+
+Cold bootstrap must finish package installation and Runner verification before
+writing readiness. The Runner download supports three retries with a 120-second
+limit per transfer; [curl resets that limit for each retry](https://curl.se/docs/manpage.html#--max-time).
+A 300-second ready window can therefore terminate a supported retry sequence.
+The larger window is not a guarantee that every package/network operation can
+complete, and does not override the caller's overall execution deadline.
+
+The bootstrap scripts own `/var/lib/fleeting-worker` and its regular `phase`,
+`failed` and `ready` files as root. They refuse linked or unowned existing state.
+Only a fixed phase number is stored; failures retain their original shell exit
+status, remove a temporary Runner download, and never create readiness. A failed
+marker takes precedence over an old ready marker and stops waiting immediately.
+
+| Phase | Bootstrap operation |
+| --- | --- |
+| 1 | Ubuntu package index and version selection |
+| 2 | Docker package installation |
+| 3 | Docker service startup and initial check |
+| 4 | Base tool packages and input validation |
+| 5 | SSH user, directory and public-key setup |
+| 6 | Runner download |
+| 7 | Runner checksum verification and installation |
+| 8 | Final bootstrap tool and user probes |
+
+Phase and failure files are published atomically after their permissions are set.
+The shipped ready command returns `201–208` for a failed phase and `221–228`
+for the phase observed when reporting a deadline. That snapshot can advance
+after the inner command stops; it does not prove the precise phase at expiry.
+Unknown/invalid failed state returns `209`;
+an unknown deadline phase returns `229`. Failed Git, Runner and Docker readiness
+probes return `231`, `232` and `233`; a ready marker present when reporting a
+deadline returns `234`, without proving that probes had already started.
+All are failures. State reads are bounded and never echo their contents. These
+fixed codes allow the acceptance Manager journal to retain a phase even though
+the pinned Runner connector does not capture ready-command stdout/stderr.
+The public projection interprets them only in a recognized ready-command error;
+it does not publish worker logs, URLs, identities or arbitrary status strings.
+
 Set `use_static_credentials=true`. Explicit user, port, OS, architecture, and
 route settings take precedence. Omitted OS/architecture values are inferred from
 ECS metadata; unknown values fail clearly. ConnectInfo refreshes both addresses
