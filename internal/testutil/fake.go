@@ -196,6 +196,10 @@ func (f *Fake) Call(ctx context.Context, service, action string, q map[string]st
 		f.Tokens[t] = result
 		return assign(out, result)
 	case "ModifyInstanceAutoReleaseTime":
+		if instance, exists := f.Instances[q["InstanceId"]]; exists {
+			instance.AutoReleaseTime = q["AutoReleaseTime"]
+			f.Instances[q["InstanceId"]] = instance
+		}
 		return assign(out, map[string]any{"RequestId": "test"})
 	case "DescribeDisks":
 		if id := q["InstanceId"]; id != "" {

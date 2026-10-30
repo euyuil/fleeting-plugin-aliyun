@@ -70,9 +70,9 @@ func Missing(get func(string) string) []string {
 	return missing
 }
 func Run(ctx context.Context, dir string) (result Result) {
-	duration, budget, limit := 20*time.Minute, 1, 1
+	duration, budget, limit := jobExecutionBudget(os.Getenv("ACCEPTANCE_JOB_SCENARIO")), 1, 1
 	if scenario := os.Getenv("ACCEPTANCE_JOB_SCENARIO"); scenario != "" && scenario != "smoke" {
-		duration, budget = 40*time.Minute, 2
+		budget = 2
 	}
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "capacity" {
 		budget, limit = 3, 2
@@ -80,11 +80,8 @@ func Run(ctx context.Context, dir string) (result Result) {
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "worker-loss" {
 		budget = 3
 	}
-	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "manager-crash" {
-		duration = 50 * time.Minute
-	}
 	if os.Getenv("ACCEPTANCE_JOB_SCENARIO") == "upgrade" {
-		duration, budget = 20*time.Minute, 1
+		budget = 1
 	}
 	ctx, stageCancel := context.WithTimeout(ctx, duration)
 	defer stageCancel()
@@ -146,6 +143,16 @@ func Run(ctx context.Context, dir string) (result Result) {
 	result.PluginVersion, result.JobImage = options.version, options.image
 	result.ManagerMode, result.JobScenario = options.manager, options.scenario
 	if options.manager == "systemd" {
+		started, deadline, expires, timingErr := jobTiming(get, options.scenario, time.Now())
+		if timingErr != nil {
+			fail(timingErr)
+			return result
+		}
+		result.StartedAt, result.DeadlineAt = started, deadline
+		result.ExpiresAt, result.WorkerExpiresAt = expires, expires
+		var deadlineCancel context.CancelFunc
+		ctx, deadlineCancel = context.WithDeadline(ctx, deadline)
+		defer deadlineCancel()
 		result.DriverPID = os.Getpid()
 	}
 	gitlabURL := get("GITLAB_URL")

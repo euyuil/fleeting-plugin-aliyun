@@ -71,13 +71,22 @@ func ObserveBudget(ctx context.Context, c *aliyun.Client, l *Ledger, budget int,
 		l.Instances[n].Zone = i.ZoneId
 		l.Instances[n].InstanceType = i.InstanceType
 		if l.Instances[n].AutoReleaseAt == "" && i.Status == "Running" {
-			at, write, err := workerAutoReleaseDeadline(l.StartedAt, time.Now(), i.AutoReleaseTime)
+			ceiling := l.WorkerExpiresAt
+			if ceiling.IsZero() {
+				// Legacy plugin-only fixtures retain their original one-hour TTL;
+				// ExpiresAt is their separate, shorter janitor eligibility marker.
+				ceiling = l.StartedAt.Add(time.Hour).UTC().Truncate(time.Minute)
+			}
+			at, write, err := workerAutoReleaseDeadline(l.StartedAt, ceiling, time.Now(), i.AutoReleaseTime)
 			if err != nil {
 				return err
 			}
 			if write {
 				var out struct{ RequestId string }
 				if err = c.API.Call(ctx, "ecs", "ModifyInstanceAutoReleaseTime", map[string]string{"RegionId": c.Region, "InstanceId": i.InstanceId, "AutoReleaseTime": at}, &out); err != nil {
+					return err
+				}
+				if err = confirmWorkerAutoRelease(ctx, c, i.InstanceId, at); err != nil {
 					return err
 				}
 			}
@@ -91,11 +100,10 @@ func ObserveBudget(ctx context.Context, c *aliyun.Client, l *Ledger, budget int,
 	return nil
 }
 
-func workerAutoReleaseDeadline(started, now time.Time, existing string) (string, bool, error) {
-	if started.IsZero() || started.After(now) {
+func workerAutoReleaseDeadline(started, ceiling, now time.Time, existing string) (string, bool, error) {
+	if started.IsZero() || started.After(now) || !ceiling.After(started) || ceiling.After(started.Add(90*time.Minute)) {
 		return "", false, errors.New("invalid run start for worker automatic release")
 	}
-	ceiling := started.Add(time.Hour).UTC().Truncate(time.Minute)
 	if existing != "" {
 		// DescribeInstances can return minute-precision UTC. Only its actual
 		// instance response proves that a launch-template deadline was inherited.
@@ -110,7 +118,7 @@ func workerAutoReleaseDeadline(started, now time.Time, existing string) (string,
 			return "", false, errors.New("worker automatic release deadline has expired")
 		}
 		if at.After(ceiling) {
-			return "", false, errors.New("worker automatic release deadline exceeds the fixed one-hour limit")
+			return "", false, errors.New("worker automatic release deadline exceeds the fixed scenario limit")
 		}
 		return at.UTC().Format(time.RFC3339), false, nil
 	}
@@ -121,6 +129,35 @@ func workerAutoReleaseDeadline(started, now time.Time, existing string) (string,
 		return "", false, errors.New("insufficient lead time to establish the fixed worker automatic release deadline")
 	}
 	return ceiling.Format(time.RFC3339), true, nil
+}
+
+func confirmWorkerAutoRelease(ctx context.Context, c *aliyun.Client, id, expected string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	want, _ := time.Parse(time.RFC3339, expected)
+	for {
+		instances, err := c.Instances(ctx, []string{id})
+		if err != nil {
+			return err
+		}
+		instance, exists := instances[id]
+		if !exists {
+			return errors.New("worker disappeared before automatic release confirmation")
+		}
+		if instance.AutoReleaseTime != "" {
+			actual, err := time.Parse(time.RFC3339, instance.AutoReleaseTime)
+			if err != nil {
+				actual, err = time.Parse("2006-01-02T15:04Z", instance.AutoReleaseTime)
+			}
+			if err != nil || !actual.Equal(want) {
+				return errors.New("worker automatic release readback differs from the fixed deadline")
+			}
+			return nil
+		}
+		if err := aliyun.Wait(ctx, time.Second); err != nil {
+			return errors.New("worker automatic release was not confirmed before its readback deadline")
+		}
+	}
 }
 
 func appendUnique(ids []string, id string) []string {

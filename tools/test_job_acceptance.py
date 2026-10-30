@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime, timedelta, timezone
 from contextlib import redirect_stdout
 import hashlib
 import io
@@ -50,6 +51,17 @@ def receipt(executor="instance", phase="candidate", scenario="smoke"):
 
 
 class JobAcceptanceTests(unittest.TestCase):
+    def test_fixed_timing_has_full_ecs_lead_time_for_late_workers(self):
+        started = datetime(2026, 1, 1, 8, 0, 45, tzinfo=timezone.utc)
+        for scenario in job.JOB_SCENARIOS:
+            budget = 20 if scenario in ("smoke", "upgrade") else 50 if scenario == "manager-crash" else 40
+            timing = {key: datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                      for key, value in job.job_timing(scenario, started).items()}
+            self.assertEqual(timing["ACCEPTANCE_STARTED_AT"], started)
+            self.assertEqual(timing["ACCEPTANCE_DEADLINE_AT"], started + timedelta(minutes=budget))
+            self.assertGreater(timing["ACCEPTANCE_EXPIRES_AT"] - timing["ACCEPTANCE_DEADLINE_AT"], timedelta(minutes=39))
+            self.assertLessEqual(timing["ACCEPTANCE_EXPIRES_AT"] - started, timedelta(minutes=90))
+
     def test_worker_rejects_wrong_os_before_installing_anything(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -342,7 +354,7 @@ class JobAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, env), \
                 patch.object(job.subprocess, "Popen") as popen, patch.object(job, "stop_process_group", side_effect=ValueError("still alive")):
             root = Path(temp)
-            fixture = Mock(directory=root, tags={"fleeting-project": "example/project"}, state={"ids": {"group": "synthetic-group"}})
+            fixture = Mock(directory=root, tags={"fleeting-project": "example/project"}, state={"ids": {"group": "synthetic-group"}, "job_timing": job.job_timing("smoke", datetime.now(timezone.utc))})
             popen.return_value.pid = 123
             popen.return_value.wait.return_value = 1
             with self.assertRaises(ValueError):
