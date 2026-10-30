@@ -304,6 +304,17 @@ evidence stays explicitly unrecorded. Raw exceptions, resource identities,
 configuration and logs remain private. Failed cleanup still fails the gate;
 confirm the independent janitor's result for the exact owning run and attempt.
 
+Driver diagnostics preserve up to eight failures in occurrence order, including
+unknown errors, with an explicit omitted count. Each record identifies its fixed
+stage, error category and, when available, the failed API operation, HTTP status
+or allowlisted cloud code. The job index is 1–3; pool-wide and teardown failures
+have no job index. Source-message templates contain format placeholders instead
+of interpolated values. These are diagnostic observations, not acceptance proof.
+The original scenario classification survives a later forced Manager stop;
+forced shutdown after an otherwise passing scenario still fails acceptance.
+A resource cleanup failure still prevents a passing aggregate result while
+the earlier failure records remain intact.
+
 The fixture job has a 20-minute timeout to include ordinary preparation. The
 shipped Manager examples retain their readiness and acquisition deadlines;
 installation failure or an exceeded deadline fails acceptance. The one-Mbps

@@ -19,6 +19,7 @@ type capacitySequence struct {
 func (s capacitySequence) run(ctx context.Context) error {
 	r := s.result
 	for range 3 {
+		r.activeJob = 0
 		if err := s.checkManager(ctx); err != nil {
 			return err
 		}
@@ -28,6 +29,7 @@ func (s capacitySequence) run(ctx context.Context) error {
 	}
 	first, retained, queued := -1, -1, -1
 	for {
+		r.activeJob = 0 // Pool-wide observations do not belong to one job.
 		if err := s.checkManager(ctx); err != nil {
 			return err
 		}
@@ -41,6 +43,7 @@ func (s capacitySequence) run(ctx context.Context) error {
 				}
 			}
 		}
+		r.activeJob = 0
 		if first < 0 {
 			var running []int
 			pending := -1
@@ -71,11 +74,13 @@ func (s capacitySequence) run(ctx context.Context) error {
 				return errors.New("release interrupted the retained job")
 			}
 			if r.Jobs[first].Status == "success" && !r.Jobs[first].NormalRelease {
+				r.activeJob = first + 1
 				gone, err := s.workerGone(ctx, r.Jobs[first].InstanceID)
 				if err != nil {
 					return err
 				}
 				r.Jobs[first].NormalRelease = gone
+				r.activeJob = 0
 			}
 			if r.Jobs[first].NormalRelease && r.Jobs[queued].Status == "running" && r.Jobs[queued].Checkpoint {
 				if len(r.Instances) != 3 || r.Jobs[queued].InstanceID == r.Jobs[first].InstanceID || r.Jobs[queued].InstanceID == r.Jobs[retained].InstanceID {
@@ -90,6 +95,7 @@ func (s capacitySequence) run(ctx context.Context) error {
 				r.CapacityVerified = true
 			}
 		}
+		r.activeJob = 0
 		done := r.CapacityVerified
 		for _, e := range r.Jobs {
 			done = done && e.Status == "success"
@@ -114,6 +120,7 @@ func (s capacitySequence) run(ctx context.Context) error {
 }
 
 func (s capacitySequence) open(ctx context.Context, index int) error {
+	s.result.activeJob = index + 1
 	e := &s.result.Jobs[index]
 	if e.ControlReleased || !e.Checkpoint || e.Status != "running" {
 		return errors.New("capacity barrier requires an active checkpoint")
@@ -126,6 +133,7 @@ func (s capacitySequence) open(ctx context.Context, index int) error {
 }
 
 func (s capacitySequence) poll(ctx context.Context, e *JobEvidence) error {
+	s.selectJob(e)
 	var pipe pipeline
 	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &pipe); err != nil {
 		return err

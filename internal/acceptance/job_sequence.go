@@ -77,6 +77,7 @@ func expectedJobOutcome(e JobEvidence) bool {
 }
 
 func verifyJobSequence(r *Result) error {
+	r.activeJob = 0
 	if r.JobScenario == "upgrade" {
 		version, hash, _, err := upgradeBaseline()
 		if err != nil || r.Upgrade == nil || r.Upgrade.Version != version || r.Upgrade.PackageSHA256 != hash ||
@@ -134,6 +135,7 @@ type jobSequence struct {
 
 func (s jobSequence) start(ctx context.Context, scenario string) (*JobEvidence, error) {
 	r := s.result
+	r.activeJob = len(r.Jobs) + 1
 	nonce, err := jobNonce()
 	if err != nil {
 		return nil, err
@@ -161,6 +163,7 @@ func (s jobSequence) start(ctx context.Context, scenario string) (*JobEvidence, 
 func (s jobSequence) run(ctx context.Context) error {
 	r := s.result
 	for _, scenario := range jobCases(r.JobScenario) {
+		r.activeJob = 0
 		if err := s.checkManager(ctx); err != nil {
 			return err
 		}
@@ -191,6 +194,7 @@ func (s jobSequence) run(ctx context.Context) error {
 }
 
 func (s jobSequence) wait(ctx context.Context, e *JobEvidence) error {
+	s.selectJob(e)
 	for {
 		if err := s.checkManager(ctx); err != nil {
 			return err
@@ -261,6 +265,16 @@ func (s jobSequence) wait(ctx context.Context, e *JobEvidence) error {
 		}
 		if err := aliyun.Wait(ctx, s.pollInterval); err != nil {
 			return err
+		}
+	}
+}
+
+func (s jobSequence) selectJob(e *JobEvidence) {
+	s.result.activeJob = 0
+	for i := range s.result.Jobs {
+		if &s.result.Jobs[i] == e {
+			s.result.activeJob = i + 1
+			return
 		}
 	}
 }

@@ -464,5 +464,44 @@ class JobRunDiagnosticTests(unittest.TestCase):
         self.assertTrue(all(stage["result"] == "PASS" for stage in diagnostics.values()))
 
 
+class DriverFailureDiagnosticsTests(unittest.TestCase):
+    def test_primary_and_teardown_errors_remain_ordered_and_redacted(self):
+        result = {"failures_omitted": 0, "failures": [
+            {"stage": "job_sequence", "job_index": 2, "kind": "gitlab_http", "service": "gitlab", "operation": "pipeline_jobs", "method": "GET", "http_status": 503},
+            {"stage": "manager_stop", "job_index": 0, "kind": "unknown"},
+            {"stage": "resource_cleanup", "kind": "cloud_api", "service": "ecs", "operation": "DescribeInstances", "cloud_code": "Forbidden.RAM"}],
+            "errors": ["GitLab API HTTP 503", "packaged Manager did not complete a healthy graceful shutdown",
+                       "Alibaba Cloud API error: code=Forbidden.RAM request_id=synthetic-private-request"]}
+        actual = job.result_diagnostic(result, 1)["failures"]
+        rows = actual["records"]
+        self.assertEqual([row["stage"] for row in rows], ["job_sequence", "manager_stop", "resource_cleanup"])
+        self.assertEqual((rows[0]["job_index"], rows[0]["http_status"]), (2, 503))
+        self.assertEqual(rows[0]["matched_error_templates"], ["GitLab API HTTP %d"])
+        self.assertEqual(rows[1]["matched_error_templates"], ["packaged Manager did not complete a healthy graceful shutdown"])
+        self.assertEqual(rows[2]["cloud_code"], "Forbidden.RAM")
+        self.assertEqual((actual["unknown_count"], actual["omitted_count"]), (1, 0))
+        self.assertNotIn("synthetic-private", json.dumps(actual))
+
+    def test_unknown_malformed_and_truncated_records_cannot_leak(self):
+        private = "https://synthetic-private.invalid/token"
+        row = {key: private for key in ("stage", "kind", "service", "operation", "method", "cloud_code", "http_status", "job_index")}
+        result = {"failures_omitted": 3, "failures": [row, private, None] * 3, "errors": [private] * 9}
+        actual = job.failure_diagnostics(result)
+        self.assertEqual(len(actual["records"]), 8)
+        self.assertEqual((actual["unknown_count"], actual["omitted_count"]), (8, 4))
+        self.assertNotIn("synthetic-private", json.dumps(actual))
+        for value in (True, False, -1, 0, 99, 600, [], {}):
+            actual = job.failure_diagnostics({"failures_omitted": 0, "failures": [{"kind": "gitlab_http", "http_status": value, "job_index": value}]})
+            self.assertIsNone(actual["records"][0]["http_status"])
+            self.assertIsNone(actual["records"][0]["job_index"])
+        actual = job.failure_diagnostics({"failures_omitted": 0, "failures": [{"kind": "cloud_api", "service": "ecs", "operation": private,
+                                                                               "cloud_code": "Forbidden." + private}]})
+        self.assertEqual(actual["records"][0]["cloud_code"], "unknown")
+        self.assertNotIn("synthetic-private", json.dumps(actual))
+        self.assertEqual(job.failure_diagnostics({}), {"evidence": "NOT_RECORDED"})
+        self.assertEqual(job.failure_diagnostics({"failures_omitted": True}), {"evidence": "INVALID"})
+        self.assertEqual(job.failure_diagnostics({"failures_omitted": 0, "failures": {}}), {"evidence": "INVALID"})
+
+
 if __name__ == "__main__":
     unittest.main()

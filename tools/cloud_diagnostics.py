@@ -97,7 +97,7 @@ def phase_diagnostics(log, templates=()):
             if active:
                 row = scopes[active[0]]["phases"][active[1]]
                 for template in templates:
-                    if template.split("%", 1)[0] in line and template not in row["matched_error_templates"]:
+                    if matches_error_template(line, template) and template not in row["matched_error_templates"]:
                         row["matched_error_templates"].append(template)
                 for category in transport_categories(line):
                     if category not in row["transport_error_categories"]:
@@ -158,18 +158,36 @@ def read_driver_diagnostic(directory, run, attempt, code):
     return driver_diagnostic(receipt, code, log)
 
 
+def matches_error_template(log, template):
+    parts = re.split(r"%[-+#0-9. ]*[vTtbcdoOqxXUeEfFgGsqpw]", template)
+    return sum(map(len, parts)) >= 12 and re.search(r"[\s\S]*?".join(map(re.escape, parts)), log) is not None
+
+
 def matching_error_templates(log, source):
     templates = set()
-    pattern = r'\b(?:errors\.New|fmt\.Errorf|t\.(?:Fatalf?|Errorf?))\(\s*("(?:[^"\\]|\\.)*")'
+    pattern = r'\b(?:errors\.New|fmt\.(?:Errorf|Sprintf)|t\.(?:Fatalf?|Errorf?))\(\s*("(?:[^"\\]|\\.)*")'
     for literal in re.findall(pattern, source):
         try:
             template = json.loads(literal)
         except ValueError:
             continue
-        prefix = template.split("%", 1)[0]
-        if len(prefix) >= 12 and prefix in log:
+        if matches_error_template(log, template):
             # Return only the published source literal, never interpolated data.
             templates.add(template)
+    return sorted(templates)
+
+
+def source_error_templates(log):
+    root = Path(__file__).resolve().parent.parent
+    sources = [root / "tests/live/extended_test.go"]
+    for package in ("acceptance", "aliyun", "provider"):
+        sources.extend(p for p in (root / "internal" / package).glob("*.go") if not p.name.endswith("_test.go"))
+    templates = set()
+    for path in sources:
+        try:
+            templates.update(matching_error_templates(log, path.read_text()))
+        except OSError:
+            continue
     return sorted(templates)
 
 
@@ -181,16 +199,7 @@ def driver_diagnostic(receipt, code, log):
     resources = resources if isinstance(resources, dict) else {}
     instances = resources.get("instances")
     results = ("PASS", "FAIL_PRODUCT", "FAIL_INFRASTRUCTURE", "CLEANUP_FAILED")
-    root = Path(__file__).resolve().parent.parent
-    sources = [root / "tests/live/extended_test.go"]
-    for package in ("acceptance", "aliyun", "provider"):
-        sources.extend(p for p in (root / "internal" / package).glob("*.go") if not p.name.endswith("_test.go"))
-    templates = set()
-    for path in sources:
-        try:
-            templates.update(matching_error_templates(log, path.read_text()))
-        except OSError:
-            continue
+    templates = source_error_templates(log)
     categories = {api_error(None, None, code)["category"]
                   for code in re.findall(r"Alibaba Cloud API error: code=([^\s]+)", log)}
     return {"exit_code": code if type(code) is int and -255 <= code <= 255 else None,
