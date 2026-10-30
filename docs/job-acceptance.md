@@ -92,7 +92,18 @@ next targeted round.
 
 During debugging, select failed or previously unrun cases and omit cases that
 already passed. Every new run still builds and verifies its own sealed candidate;
-its gate requires exactly the selected receipts from that run and attempt, with
+manual `mode=jobs` uses the `debug` profile: security, `verify-fast`, and the same
+complete distribution/manifest, followed by the selected real native amd64
+package/systemd cases. It skips the four-platform lifecycle prerequisite. It
+does not use a partial manifest, reuse historical binaries or bypass package
+installation in the selected cases. Other modes retain `verify-code` and all
+four native platform validations.
+
+Each receipt binds its validation profile as well as the artifact and identity;
+debug receipts cannot satisfy the full receipt gate, even when all eighteen
+debug cases pass. Summaries retain the configuration digests, policy versions
+and selected/omitted cases. The debug gate requires exactly the selected receipts
+from that run and attempt, with
 matching source, distribution and configuration. Historical receipts cannot fill
 in omitted cases. The separate `debug-gate` emits a `selected-cases` summary with
 the explicit omissions and `release_ready=false`, even if every selected case

@@ -50,6 +50,17 @@ def workflow_cases(value, mode):
     return value
 
 
+def workflow_profile(profile, phase, cases):
+    if profile not in ("full", "debug") or phase not in PHASES:
+        raise ValueError("unknown job acceptance profile or phase")
+    selected = selected_cases(cases)
+    if profile == "debug" and phase != "candidate":
+        raise ValueError("debug validation is only available before publication")
+    if profile == "full" and cases != "all":
+        raise ValueError("full validation cannot select partial cases")
+    return selected
+
+
 def job_timing(scenario, now):
     if scenario not in JOB_SCENARIOS:
         raise ValueError("unknown job acceptance scenario")
@@ -410,7 +421,8 @@ def run(args):
         # Keep both failures observable even if receipt persistence fails. Public
         # diagnostics contain only allowlisted facts, never raw state or errors.
         print(json.dumps({"job_orchestration_diagnostic": diagnostics}), flush=True)
-        write_json(args.receipt, {"schema_version": 3, "recovery_policy": recovery_policy(args.scenario), "result": status, "cleanup_result": cleanup,
+        write_json(args.receipt, {"schema_version": 3, "validation_profile": getattr(args, "profile", "full"),
+                   "recovery_policy": recovery_policy(args.scenario), "result": status, "cleanup_result": cleanup,
                    "job_scenario": args.scenario, "job_count": len(job_cases(args.scenario)),
                    "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                    "phase": args.phase, "executor": args.executor, "manager_mode": "systemd",
@@ -428,8 +440,8 @@ def run(args):
         raise cleanup_error
 
 
-def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke"):
-    expected = {"schema_version": 3, "recovery_policy": recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke", profile="full"):
+    expected = {"schema_version": 3, "validation_profile": profile, "recovery_policy": recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"], "manifest_sha256": manifest_digest,
                 "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": run_id, "run_attempt": attempt,
                 "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -441,7 +453,7 @@ def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, a
             raise ValueError("job receipt lacks a configuration binding")
 
 
-def validate_receipts(args, cases):
+def validate_receipts(args, cases, profile="full"):
     manifest = verify(args.root, args.digest, args.sha, args.version)
     paths = list(args.receipts.glob("*.json"))
     expected = {f"{executor}-{scenario}.json" for executor, scenario in cases}
@@ -450,7 +462,7 @@ def validate_receipts(args, cases):
     configs = set()
     for executor, scenario in cases:
         receipt = json.loads((args.receipts / f"{executor}-{scenario}.json").read_text())
-        check_receipt(receipt, manifest, args.digest, args.phase, executor, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], scenario)
+        check_receipt(receipt, manifest, args.digest, args.phase, executor, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], scenario, profile)
         configs.add((receipt["fixture_config_sha256"], receipt["gitlab_config_sha256"]))
     if len(configs) != 1:
         raise ValueError("executor jobs used different fixture configurations")
@@ -463,14 +475,20 @@ def gate(args):
 
 
 def debug_gate(args):
-    validate_receipts(args, selected_cases(args.cases))
+    if args.phase != "candidate":
+        raise ValueError("debug receipts cannot validate a public release")
+    validate_receipts(args, selected_cases(args.cases), "debug")
 
 
 def acceptance_summary(args):
     full = args.operation == "gate"
     selected = selected_cases() if full else selected_cases(args.cases)
     keys = ["/".join(case) for case in selected]
-    return {"schema_version": 1, "result": "PASS", "scope": "full-suite" if full else "selected-cases",
+    binding = json.loads((args.receipts / ("-".join(selected[0]) + ".json")).read_text())
+    return {"schema_version": 2, "result": "PASS", "scope": "full-suite" if full else "selected-cases",
+            "validation_profile": "full" if full else "debug", "receipt_schema_version": 3,
+            "recovery_policies": {scenario: recovery_policy(scenario) for _, scenario in selected},
+            "fixture_config_sha256": binding["fixture_config_sha256"], "gitlab_config_sha256": binding["gitlab_config_sha256"],
             "full_suite": full, "release_ready": full, "candidate_sha": args.sha, "version": args.version,
             "manifest_sha256": args.digest, "phase": args.phase, "run_id": os.environ["GITHUB_RUN_ID"],
             "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "selected_cases": keys,
@@ -487,6 +505,7 @@ def main():
     parser.add_argument("--sha")
     parser.add_argument("--version")
     parser.add_argument("--phase", choices=PHASES)
+    parser.add_argument("--profile", choices=("full", "debug"), default="full")
     parser.add_argument("--executor", choices=EXECUTORS)
     parser.add_argument("--scenario", choices=JOB_SCENARIOS, default="smoke")
     parser.add_argument("--directory", type=Path)
@@ -497,6 +516,8 @@ def main():
     parser.add_argument("--driver", type=Path, default=Path("bin/aliyun-acceptance"))
     parser.add_argument("--read-only", action="store_true")
     args = parser.parse_args()
+    if args.operation == "gate" and args.profile != "full":
+        parser.error("the complete gate requires the full validation profile")
     if args.cases != "all" and args.operation != "debug-gate":
         parser.error("only debug-gate accepts a selected-case list; the full gate always requires all cases")
     if args.read_only and args.operation != "preflight":
@@ -505,6 +526,8 @@ def main():
         parser.error("run and gate require a complete candidate identity and phase")
     if args.operation == "run" and any(getattr(args, field) is None for field in ("executor", "directory", "receipt")):
         parser.error("run requires an executor and private evidence and public receipt paths")
+    if args.operation == "run":
+        workflow_profile(args.profile, args.phase, "all" if args.profile == "full" else args.executor + "/" + args.scenario)
     if args.operation in ("gate", "debug-gate") and args.receipts is None:
         parser.error("gate requires the executor receipt directory")
     if args.operation == "preflight":
