@@ -42,6 +42,8 @@ on:
         required: false
       RELEASE_GITLAB_RUNNER_TOKEN:
         required: false
+      RELEASE_GITLAB_DOCKER_RUNNER_TOKEN:
+        required: false
     outputs:
       release_ready:
         value: ${{ jobs.gate.outputs.release_ready }}
@@ -72,98 +74,40 @@ jobs:
         with:
           ref: ${{ inputs.candidate_sha }}
           persist-credentials: false
-      - name: Select explicit serial cases
+      - name: Select the two executor lanes
         id: cases
         run: |
           python3 - <<'PY'
           import json, os, sys
           sys.path.insert(0, 'tools')
-          from job_acceptance import workflow_profile
+          from job_acceptance import EXECUTORS, workflow_profile
           cases = workflow_profile(os.environ['PROFILE'], os.environ['PHASE'], os.environ['JOB_CASES'])
-          matrix = {'include': [{'executor': executor, 'scenario': scenario} for executor, scenario in cases]}
+          matrix = {'include': [{'executor': executor} for executor in EXECUTORS if any(case[0] == executor for case in cases)]}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('matrix=' + json.dumps(matrix) + '\n')
           PY
   scenario:
-    needs: selection
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 60
-    environment: aliyun-pre-release
+    name: executor (${{ matrix.executor }})
     permissions:
       contents: read
       id-token: write
+    needs: selection
+    if: github.ref == 'refs/heads/main'
     strategy:
-      max-parallel: 1
-      fail-fast: true
+      max-parallel: 2
+      fail-fast: false
       matrix: ${{ fromJSON(needs.selection.outputs.matrix) }}
-    env:
-      VERSION: ${{ inputs.version }}
-      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
-      PHASE: ${{ inputs.phase }}
-      EXECUTOR: ${{ matrix.executor }}
-      PROFILE: ${{ inputs.profile }}
-      JOB_SCENARIO: ${{ matrix.scenario }}
-      RELEASE_CLOUD_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_CLOUD_ACCEPTANCE_ENABLED }}
-      RELEASE_JOB_ACCEPTANCE_ENABLED: ${{ vars.RELEASE_JOB_ACCEPTANCE_ENABLED }}
-      RELEASE_CLOUD_CLEANUP_ENABLED: ${{ vars.RELEASE_CLOUD_CLEANUP_ENABLED }}
-      RELEASE_ALIYUN_ACCOUNT_ID: ${{ secrets.RELEASE_ALIYUN_ACCOUNT_ID || vars.RELEASE_ALIYUN_ACCOUNT_ID }}
-      RELEASE_ALIYUN_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_ROLE_ARN || vars.RELEASE_ALIYUN_ROLE_ARN }}
-      RELEASE_ALIYUN_CLEANUP_ROLE_ARN: ${{ secrets.RELEASE_ALIYUN_CLEANUP_ROLE_ARN || vars.RELEASE_ALIYUN_CLEANUP_ROLE_ARN }}
-      RELEASE_ALIYUN_OIDC_PROVIDER_ARN: ${{ secrets.RELEASE_ALIYUN_OIDC_PROVIDER_ARN || vars.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
-      RELEASE_ALIYUN_CLEANUP_REGIONS: ${{ secrets.RELEASE_ALIYUN_CLEANUP_REGIONS || vars.RELEASE_ALIYUN_CLEANUP_REGIONS }}
-      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG || vars.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
-      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
-      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
-      RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ inputs.candidate_sha }}
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          artifact-ids: ${{ inputs.artifact_id }}
-          path: .cache/download
-          merge-multiple: true
-      - name: Validate the sealed candidate and dedicated job configuration
-        run: |
-          test "$RELEASE_CLOUD_ACCEPTANCE_ENABLED" = true
-          test "$RELEASE_JOB_ACCEPTANCE_ENABLED" = true
-          test "$RELEASE_CLOUD_CLEANUP_ENABLED" = true
-          case "$PHASE" in candidate|public) ;; *) exit 1 ;; esac
-          mkdir -p .cache/candidate
-          tar -xf .cache/download/candidate.tar -C .cache/candidate
-          python3 tools/release_candidate.py verify --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" --digest "$MANIFEST_SHA256"
-          python3 tools/job_acceptance.py preflight --version "$VERSION"
-          python3 tools/fetch-aliyun.py
-          printf '%s/.cache/tools\n' "$GITHUB_WORKSPACE" >> "$GITHUB_PATH"
-          go build -tags live -o bin/aliyun-acceptance ./cmd/aliyun-acceptance
-      - name: Obtain fresh credentials in the dedicated account
-        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
-        with:
-          role-to-assume: ${{ env.RELEASE_ALIYUN_ROLE_ARN }}
-          oidc-provider-arn: ${{ env.RELEASE_ALIYUN_OIDC_PROVIDER_ARN }}
-          audience: sts.aliyuncs.com
-          role-session-expiration: 3600
-          role-session-name: job-acceptance-${{ github.run_id }}
-      - name: Install the package, run a real job, and verify full teardown
-        run: |
-          python3 tools/job_acceptance.py run --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
-            --digest "$MANIFEST_SHA256" --phase "$PHASE" --profile "$PROFILE" --executor "$EXECUTOR" --scenario "$JOB_SCENARIO" \
-            --directory ".live/job-$PHASE-$EXECUTOR-$JOB_SCENARIO" --receipt ".cache/job-receipts/$EXECUTOR-$JOB_SCENARIO.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always()
-        with:
-          name: job-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}-${{ matrix.executor }}-${{ matrix.scenario }}
-          path: .cache/job-receipts/*.json
-          if-no-files-found: warn
-          retention-days: 7
+    uses: ./.github/workflows/job-acceptance-lane.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      cases: ${{ inputs.cases }}
+      executor: ${{ matrix.executor }}
+    secrets: inherit
   gate:
     if: always()
     needs: [selection, scenario]

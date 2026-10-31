@@ -69,13 +69,14 @@ def require_fields(value, expected):
 
 
 def gate(args):
-    from job_acceptance import public_smoke_gate, recovery_policy, selected_cases
+    from job_acceptance import EXECUTION_TOPOLOGY, public_smoke_gate, recovery_policy, selected_cases
     manifest = verify(args.root, args.digest, args.sha, args.version)
     run, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
     identity = {"candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                 "run_id": run, "run_attempt": attempt}
     candidate = json.loads(args.candidate_summary.read_text())
     require_fields(candidate, {**identity, "schema_version": 2, "result": "PASS", "phase": "candidate", "validation_profile": "full",
+                               "execution_topology": EXECUTION_TOPOLOGY,
                                "scope": "full-suite", "receipt_schema_version": 3, "recovery_policies": {scenario: recovery_policy(scenario) for _, scenario in selected_cases()},
                                "full_suite": True, "release_ready": True, "selected_cases": ["/".join(c) for c in selected_cases()], "omitted_cases": []})
     public_smoke_gate(SimpleNamespace(**vars(args), phase="public", receipts=args.job_receipts))

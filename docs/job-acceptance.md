@@ -23,8 +23,12 @@ omitted/invalid-record counts distinguish missing and truncated evidence. The
 public projection exposes only the latest eight recognized lifecycle events and
 allowlisted error terms. Diagnostics never change the acceptance verdict.
 
-The candidate `Release job acceptance` workflow runs both executors and all nine scenarios serially on
-fresh Ubuntu 26.04 amd64 GitHub-hosted Managers. `Cloud acceptance` invokes the
+The candidate `Release job acceptance` workflow has two executor lanes: `instance`
+and `docker-autoscaler`. The lanes can overlap; each lane runs its nine scenarios
+in order, using a fresh Ubuntu 26.04 amd64 GitHub-hosted machine, packaged Manager,
+state directory and ESS fixture for every case. Each case is a separate reusable
+workflow job; package installations are never looped on a previously used host.
+`Cloud acceptance` invokes the
 candidate phase in `all` and `jobs` modes; only `all`, including the six plugin
 scenarios, permits publication. Release invokes the public phase after its
 anonymous installation matrix succeeds. That phase runs exactly one real smoke
@@ -93,12 +97,17 @@ and final upgrade preserve that configured state, the installed candidate
 package example must match those captured template bytes before Manager start.
 This validates migration of a supplied compatible configuration; it does not
 claim migration of the baseline package's original default template.
-The serial eighteen-case phase permits thirty-six cumulative workers,
-with at most two active workers per fixture. The full candidate gate requires all
+The eighteen-case phase permits thirty-six cumulative workers across its two
+lanes, with at most two active workers per fixture. Capacity still proves its
+original two concurrent jobs, third pending job and fresh replacement worker;
+lane concurrency does not increase any case's creation budget or deadline.
+The full candidate gate requires all
 eighteen schema-v3 receipts; a smoke receipt cannot substitute for a recovery case.
 The separate `public-smoke-gate` requires exactly the two public smoke receipts,
 with `public_ready=true`, `full_suite=false` and `release_ready=false`. Full,
-debug and public-smoke profiles cannot exchange receipts. Raw GitLab traces and identities remain private; failure output
+debug and public-smoke profiles cannot exchange receipts. Each receipt and summary
+must also identify `execution_topology=two-executor-lanes-v1`; historical serial
+receipts cannot prove this topology. Raw GitLab traces and identities remain private; failure output
 uses only the existing allowlisted diagnostic projection.
 
 GitLab fixture preparation precedes package installation and cloud creation.
@@ -117,12 +126,13 @@ both sanitized failures are retained without claiming that no write occurred.
 Manual `cloud-acceptance.yml` runs in `mode=jobs` may select explicit cases with
 `job_cases`, for example `instance/manager-crash,docker-autoscaler/upgrade`.
 The default `all` retains the complete eighteen-case matrix. Cases remain serial
-on the existing dedicated project and Runner, with a fresh disposable Manager
-and cloud fixture per case. The existing fail-fast policy remains: a failed or
-unconfirmed-cleanup case cancels queued cases so no later fixture is created
-while an earlier Manager or pool might remain active. Each case keeps its
-original assertions and creation budget; canceled cases remain unrun for the
-next targeted round.
+within each executor lane in the same dedicated project. Every selected case
+depends on all earlier cases in its lane, including across unselected skips.
+A failed or canceled predecessor blocks later selected cases in that lane; the
+other executor continues independently. Failed-case cancellation and cleanup
+can target only that case's authenticated jobs, Manager and fixture. Required
+blocked or skipped cases remain unrun and cannot satisfy the final full gate.
+Separate acceptance runs retain the global `aliyun-pre-release-acceptance` fence.
 
 During debugging, select failed or previously unrun cases and omit cases that
 already passed. Every new run still builds and verifies its own sealed candidate;
@@ -362,43 +372,61 @@ plugin-only fixture configuration is separate. Add these Environment secrets:
 
 - `RELEASE_GITLAB_API_TOKEN`: project-scoped fine-grained PAT, permitted to
   create/read/update pipelines, read/update jobs, and read job artifacts, the project,
-  repository files/branches/commits and its dedicated runner. Fixture provisioning
+  repository files/branches/commits and its two dedicated Runners. Fixture provisioning
   needs Commit Create on this project. Job Update permits bounded finalization of
   the already-recovered crash job; it does not authorize canceling unrelated jobs.
   Do not grant User or Global permissions.
-- `RELEASE_GITLAB_RUNNER_TOKEN`: the persistent project's Runner authentication
-  token. Reuse this Runner identity for every temporary Manager.
-- `RELEASE_GITLAB_CONFIG`: the exact private project, runner and pinned fixture base:
+- `RELEASE_GITLAB_RUNNER_TOKEN`: the original Runner authentication token, reused
+  by the instance lane's temporary Managers.
+- `RELEASE_GITLAB_DOCKER_RUNNER_TOKEN`: the second Runner's authentication token,
+  selected only for Docker Managers. A missing lane token fails validation and
+  never falls back to the other token. Both lanes reuse the original project PAT.
+- `RELEASE_GITLAB_CONFIG`: the exact private project, existing API principal,
+  two Runner identities and pinned fixture base:
 
 ```json
 {
   "url": "https://gitlab.com",
   "project_id": "123",
+  "api_user_id": "789",
   "fixture_ref": "main",
   "fixture_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "runner_id": "456",
-  "runner_tag": "aliyun-acceptance"
+  "runners": {
+    "instance": {"runner_id": "456", "runner_tag": "acceptance-instance"},
+    "docker-autoscaler": {"runner_id": "457", "runner_tag": "acceptance-docker"}
+  }
 }
 ```
 
-The project must be private, expose only the expected locked project Runner,
-disable untagged jobs, and permit the token owner's role to supply pipeline
+The project must be private and expose exactly these two locked project Runners,
+each assigned only to this project, unpaused, with untagged jobs disabled and
+exactly its single distinct tag. It must permit the token owner's role to supply pipeline
 variables. Initially commit only `.gitlab-ci.yml` and `smoke.sh` from
 `tests/fixtures/gitlab`, then pin their full commit SHA. A moved base ref,
-different runner, pending prior job or stale artifact fails acceptance.
+extra Runner, foreign pending job or stale artifact fails acceptance.
+Pin `api_user_id` from exact previously proven API-created pipelines made with
+the existing PAT, rather than the latest pipeline or project owner. This records
+the expected creator; it is not a current-token identity query. Every subsequent
+pipeline must still have that server-side creator. No User permission is needed.
 
 Before package installation or cloud creation, `tools/gitlab_fixture.py` verifies
-that private project and its pinned base. If the two files already match the
-reviewed candidate checkout byte for byte, it reuses the base. Otherwise it uses
+that private project and its pinned base. It uses
 the [GitLab Commits API](https://docs.gitlab.com/api/commits/#create-a-commit)
-to create `acceptance/FULL_CANDIDATE_SHA` from that exact base, changing only the
-two fixed paths. Push pipelines are disabled by the fixture's API-only workflow.
+to create `acceptance/FULL_CANDIDATE_SHA/RUN_ID/ATTEMPT` from that exact base.
+It updates only the two reviewed scripts and creates `.acceptance-scope.json`
+with the candidate SHA, source run and attempt. The reserved marker must be
+absent from the base. It makes the commit nonempty even when the scripts already
+match, without adding Branch Create permission. Its bytes exclude executor,
+phase, profile and time so both lanes and both release phases share one pin.
+Push pipelines are disabled by the fixture's API-only workflow.
 It never force-updates or deletes a branch. An existing candidate branch must
-have the expected single parent, commit message and exact file bytes. Complete
+have the expected single parent, commit message, exact scripts and regular-file
+marker bytes. Complete
 root-tree comparison also requires unchanged modes and every other file/subtree
 object ID; a root with 100 or more entries is refused rather than truncated.
 Conflicting content fails. An uncertain write is recovered through readback, without repeating
-the POST. HTTP redirects are refused so the PAT cannot follow another endpoint.
+the POST, including a concurrent creator's conflict. HTTP redirects are refused
+so the PAT cannot follow another endpoint.
 
 The read-back commit becomes the runtime fixture pin for every executor/scenario
 and both release phases. The configured base and GitHub secrets remain unchanged.
@@ -407,6 +435,26 @@ Only a configuration digest enters the public receipt. Keep generated branches
 in the private fixture project for repeatable candidate and public verification;
 do not move their refs. Updating the configured base remains an explicit reviewed
 configuration change.
+
+Before Manager start and before a case can pass, the driver verifies both Runner
+identities and complete project occupancy. Pipelines carry a canonical HMAC
+declaration signed with the existing PAT; the PAT itself is never a pipeline
+variable. The declaration binds repository, run/attempt, candidate, manifest,
+full shared configuration, fixture, phase/profile, executor/case, Manager nonce
+and system ID, job index/nonce, Runner ID and tag. A signature alone is
+insufficient: complete terminal and nonterminal inventories of the run ref must
+prove unique nonces and case slots, exact pipeline/job pairs and the assigned
+Manager system ID. Retried jobs and foreign work are rejected. Project-wide
+nonterminal checks also cover pipelines whose jobs have not appeared yet.
+Only an authenticated peer case may occupy the other lane. Missing authenticated
+visibility permits bounded read-only reconciliation, never partial admission.
+
+Before each pipeline POST, the exact signed request is durably saved beside the
+private ledger. An unknown reply remains a failure and is never resubmitted.
+Complete readback can identify that exact intent for isolated cleanup; replayed,
+ambiguous or unconfirmed work cannot be canceled by nonce alone. Cancellation
+intents are also saved before their single POST and require terminal readback.
+These private identities and files are excluded from public receipts.
 
 Add `RELEASE_ALIYUN_JOB_FIXTURE_CONFIG` as a private Environment secret (or a
 variable where the deployment policy permits private resource configuration).

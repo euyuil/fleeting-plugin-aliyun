@@ -18,6 +18,12 @@ import (
 type gitlab struct {
 	base, token, project string
 	http                 *http.Client
+	lane                 *jobLaneScope
+}
+
+type gitlabPage struct {
+	value any
+	next  string
 }
 
 type gitlabHTTPError struct{ statusCode int }
@@ -89,12 +95,22 @@ func (g gitlab) requestOnce(ctx context.Context, method, path string, body []byt
 		*p = data
 		return false, nil
 	}
+	if page, ok := out.(*gitlabPage); ok {
+		page.next = resp.Header.Get("X-Next-Page")
+		if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+			return false, errors.New("GitLab inventory must be an explicit array")
+		}
+		return false, json.Unmarshal(data, page.value)
+	}
 	return false, json.NewDecoder(bytes.NewReader(data)).Decode(out)
 }
 
 type pipeline struct {
 	ID          int64
 	SHA, Status string
+	Ref, Source string
+	ProjectID   int64 `json:"project_id"`
+	User        struct{ ID int64 }
 }
 type job struct {
 	ID            int64
@@ -103,6 +119,11 @@ type job struct {
 	Runner        struct{ ID int64 }
 	Commit        struct{ ID string }
 	Pipeline      struct{ ID int64 }
+	Name, Ref     string
+	TagList       []string `json:"tag_list"`
+	RunnerManager struct {
+		SystemID string `json:"system_id"`
+	} `json:"runner_manager"`
 }
 type Artifact struct {
 	Nonce             string `json:"nonce"`

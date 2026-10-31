@@ -17,6 +17,9 @@ import (
 )
 
 func VerifyGitLabFixture(ctx context.Context, g gitlab, runnerID int64, tag, token, systemID string) error {
+	if g.lane != nil {
+		return g.verifyLaneFixture(ctx, runnerID, tag, token, systemID)
+	}
 	var verified struct{ ID int64 }
 	if err := g.requestAPI(ctx, "POST", "/runners/verify", map[string]string{"token": token, "system_id": systemID}, &verified); err != nil {
 		return err

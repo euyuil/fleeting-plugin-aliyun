@@ -184,8 +184,10 @@ gh workflow run cloud-acceptance.yml --ref main \
 ```
 
 This builds and verifies a sealed candidate, then runs `instance` and
-`docker-autoscaler` serially through its installed `.deb` and real systemd
-Manager. It cannot authorize publication without the six plugin scenarios.
+`docker-autoscaler` as two executor lanes, each with serial cases and a fresh
+host, installed `.deb` and real systemd Manager per case. It cannot authorize
+publication without the six plugin scenarios. The complete topology and private
+configuration contract are in [job acceptance](docs/job-acceptance.md#dedicated-configuration).
 The candidate version must be newer than the published upgrade baseline; see
 [previous-release upgrade coverage](docs/job-acceptance.md#upgrade-from-a-published-debian-package).
 Inspect all eighteen sanitized scenario receipts and the final gate. Do not upload private
@@ -205,7 +207,8 @@ and completion times to read the corresponding GitLab outcome:
 ```sh
 gh workflow run job-diagnostics.yml --ref main \
   -f candidate_sha=FULL_CANDIDATE_SHA -f executor=instance -f scenario=worker-loss \
-  -f started_at=2026-01-01T00:00:00Z -f completed_at=2026-01-01T00:30:00Z
+  -f started_at=2026-01-01T00:00:00Z -f completed_at=2026-01-01T00:30:00Z \
+  -f source_run_id=SOURCE_GITHUB_RUN_ID -f source_run_attempt=1
 ```
 
 This uses only the existing project API credential, makes only GitLab reads, and
@@ -213,8 +216,11 @@ needs no cloud identity, Runner token, or paid-resource enablement. It checks th
 private project, candidate fixture ref, time window, scenario, executor, and
 dedicated Runner before reading a trace. An ambiguous selector, retried job, or
 incomplete inventory fails closed. The time window is bounded to two hours and
-the candidate ref to fewer than 100 pipelines. Only generated `acceptance/<SHA>`
-refs are supported; cases that reused the unchanged configured base ref require
+the candidate ref to fewer than 100 pipelines. Two-lane runs require both source
+run and attempt and inspect `acceptance/<SHA>/<RUN>/<ATTEMPT>`, including signed
+case, creator and Manager binding. Omit both source inputs for historical serial
+`acceptance/<SHA>` refs, which used the original instance Runner for both
+executors. Cases that reused the unchanged configured base ref require
 private inspection in GitLab. Capacity has three pipelines in one case: use a
 narrower window identifying one pipeline. `upgrade` selects its actual `smoke`
 job. Only fixed status/failure enums, booleans, bounded exit codes, and an outline

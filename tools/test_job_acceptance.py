@@ -23,8 +23,9 @@ def inputs():
                "disk_category": "cloud_essd", "disk_size_gib": 20, "disk_performance_level": "PL0", "internet_max_bandwidth_out": 1,
                "spot_duration": 1, "vpc_cidr": "10.45.0.0/16", "vswitch_cidr": "10.45.1.0/24", "swap_mib": 1024}
     config = {"fixture": fixture, "job_image": "docker.io/library/example@sha256:" + "a" * 64}
-    gitlab = {"url": "https://gitlab.com", "project_id": "1", "runner_id": "2", "fixture_ref": "main",
-              "fixture_sha": "b" * 40, "runner_tag": "acceptance"}
+    gitlab = {"url": "https://gitlab.com", "project_id": "1", "api_user_id": "4", "fixture_ref": "main", "fixture_sha": "b" * 40,
+              "runners": {"instance": {"runner_id": "2", "runner_tag": "acceptance-instance"},
+                          "docker-autoscaler": {"runner_id": "3", "runner_tag": "acceptance-docker"}}}
     env = {"GITHUB_REF": "refs/heads/main", "RELEASE_ALIYUN_ACCOUNT_ID": "1234567890123456",
            "RELEASE_ALIYUN_ROLE_ARN": "acs:ram::1234567890123456:role/acceptance",
            "RELEASE_ALIYUN_OIDC_PROVIDER_ARN": "acs:ram::1234567890123456:oidc-provider/github",
@@ -44,6 +45,7 @@ def manifest():
 def receipt(executor="instance", phase="candidate", scenario="smoke", profile="full"):
     m = manifest()
     return {"schema_version": 3, "validation_profile": profile, "recovery_policy": job.recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job.job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+            "execution_topology": job.EXECUTION_TOPOLOGY,
             "candidate_sha": m["candidate_sha"], "version": m["version"], "manifest_sha256": "a" * 64,
             "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": "10", "run_attempt": "1",
             "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -200,6 +202,28 @@ class JobAcceptanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             job.configuration({**env, "RELEASE_ALIYUN_JOB_FIXTURE_CONFIG": json.dumps(config)})
 
+    def test_two_runner_configuration_rejects_aliases_extras_and_missing_actor(self):
+        _, gitlab, _ = inputs()
+        self.assertEqual(job.gitlab_configuration(gitlab), gitlab)
+        for fault in ("third", "same-id", "same-tag", "extra-field", "missing-actor", "invalid-actor", "flat"):
+            with self.subTest(fault=fault), self.assertRaises(ValueError):
+                value = copy.deepcopy(gitlab)
+                if fault == "third":
+                    value["runners"]["other"] = {"runner_id": "9", "runner_tag": "other"}
+                elif fault == "same-id":
+                    value["runners"]["docker-autoscaler"]["runner_id"] = value["runners"]["instance"]["runner_id"]
+                elif fault == "same-tag":
+                    value["runners"]["docker-autoscaler"]["runner_tag"] = value["runners"]["instance"]["runner_tag"]
+                elif fault == "extra-field":
+                    value["runners"]["instance"]["token"] = "synthetic"
+                elif fault == "missing-actor":
+                    value.pop("api_user_id")
+                elif fault == "invalid-actor":
+                    value["api_user_id"] = "01"
+                else:
+                    value.update(value.pop("runners")["instance"])
+                job.gitlab_configuration(value)
+
     def test_job_modes_have_distinct_recoverable_fixture_names(self):
         tags = [labels("example/project", "a" * 40, "123456789012345678", "1", mode, "2030-01-01T00:00:00Z") for mode in JOB_MODES]
         names = {name_for(value) for value in tags}
@@ -222,6 +246,7 @@ class JobAcceptanceTests(unittest.TestCase):
         _, gitlab, _ = inputs()
         lock = {"runner": {"version": "1.2.3", "sha256": {"linux-amd64": "f" * 64}}}
         result = {"result": "PASS", "cleanup_result": "PASS", "normal_release": True, "mode": "smoke", "executor": "instance",
+                  "execution_topology": job.EXECUTION_TOPOLOGY,
                   "manager_mode": "systemd", "plugin_commit": "c" * 40, "plugin_version": "0.1.0-dev", "plugin_sha256": "d" * 64,
                   "runner_sha256": "f" * 64, "runner_version": "1.2.3", "gitlab_fixture_sha": "b" * 40, "gitlab_project_id": "1", "gitlab_runner_id": 2,
                   "github_run_id": "10", "github_run_attempt": "1", "instance_limit": 1, "creation_budget": 1, "evidence_incomplete": False,
@@ -488,7 +513,9 @@ class JobAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, env), \
                 patch.object(job.subprocess, "Popen") as popen, patch.object(job, "stop_process_group", side_effect=ValueError("still alive")):
             root = Path(temp)
-            fixture = Mock(directory=root, tags={"fleeting-project": "example/project"}, state={"ids": {"group": "synthetic-group"}, "job_timing": job.job_timing("smoke", datetime.now(timezone.utc))})
+            fixture = Mock(directory=root, tags={"fleeting-project": "example/project"}, state={"ids": {"group": "synthetic-group"},
+                           "manifest_sha256": "a" * 64, "phase": "candidate", "validation_profile": "full",
+                           "job_timing": job.job_timing("smoke", datetime.now(timezone.utc))})
             popen.return_value.pid = 123
             popen.return_value.wait.return_value = 1
             with self.assertRaises(ValueError):
