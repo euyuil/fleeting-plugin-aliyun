@@ -228,6 +228,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   gitlab_jobs:
+    name: GitLab job acceptance
     if: >-
       !cancelled() && needs.build.result == 'success' &&
       ((needs.build.outputs.profile == 'debug' && needs.platforms.result == 'skipped') ||
