@@ -193,11 +193,6 @@ The candidate version must be newer than the published upgrade baseline; see
 Inspect all eighteen sanitized scenario receipts and the final gate. Do not upload private
 driver logs, GitLab job artifacts or fixture configuration.
 
-Before enabling paid jobs after a lane configuration change, run the
-[cloud-free Environment configuration/authentication check](docs/job-acceptance.md#check-configuration-and-authentication-before-paid-acceptance)
-with creation disabled. Its Runner verification calls can update logical Manager
-contact metadata; they start no Manager process, job or cloud resource.
-
 For iterative debugging, add an explicit comma-separated selector, for example
 `-f job_cases=instance/manager-crash,docker-autoscaler/upgrade`, to the manual
 `mode=jobs` command. Only selected cases run; a passing debug summary is not full

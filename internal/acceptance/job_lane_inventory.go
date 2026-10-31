@@ -25,7 +25,7 @@ func (g gitlab) laneList(ctx context.Context, path string, out any) error {
 	if err := g.request(ctx, "GET", path, nil, &page); err != nil {
 		return err
 	}
-	if page.next != "" {
+	if page.next {
 		return errors.New("lane inventory exceeds its complete page bound")
 	}
 	return nil

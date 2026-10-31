@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,7 +24,7 @@ type gitlab struct {
 
 type gitlabPage struct {
 	value any
-	next  string
+	next  bool
 }
 
 type gitlabHTTPError struct{ statusCode int }
@@ -96,13 +97,37 @@ func (g gitlab) requestOnce(ctx context.Context, method, path string, body []byt
 		return false, nil
 	}
 	if page, ok := out.(*gitlabPage); ok {
-		page.next = resp.Header.Get("X-Next-Page")
+		page.next = gitlabNextPage(resp.Header)
 		if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 			return false, errors.New("GitLab inventory must be an explicit array")
 		}
 		return false, json.Unmarshal(data, page.value)
 	}
 	return false, json.NewDecoder(bytes.NewReader(data)).Decode(out)
+}
+
+var gitlabLinkRelation = regexp.MustCompile(`(?i)(?:^|;)\s*rel\s*=\s*(?:"([^"]*)"|([^;,\s]+))`)
+
+func gitlabNextPage(headers http.Header) bool {
+	for _, next := range headers.Values("X-Next-Page") {
+		if next != "" {
+			return true
+		}
+	}
+	for _, link := range headers.Values("Link") {
+		for _, match := range gitlabLinkRelation.FindAllStringSubmatch(link, -1) {
+			relation := match[1]
+			if relation == "" {
+				relation = match[2]
+			}
+			for _, token := range strings.Fields(relation) {
+				if strings.EqualFold(token, "next") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 type pipeline struct {
