@@ -1,9 +1,130 @@
 # Implementation and acceptance report
 
-Updated on 2026-10-30 (Asia/Shanghai). This report separates implemented code, offline evidence,
+Updated on 2026-11-01 (Asia/Shanghai). This report separates implemented code, offline evidence,
 live acceptance, and external publication. The machine-readable status is
 [`acceptance/status.json`](../acceptance/status.json); exact source versions are
 in [`upstream.lock.json`](../upstream.lock.json).
+
+## Unpublished candidate: complete two-executor acceptance
+
+[Run 41212022560](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560),
+attempt 1, passed the single `mode=all`, `profile=full`, `job_cases=all` gate for
+source `6d96f8ad7082c2db3c838c8d5db6d227d73927d3`, unpublished `0.1.0-rc.4`.
+The exact result is **18 PASS, 0 FAIL, 0 cancelled, 0 skipped** real cases,
+plus six plugin scenarios, four native platform tasks and both final gates.
+All 35 workflow jobs succeeded. This result uses one candidate and one run;
+earlier selected-case passes are retained as history.
+
+| Case | Instance | Docker Autoscaler |
+|---|---|---|
+| smoke | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124576421132) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124576413136) |
+| failure | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124578458651) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124579342808) |
+| cancel | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124582139301) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124584599952) |
+| timeout | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124585850178) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124590600029) |
+| capacity | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124590226746) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124597306398) |
+| drain | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124594166450) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124603494269) |
+| worker-loss | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124597869429) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124610372111) |
+| manager-crash | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124602215926) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124616547386) |
+| upgrade | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124606489606) | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124623063394) |
+
+Each executor ran its nine cases serially. Their timelines overlap, with an
+observed peak of two case jobs and 18 distinct GitHub hosted environments.
+The same project and original PAT were reused with exactly two locked project
+Runners, distinct identities and tags. Each case had an independent Manager,
+ESS fixture, state and cleanup. Lane occupancy/pending-job ownership and
+pipeline/job/nonce/Manager/worker/source/configuration bindings remained
+mandatory, as did global exclusion between independent acceptance runs.
+Capacity retained its two-running/one-pending assertion and original budgets.
+
+Both upgrade cases used the real published `0.1.0-rc.3` amd64 Debian baseline,
+package SHA-256 `d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887`,
+and the sealed candidate package
+`cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca`.
+The source-pinned in-job validator required state preservation and rollback
+proof before producing PASS. These are two executor paths through one baseline
+version. Manager-crash verified orphan release before finalizing the old job;
+worker-loss independently observed the old instance disappear before recovery.
+All 18 schema-3/full receipts passed artifact/configuration/run/attempt binding
+and scenario-semantic audits, including inventory, Spot and deletion checks.
+
+The six plugin receipts cover smoke, scale, ready-worker restart, accepted
+creation restart, accepted removal restart and instrumented expansion-response
+loss/restart. Ubuntu 24.04 and 26.04 each passed on native amd64 and arm64:
+candidate verification preceded execution, full OCI installation/native loading
+and Ubuntu package lifecycle passed. Only Ubuntu 26.04 amd64 additionally ran
+the isolated Debian 12/systemd test; its conditional skip on the other three
+platforms is expected. The instrumented response-loss binary is separately
+hashed; it does not establish natural packet-loss recovery by an unmodified
+release binary.
+
+The run's own artifact **13046966897** was verified against its GitHub ZIP digest,
+exact ZIP/tar inventory and completion marker. Its tar, manifest and all 50
+payload files passed actual hashing and independent verification, bound to the
+complete 228-file source snapshot. Manifest SHA-256:
+`5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4`.
+The machine-readable record contains archive hashes and all 18 receipt hashes.
+A bounded artifact-download timeout was resolved by resuming the same artifact;
+it did not fail or restart the acceptance run.
+
+The exact independent [janitor 41231618027](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41231618027),
+attempt 1, passed with **zero leftovers**, explicitly bound to source run
+`41212022560/1` and `completed-run` scope. Its workflow head is the later
+`fdcfd5f5f8aec9197c5aa2dc18e254ee8b39762c`: [PR120](https://github.com/euyuil/fleeting-plugin-aliyun/pull/120)
+changed only six job display-name fields while this run was active. All other
+repository bytes, including the janitor workflow and cleanup code, are unchanged.
+The accepted candidate remains `6d96f8a`; no paid rerun was made for the naming
+change. Cloud/job creation flags were restored and read back as `false,false`,
+with cleanup `true`; no other queued or running acceptance remained.
+
+### Retained follow-up history
+
+Counts below refer to each run's selected real-case set, in the order
+PASS / FAIL / cancelled / skipped. All are attempt 1. Debug auxiliary skips are
+outside these case counts. Full-run plugin/platform success never overrides a
+failed real-case gate. Exact audit/receipt bindings and independent cleanup
+verification hashes are retained in the machine-readable status; raw account
+identities, configuration, credentials and logs remain private.
+
+| Run / source / attempt | Scope | Counts | Observation and remaining uncertainty | Exact independent janitor |
+|---|---|---|---|---|
+| [41031852674](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41031852674) / `533e4e25a0d5a3614a2045da4319fb9293dba8df` / 1 | selected/profile unrecorded | 1/1/9/0 | Instance manager-crash passed. Docker manager-crash observed a third cumulative worker ID beyond budget 2; precise root cause unknown. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41043603910) |
+| [41066979906](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41066979906) / `4dc7b4f38963d8a4a44c3cbb38a8ac39d452dd4e` / 1 | all/full | 10/1/7/0 | Docker failure recovery failed after the expected exit 42 and its release passed. Later smoke stalled in prepare_executor and exceeded budget 2; journal unavailable, root cause unknown. Six plugin scenarios and four native platforms passed. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41093663910) |
+| [41099287915](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41099287915) / `305bd59ae7a290a4cac5a406c989416caee5f127` / 1 | selected/debug | 0/1/7/0 | Fixture GitLabError after about 31 seconds, before package, cloud, driver or job activity. Original HTTP response absent; no product reproduction. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41099937738) |
+| [41105446442](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41105446442) / `9080224c0806b47b46e4ed5758dc1d74b0b97761` / 1 | selected/debug | 0/1/7/0 | Docker failure journal recorded two readiness exits 124 and replacement, then a third cumulative worker ID beyond budget 2. Exact bootstrap/probe phase and simultaneous worker count unknown. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41108266193) |
+| [41117882079](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41117882079) / `b7fb5a40c8ecb587e529ab18df33d96c5e738f4f` / 1 | selected/debug | 5/1/2/0 | Docker worker-loss failed after independently observed loss and expected runner_system_failure. The subsequent 3-minute normal-release child deadline expired; last phase ESS DescribeScalingGroups. Unconverged component unknown. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41135786166) |
+| [41139724020](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41139724020) / `0259cd3c5c8f2e766d66f1e97c58ce52d74a6602` / 1 | selected/debug | 3/0/0/0 | Selected Docker worker-loss, manager-crash and real published-baseline upgrade passed. These results do not identify or retrospectively resolve older timeout causes. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41145778852) |
+| [41146623389](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41146623389) / `0259cd3c5c8f2e766d66f1e97c58ce52d74a6602` / 1 | all/full | 0/1/17/0 | Instance smoke failed on incomplete membership pagination after 22.593 seconds of normal-release inventory, before a release/readiness/case deadline. Original triggering page response absent. Six plugin scenarios and four native platforms passed. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41150149688) |
+| [41153189121](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41153189121) / `a3507a45dc1b89a74e75b54d341e6577128a17c8` / 1 | selected/debug | 1/0/0/0 | Targeted instance smoke passed with a 26.028-second normal release. This result does not establish whether the original inconsistent page response or older timeout causes were reproduced. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41154167333) |
+| [41154789018](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41154789018) / `a3507a45dc1b89a74e75b54d341e6577128a17c8` / 1 | all/full | 16/1/1/0 | All nine instance cases and seven Docker cases passed. Docker manager-crash failed before checkpoint/crash injection on ModifyInstanceAutoReleaseTime with unknown public cloud code and no retained HTTP status; Docker upgrade was cancelled. Manager graceful-stop failure was secondary; outer cleanup passed zero. Six plugin scenarios and four native platforms passed; final gates failed. This is not a crash-recovery product reproduction or a confirmed deadline failure. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41175620979) |
+| [41197730371](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41197730371) / `fd9dd48ffd75bb47b78097bb6cd26327f92ba62c` / 1 | all/full | 0/2/0/16 | Both smoke cases failed during manager_prepare before Manager start, workers or job activity: instance POST runner_verify HTTP 429; Docker GET project_pipelines HTTP 429. Original rate headers and exact throttle bucket absent. Six plugin scenarios and four native platforms passed; final gates failed. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41199977257) |
+| [41203445430](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41203445430) / `7eca005283c4fb5738cc4290361aafa9de2fc7ab` / 1 | all/full | 0/2/0/16 | Both smoke cases passed Manager preparation and observed one worker each, then pipeline-status GET returned HTTP 429. Frozen job status unknown, checkpoint false, normal release NOT_RECORDED; secondary Manager graceful-stop failure. Later exact readback confirmed both pipelines/jobs cancelled. Six plugin scenarios and four native platforms passed; final gates failed. PR118 inventory reduction alone did not resolve the observed limit; later local rate headers are separate evidence. | [PASS, zero leftovers](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41206057092) |
+
+### Delivery and validation boundaries
+
+[PR110](https://github.com/euyuil/fleeting-plugin-aliyun/pull/110) through
+[PR115](https://github.com/euyuil/fleeting-plugin-aliyun/pull/115) added journal and
+error evidence, bounded read consistency and setup/observation corrections.
+They did not establish the exact causes of older unknown failures.
+[PR116](https://github.com/euyuil/fleeting-plugin-aliyun/pull/116) delivered the two
+executor lanes; [PR117](https://github.com/euyuil/fleeting-plugin-aliyun/pull/117)
+fixed complete-pagination header handling.
+[PR118](https://github.com/euyuil/fleeting-plugin-aliyun/pull/118) reduced repeated
+inventory requests; [PR119](https://github.com/euyuil/fleeting-plugin-aliyun/pull/119)
+then applied 1.5-second spacing to every GitLab HTTP attempt and used jobs-first
+polling, complete batched inventories and fresh exact-target control reads.
+These changes passed independent review and actual PR/main build, security and
+offline CI. PR118–119 retained the existing two lanes, images, permissions, PAT,
+case budgets, deadlines, TTLs and cleanup assertions, and added no 429 or write
+retry. Current success proves this run's result and does not reconstruct missing
+historical rate headers or cloud errors.
+
+This is pre-publication acceptance of the named candidate. The earlier published
+`0.1.0-rc.3` installation evidence below remains unchanged; `0.1.0-rc.4` was not
+published and its post-publication workflow was not run. Real cloud/GitLab jobs
+cover the selected Linux amd64 instance/Docker paths. Native arm64 package
+lifecycle does not prove arm64 cloud jobs, Windows/Darwin, production or broader
+workloads. The separate legacy `Live acceptance` workflow/configuration fields
+retain their historical scope.
 
 ## Delivered implementation
 

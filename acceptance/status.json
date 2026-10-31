@@ -2,8 +2,558 @@
   "schema_version": 1,
   "implementation_status": "implemented_with_partial_live_validation_and_documented_gates",
   "offline_validation_status": "pass",
-  "live_validation_status": "PARTIAL_PASS_PLUGIN_CLOUD_AND_RELEASED_VM_DOCKER_JOBS",
+  "live_validation_status": "PASS_SCOPED_PRE_RELEASE_FULL_CANDIDATE",
   "publication_status": "prerelease_published_anonymous_runner_installation_passed",
+  "pre_release_full_acceptance": {
+    "result": "PASS",
+    "version": "0.1.0-rc.4",
+    "source_revision": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+    "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560",
+    "run_id": "41212022560",
+    "run_attempt": 1,
+    "mode": "all",
+    "validation_profile": "full",
+    "execution_topology": "two-executor-lanes-v1",
+    "started_at_utc": "2026-10-31T14:50:51Z",
+    "last_gate_completed_at_utc": "2026-10-31T18:53:53Z",
+    "counts": {
+      "PASS": 18,
+      "FAIL": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "job_receipt_schema_version": 3,
+    "receipt_binding": "Each of the 18 receipts passed the source-pinned schema, profile, topology, recovery-policy, candidate/manifest/package/plugin/configuration/run/attempt checks and scenario semantics. The final gate required this exact complete set; historical passes are not substituted.",
+    "shared_receipt_binding": {
+      "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+      "package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+      "plugin_sha256": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4",
+      "fixture_config_sha256": "d29d87b2febfefe40d7027fea34b636cdcfa929a6c9027508dfc138a41a6214f",
+      "gitlab_config_sha256": "02b9b951d2b4155942a1d151589cacce4927debfab261cb6495286a0e558659e"
+    },
+    "job_receipts": [
+      {
+        "case": "instance/smoke",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124576421132",
+        "receipt_sha256": "3b35bfa609d7678610f86078fc6335d9bd512f49e4378791e16296032564133e",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "instance/failure",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124578458651",
+        "receipt_sha256": "eb393a518147e0ddf4d17802cca854e9b47e3e239610475c6518e602384b3002",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "instance/cancel",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124582139301",
+        "receipt_sha256": "7b3b47e8489d9ff204b03c6deca35d5022443613bf6f773b8db64381f2e73efc",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "instance/timeout",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124585850178",
+        "receipt_sha256": "926e26912b56f387730ab1bfc2c9034b3ba588e6aba7fbb8bd5112f028dd2ca0",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "instance/capacity",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124590226746",
+        "receipt_sha256": "ff73eaf72df6094a6f89c28d83fd9232020789248a5c342cc4527030476970cd",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "instance/drain",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124594166450",
+        "receipt_sha256": "21ce82ae2a6d6bc7f0d8527a5ff9499d6c034a0e02ba3d85e5087d1cac77ad36",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "instance/worker-loss",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124597869429",
+        "receipt_sha256": "ac6e93b3500532c796196ba9298408e72d346babe32f00d31bc8d0a48560d512",
+        "recovery_policy": "observed-worker-loss-v1"
+      },
+      {
+        "case": "instance/manager-crash",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124602215926",
+        "receipt_sha256": "f8aa08f1a22def7a85482c3dc8c7c1aab1778907dc019aa8d629f6b6963cdbe7",
+        "recovery_policy": "orphan-release-before-finalize-v1"
+      },
+      {
+        "case": "instance/upgrade",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124606489606",
+        "receipt_sha256": "f6031d2d6eeca3a71c5be006689953a359c823019e0c52af80c5ba3ee6411634",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/smoke",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124576413136",
+        "receipt_sha256": "f878951bb3d6a60626b08848bd4b6e6b07ae2bea2f1b69ab3572b5b3de516408",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/failure",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124579342808",
+        "receipt_sha256": "ae9d65a661c68150273aa4d7b905ce6a3868222c05fd42ae23d507bb2c9ef907",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/cancel",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124584599952",
+        "receipt_sha256": "5ba3ef9dc1e1142a825932a7a3b0da5547d5cb87f5c4fdad222f13e625c75cf7",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/timeout",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124590600029",
+        "receipt_sha256": "0910d286c199a4cf04f1a7d6fbc8503f5d3909f8bdd38afbdc993cbf7e446d90",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/capacity",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124597306398",
+        "receipt_sha256": "004fa942ad54cb33b337cd341b72f98ea8eec7847843b77f576b773f890f6f6b",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/drain",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124603494269",
+        "receipt_sha256": "9de0bb964dbd5f700ace9f5c37cbea9c7b4ce48548db2c425a2a7aa40b089bb2",
+        "recovery_policy": "standard-v1"
+      },
+      {
+        "case": "docker-autoscaler/worker-loss",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124610372111",
+        "receipt_sha256": "7dfd494896d94b47a3c8aae55432a6571fdfabaa705c5c4a6fa82da35ce51d88",
+        "recovery_policy": "observed-worker-loss-v1"
+      },
+      {
+        "case": "docker-autoscaler/manager-crash",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124616547386",
+        "receipt_sha256": "83386594bc23223ef4799a7cbe77c43c353784d88fa7c52857d5ba7af1e21ef2",
+        "recovery_policy": "orphan-release-before-finalize-v1"
+      },
+      {
+        "case": "docker-autoscaler/upgrade",
+        "result": "PASS",
+        "github_job_url": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560/job/124623063394",
+        "receipt_sha256": "448b599fa3f4c8cee0deb0b3d791503175fcab496bdf37f69a58d855e40c5f86",
+        "recovery_policy": "standard-v1"
+      }
+    ],
+    "topology": {
+      "locked_project_runner_count": 2,
+      "original_project_and_pat_reused": true,
+      "distinct_runner_identities_and_tags": true,
+      "cases_per_executor": 9,
+      "within_lane_serial_verified": true,
+      "cross_executor_overlap_verified": true,
+      "observed_max_parallel_case_jobs": 2,
+      "independent_github_hosted_environments": 18,
+      "per_case_manager_fixture_state_and_cleanup": "Independent; fixed source enforces lane occupancy, pending-job ownership and pipeline/job/nonce/Manager/worker/source/configuration binding.",
+      "cross_run_global_exclusion_retained": true,
+      "case_budgets_deadlines_ttls_and_capacity_assertions_relaxed": false
+    },
+    "baseline_upgrades": [
+      {
+        "executor": "instance",
+        "version": "0.1.0-rc.3",
+        "package_sha256": "d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887",
+        "candidate_package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "result": "PASS"
+      },
+      {
+        "executor": "docker-autoscaler",
+        "version": "0.1.0-rc.3",
+        "package_sha256": "d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887",
+        "candidate_package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "result": "PASS"
+      }
+    ],
+    "plugin_scenarios": [
+      "cloud-smoke",
+      "cloud-scale",
+      "cloud-restart",
+      "cloud-create-restart",
+      "cloud-remove-restart",
+      "cloud-increase-response-loss"
+    ],
+    "native_platforms": [
+      "Ubuntu 24.04 amd64",
+      "Ubuntu 24.04 arm64",
+      "Ubuntu 26.04 amd64",
+      "Ubuntu 26.04 arm64"
+    ],
+    "native_required_steps": "Candidate verification before execution, full OCI installation/native loading, example/configuration checks and Ubuntu package lifecycle on all four; isolated Debian 12/systemd additionally passed only on Ubuntu 26.04 amd64. The other three conditional Debian steps were expected skips.",
+    "gates": {
+      "job": "PASS",
+      "overall": "PASS",
+      "all_35_workflow_jobs": "PASS"
+    },
+    "sealed_candidate": {
+      "artifact_id": 13046966897,
+      "artifact_name": "cloud-candidate-41212022560-1",
+      "github_zip_sha256": "b26b35217ad946e7493befe4e1d4f8a351e1f6597201ac1977dc0710c8fb22dd",
+      "github_zip_size_bytes": 88522156,
+      "tar_sha256": "75895335aa763c09911123d6d3fa45ddf9461bdc632301b5cb550ac443b7466c",
+      "tar_size_bytes": 125112320,
+      "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+      "payload_file_count": 50,
+      "tracked_source_file_count": 228,
+      "all_actual_file_hashes_and_exact_archive_inventory_verified": true,
+      "independently_verified": true
+    },
+    "independent_cleanup": {
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41231618027",
+      "run_attempt": 1,
+      "workflow_source_revision": "fdcfd5f5f8aec9197c5aa2dc18e254ee8b39762c",
+      "source_run_id": "41212022560",
+      "source_run_attempt": 1,
+      "scope": "completed-run",
+      "result": "PASS",
+      "leftover_resources": 0,
+      "receipt_sha256": "d0cd02ffb085f54f060fbc56999469765d5b3a6b10858c05a727b75e2e1129b9",
+      "source_boundary": "The janitor ran at the later PR120 default-branch revision. Only six workflow display-name fields differ from the accepted candidate; the janitor workflow and all cleanup code are byte-identical. Exact owning run/attempt is verified in its receipt."
+    },
+    "creation_enabled_after_run": {
+      "cloud": false,
+      "gitlab_jobs": false
+    },
+    "cleanup_enabled_after_run": true,
+    "flags_read_back_at_utc": "2026-10-31T18:58:37.656990+00:00",
+    "other_active_acceptance_runs_after_completion": 0,
+    "release_published": false,
+    "post_publication_validation": "NOT_RUN_FOR_THIS_CANDIDATE",
+    "later_display_only_change": {
+      "pr": "https://github.com/euyuil/fleeting-plugin-aliyun/pull/120",
+      "source_revision": "fdcfd5f5f8aec9197c5aa2dc18e254ee8b39762c",
+      "scope": "Six workflow job display-name fields; all non-name bytes unchanged. No paid rerun for this naming change."
+    },
+    "limitations": [
+      "Applies to this exact unpublished candidate and its one all/full run, not an arbitrary later commit or assembled historical pass set.",
+      "Real GitLab/cloud job execution covers the selected Linux amd64 instance and Docker Autoscaler paths. Native arm64 package lifecycle is not arm64 cloud-job acceptance; Windows, Darwin, production and broader workloads are outside this result.",
+      "The two upgrade cases use the same pinned published 0.1.0-rc.3 baseline, not two different baseline versions.",
+      "Older unknown cloud, readiness, pagination and release-timeout causes remain unknown; current success does not identify their exact historical causes.",
+      "The separate legacy Live acceptance workflow/configuration fields below retain their historical scope. This run used Cloud acceptance and its reusable job workflows."
+    ]
+  },
+  "pre_release_followup_history": [
+    {
+      "run_id": "41031852674",
+      "run_attempt": 1,
+      "source_revision": "533e4e25a0d5a3614a2045da4319fb9293dba8df",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41031852674",
+      "scope": "selected-cases",
+      "mode": "NOT_RECORDED",
+      "validation_profile": "NOT_RECORDED",
+      "selected_case_count": 11,
+      "counts": {
+        "PASS": 1,
+        "FAIL": 1,
+        "cancelled": 9,
+        "skipped": 0
+      },
+      "observation": "Instance manager-crash passed. Docker manager-crash observed a third cumulative worker ID beyond budget 2; precise root cause unknown.",
+      "terminal_audit_record_sha256": "5da6c9108b9b498190eb6f6689f221d78c80e57d5a22c3e383c8b3c7a3eec390",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41043603910",
+        "run_attempt": 1,
+        "source_run_id": "41031852674",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "5da6c9108b9b498190eb6f6689f221d78c80e57d5a22c3e383c8b3c7a3eec390"
+      }
+    },
+    {
+      "run_id": "41066979906",
+      "run_attempt": 1,
+      "source_revision": "4dc7b4f38963d8a4a44c3cbb38a8ac39d452dd4e",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41066979906",
+      "scope": "full-suite",
+      "mode": "all",
+      "validation_profile": "full",
+      "selected_case_count": 18,
+      "counts": {
+        "PASS": 10,
+        "FAIL": 1,
+        "cancelled": 7,
+        "skipped": 0
+      },
+      "observation": "Docker failure recovery failed after the expected exit 42 and its release passed. Later smoke stalled in prepare_executor and exceeded budget 2; journal unavailable, root cause unknown. Six plugin scenarios and four native platforms passed.",
+      "terminal_audit_record_sha256": "a2421fd91fc3c3885fb77c2bf3b1f1720362af49d463fff08aa6d206c320f1ae",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41093663910",
+        "run_attempt": 1,
+        "source_run_id": "41066979906",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "f73c7588d5f53cea5cd2dc20abfec3c215383e1cfec9917ac33d5524ba3c8e3b"
+      }
+    },
+    {
+      "run_id": "41099287915",
+      "run_attempt": 1,
+      "source_revision": "305bd59ae7a290a4cac5a406c989416caee5f127",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41099287915",
+      "scope": "selected-cases",
+      "mode": "jobs",
+      "validation_profile": "debug",
+      "selected_case_count": 8,
+      "counts": {
+        "PASS": 0,
+        "FAIL": 1,
+        "cancelled": 7,
+        "skipped": 0
+      },
+      "observation": "Fixture GitLabError after about 31 seconds, before package, cloud, driver or job activity. Original HTTP response absent; no product reproduction.",
+      "terminal_audit_record_sha256": "56a1e26d0e6a0f982d2c4da4232b0217d13dca88a77aa9a48e48395a4b1427b3",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41099937738",
+        "run_attempt": 1,
+        "source_run_id": "41099287915",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "ec476d622539a6a612b9a3a7f31f1fbdef3efb5575437cb9a5a02759918bccdf"
+      }
+    },
+    {
+      "run_id": "41105446442",
+      "run_attempt": 1,
+      "source_revision": "9080224c0806b47b46e4ed5758dc1d74b0b97761",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41105446442",
+      "scope": "selected-cases",
+      "mode": "jobs",
+      "validation_profile": "debug",
+      "selected_case_count": 8,
+      "counts": {
+        "PASS": 0,
+        "FAIL": 1,
+        "cancelled": 7,
+        "skipped": 0
+      },
+      "observation": "Docker failure journal recorded two readiness exits 124 and replacement, then a third cumulative worker ID beyond budget 2. Exact bootstrap/probe phase and simultaneous worker count unknown.",
+      "terminal_audit_record_sha256": "805444baf6c251fbfc55dcc6299e390cf44d8eaa4e93038107a08f07e85ff3a2",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41108266193",
+        "run_attempt": 1,
+        "source_run_id": "41105446442",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "95244da78390d1a6f77a0e8bfa3a996a74bf24e72d9e096c5880c5fbf4d7a235"
+      }
+    },
+    {
+      "run_id": "41117882079",
+      "run_attempt": 1,
+      "source_revision": "b7fb5a40c8ecb587e529ab18df33d96c5e738f4f",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41117882079",
+      "scope": "selected-cases",
+      "mode": "jobs",
+      "validation_profile": "debug",
+      "selected_case_count": 8,
+      "counts": {
+        "PASS": 5,
+        "FAIL": 1,
+        "cancelled": 2,
+        "skipped": 0
+      },
+      "observation": "Docker worker-loss failed after independently observed loss and expected runner_system_failure. The subsequent 3-minute normal-release child deadline expired; last phase ESS DescribeScalingGroups. Unconverged component unknown.",
+      "terminal_audit_record_sha256": "677e96d0085ce48b45d955ab011146c25531d0b5522fd041339fd7160e9e8e3f",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41135786166",
+        "run_attempt": 1,
+        "source_run_id": "41117882079",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "a9be39747d2ee1c720b36d1bce41f8a1eb15c73f7bfc86f3092534c6c6440214"
+      }
+    },
+    {
+      "run_id": "41139724020",
+      "run_attempt": 1,
+      "source_revision": "0259cd3c5c8f2e766d66f1e97c58ce52d74a6602",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41139724020",
+      "scope": "selected-cases",
+      "mode": "jobs",
+      "validation_profile": "debug",
+      "selected_case_count": 3,
+      "counts": {
+        "PASS": 3,
+        "FAIL": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "observation": "Selected Docker worker-loss, manager-crash and real published-baseline upgrade passed. These results do not identify or retrospectively resolve older timeout causes.",
+      "terminal_audit_record_sha256": "98362aa65453ced79631c5b8bc4efe44f4c83bb36368938bf4799510a0da7235",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41145778852",
+        "run_attempt": 1,
+        "source_run_id": "41139724020",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "a2ba7ded0ff9b712c1dcee87e6318e0700339b211cd09b925566ea666674ffc8"
+      }
+    },
+    {
+      "run_id": "41146623389",
+      "run_attempt": 1,
+      "source_revision": "0259cd3c5c8f2e766d66f1e97c58ce52d74a6602",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41146623389",
+      "scope": "full-suite",
+      "mode": "all",
+      "validation_profile": "full",
+      "selected_case_count": 18,
+      "counts": {
+        "PASS": 0,
+        "FAIL": 1,
+        "cancelled": 17,
+        "skipped": 0
+      },
+      "observation": "Instance smoke failed on incomplete membership pagination after 22.593 seconds of normal-release inventory, before a release/readiness/case deadline. Original triggering page response absent. Six plugin scenarios and four native platforms passed.",
+      "terminal_audit_record_sha256": "d991bca70a6187cf7f903ca084a049e62e4722596719ca91bae5d30630b13b55",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41150149688",
+        "run_attempt": 1,
+        "source_run_id": "41146623389",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "ee5854d97c999f2fe0990971986affdee4ca602ed011b38727b3686f535813b9"
+      }
+    },
+    {
+      "run_id": "41153189121",
+      "run_attempt": 1,
+      "source_revision": "a3507a45dc1b89a74e75b54d341e6577128a17c8",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41153189121",
+      "scope": "selected-cases",
+      "mode": "jobs",
+      "validation_profile": "debug",
+      "selected_case_count": 1,
+      "counts": {
+        "PASS": 1,
+        "FAIL": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "observation": "Targeted instance smoke passed with a 26.028-second normal release. This result does not establish whether the original inconsistent page response or older timeout causes were reproduced.",
+      "terminal_audit_record_sha256": "9de6499423cd2341ed7b60244a5ceff2837d495893c033670760b507b067fd30",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41154167333",
+        "run_attempt": 1,
+        "source_run_id": "41153189121",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "d3928164b17a56b5eb8dad2076b22b8a4ae787a7503386029f7544e661034ce5"
+      }
+    },
+    {
+      "run_id": "41154789018",
+      "run_attempt": 1,
+      "source_revision": "a3507a45dc1b89a74e75b54d341e6577128a17c8",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41154789018",
+      "scope": "full-suite-serial",
+      "mode": "all",
+      "validation_profile": "full",
+      "selected_case_count": 18,
+      "counts": {
+        "PASS": 16,
+        "FAIL": 1,
+        "cancelled": 1,
+        "skipped": 0
+      },
+      "observation": "All nine instance cases and seven Docker cases passed. Docker manager-crash failed before checkpoint/crash injection on ModifyInstanceAutoReleaseTime with unknown public cloud code and no retained HTTP status; Docker upgrade was cancelled. Manager graceful-stop failure was secondary; outer cleanup passed zero. Six plugin scenarios and four native platforms passed; final gates failed. This is not a crash-recovery product reproduction or a confirmed deadline failure.",
+      "terminal_audit_record_sha256": "e17f7c7a22344457b78f9ff8f610c6e13f6cc20b723155de0218524f0a56841f",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41175620979",
+        "run_attempt": 1,
+        "source_run_id": "41154789018",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "0d4f1f709894ee2953a7c46e42e02ceb01e3de4eed6be883012beca7a2127c71"
+      }
+    },
+    {
+      "run_id": "41197730371",
+      "run_attempt": 1,
+      "source_revision": "fd9dd48ffd75bb47b78097bb6cd26327f92ba62c",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41197730371",
+      "scope": "full-suite-two-lane",
+      "mode": "all",
+      "validation_profile": "full",
+      "selected_case_count": 18,
+      "counts": {
+        "PASS": 0,
+        "FAIL": 2,
+        "cancelled": 0,
+        "skipped": 16
+      },
+      "observation": "Both smoke cases failed during manager_prepare before Manager start, workers or job activity: instance POST runner_verify HTTP 429; Docker GET project_pipelines HTTP 429. Original rate headers and exact throttle bucket absent. Six plugin scenarios and four native platforms passed; final gates failed.",
+      "terminal_audit_record_sha256": "28bb9a4e740ba9e4b396ec5ce619ad90d602993074342aac75843b3cbcab8099",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41199977257",
+        "run_attempt": 1,
+        "source_run_id": "41197730371",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "720374236a69baa1e06093b422338dd03c3e175e066656f1612c5ddea8aea54e"
+      }
+    },
+    {
+      "run_id": "41203445430",
+      "run_attempt": 1,
+      "source_revision": "7eca005283c4fb5738cc4290361aafa9de2fc7ab",
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41203445430",
+      "scope": "full-suite-two-lane-after-inventory-reduction",
+      "mode": "all",
+      "validation_profile": "full",
+      "selected_case_count": 18,
+      "counts": {
+        "PASS": 0,
+        "FAIL": 2,
+        "cancelled": 0,
+        "skipped": 16
+      },
+      "observation": "Both smoke cases passed Manager preparation and observed one worker each, then pipeline-status GET returned HTTP 429. Frozen job status unknown, checkpoint false, normal release NOT_RECORDED; secondary Manager graceful-stop failure. Later exact readback confirmed both pipelines/jobs cancelled. Six plugin scenarios and four native platforms passed; final gates failed. PR118 inventory reduction alone did not resolve the observed limit; later local rate headers are separate evidence.",
+      "terminal_audit_record_sha256": "87f834a437e9929585660b1e9d40ce9bc69d8fb5c1c2b7099e3afd13bfe1a025",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41206057092",
+        "run_attempt": 1,
+        "source_run_id": "41203445430",
+        "source_run_attempt": 1,
+        "result": "PASS",
+        "leftover_resources": 0,
+        "verification_record_sha256": "8006593a2f2d147a52d890e4538c14c25d9ee00f06c11d843e02f57f4cd343a8"
+      }
+    }
+  ],
   "published_release": {
     "version": "0.1.0-rc.3",
     "source_revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
@@ -503,7 +1053,7 @@
     "temporary_github_secrets_retained": false,
     "local_private_keys_retained": false
   },
-  "gitlab_validation_status": "PASS_RELEASED_VM_AND_DOCKER_JOBS",
+  "gitlab_validation_status": "PASS_SAME_SOURCE_TWO_EXECUTOR_FULL_MATRIX",
   "missing_live_configuration_scope": "GitHub Live acceptance workflow; the local private fixture is configured separately.",
   "plugin_cloud_smoke": {
     "status": "pass",
