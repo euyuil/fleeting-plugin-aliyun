@@ -4,13 +4,22 @@ The client uses the official signed transport and checks exact region/group
 identity. ESS membership is fully paginated; ECS queries are divided into at
 most 100 requested IDs and require complete count-checked responses. Missing
 counts, duplicate or unrequested identities, and changing pagination totals
-fail the snapshot instead of reporting absent workers.
+invalidate the snapshot instead of reporting absent workers. The official
+[DescribeScalingInstances contract](https://www.alibabacloud.com/help/en/auto-scaling/developer-reference/api-ess-2014-08-28-describescalinginstances)
+defines the page number, page size and total count used by these checks.
 
-A missing member instance ID or group ID invalidates the entire snapshot. The
-client may reread it from page one for up to 30 seconds, bounded by the caller's
-deadline, without publishing partial members or filling in an absent group ID.
-A nonempty foreign group ID is rejected immediately. Diagnostics include the
-request ID, page/row and missing-field flags without instance or group values.
+A missing member instance ID or group ID, a changed total, an early empty page,
+or more rows than the total invalidates the entire membership snapshot. After
+the first such read, the client may reread from page one within one shared
+30-second window, waiting one second between attempts and honoring any earlier
+caller deadline. Every attempt discards prior pages; no partial members or
+invented group binding can escape. Persistent inconsistency remains an error.
+Missing/null/negative counts, foreign groups, duplicate identities, API errors
+and the pagination limit fail immediately. Hard identity violations take
+precedence over retryable defects in the same response. Diagnostics include
+page/count or missing-field information without instance or group values.
+This read-only recovery does not repeat writes, retry ECS/history queries, or
+extend readiness, release, case or resource-lifetime budgets.
 
 Connection metadata maps the catalog's `CpuArchitecture` values `X86` and `ARM`
 to Fleeting's `amd64` and `arm64`. Existing `x86_64`, `x64`, `arm64` and `aarch64`
