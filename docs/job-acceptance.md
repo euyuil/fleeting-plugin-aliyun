@@ -565,6 +565,46 @@ python3 tools/job_acceptance.py preflight --read-only
 This command validates supplied settings without authenticating to either
 provider. It does not establish permissions, image readiness or job success.
 
+## Check configuration and authentication before paid acceptance
+
+The `Job configuration and authentication check` workflow verifies the actual
+`aliyun-pre-release` Environment without cloud credentials or cloud access.
+Supply the canonical SHA-256 digest of the reviewed private `RELEASE_GITLAB_CONFIG`
+JSON, using the same `cloud_config.config_digest` function as receipts:
+
+```sh
+gh workflow run job-config-check.yml --ref main \
+  -f expected_config_sha256=EXPECTED_CANONICAL_CONFIG_SHA256
+```
+
+The creation flags must be `false,false` and cleanup must remain `true`. The
+workflow holds the existing cross-run acceptance fence, verifies the exact
+private project/two-Runner topology and complete empty project occupancy, then
+authenticates both Environment Runner tokens as their pinned identities. Its
+GET inventories include child pipelines and all supported nonterminal states;
+incomplete pages fail before authentication. It rechecks topology and occupancy
+before PASS. Requests share a checked 180-second budget; urllib socket timeouts
+do not provide a hard whole-transfer interruption, so the workflow retains its
+outer ten-minute bound. These are sequential observations, rather than an atomic
+lock on external GitLab actors.
+
+The [Runner verification endpoint](https://docs.gitlab.com/api/runners/#verify-authentication-for-a-registered-runner)
+can heartbeat the Runner and create or heartbeat a logical Manager record,
+including contact/IP metadata. The helper uses a stable diagnostic system ID
+per repository/executor in the `r_cfg` namespace, separate from real acceptance
+Managers' hexadecimal IDs. That record
+can appear contacted or online without a running Manager. This is a cloud-free
+authentication check with these metadata side effects; it starts no Runner
+process, job or compute resource. Verification POSTs are attempted once, and
+responses containing tokens are discarded after comparing only the ID.
+
+PASS proves the actual Environment configuration matches the expected digest
+and both supplied Runner credentials authenticate as the configured Runners.
+It does not recover a deleted token, prove token byte continuity, query the
+PAT's current user identity, or prove worker readiness or acceptance success.
+Preserve historical creator correlation and secret maintenance records privately.
+The workflow prints fixed identity-free results and uploads no raw artifacts.
+
 ## Credential maintenance
 
 The PAT and Runner token have independent lifetimes. Record the PAT expiry
