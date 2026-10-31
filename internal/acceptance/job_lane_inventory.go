@@ -67,6 +67,92 @@ func (g gitlab) laneProjectPipelines(ctx context.Context, source string) ([]pipe
 	return nil, errors.New("project pipeline history exceeds its complete page bound")
 }
 
+// This ref-filtered endpoint includes all retried builds. Its complete bounded
+// page replaces N pipeline-jobs reads; project-wide active occupancy stays fresh.
+func (g gitlab) laneScopedJobs(ctx context.Context, runs []pipeline) (map[int64][]job, error) {
+	query := url.Values{"per_page": {"100"}, "ref": {g.lane.context.FixtureRef}}
+	var rows []job
+	if err := g.laneList(ctx, "/jobs?"+query.Encode(), &rows); err != nil {
+		return nil, err
+	}
+	ids := map[int64]bool{}
+	for _, p := range runs {
+		ids[p.ID] = true
+	}
+	byPipeline, seen := map[int64][]job{}, map[int64]bool{}
+	unknown := false
+	for _, j := range rows {
+		_, valid := laneJobState(j.Status)
+		if j.ID <= 0 || seen[j.ID] || j.Pipeline.ID <= 0 || !valid || j.Ref != g.lane.context.FixtureRef || j.Commit.ID != g.lane.context.FixtureSHA {
+			return nil, errors.New("scoped job inventory has a duplicate or foreign identity")
+		}
+		unknown = unknown || !ids[j.Pipeline.ID]
+		seen[j.ID] = true
+		byPipeline[j.Pipeline.ID] = append(byPipeline[j.Pipeline.ID], j)
+	}
+	for _, jobs := range byPipeline {
+		if len(jobs) != 1 {
+			return nil, errors.New("scoped pipeline contains retried jobs")
+		}
+	}
+	if unknown {
+		return nil, errLaneVisibility // A peer may have submitted after the pipeline snapshot.
+	}
+	return byPipeline, nil
+}
+
+// The username filter resolves to a numeric creator in GitLab. Anchor it to
+// one actual detail response and require equality with the UNFILTERED ID set;
+// filtering alone would hide foreign pipelines. Declarations are never cached.
+func (g gitlab) laneCreators(ctx context.Context, runs []pipeline) ([]pipeline, error) {
+	c := g.lane.context
+	listed := map[int64]pipeline{}
+	for _, p := range runs {
+		_, valid := laneJobState(p.Status)
+		if p.ID <= 0 || listed[p.ID].ID != 0 || !valid || p.Ref != c.FixtureRef || p.SHA != c.FixtureSHA ||
+			p.Source != "api" || strconv.FormatInt(p.ProjectID, 10) != c.ProjectID {
+			return nil, errors.New("run pipeline inventory has a duplicate or foreign identity")
+		}
+		listed[p.ID] = p
+	}
+	if len(runs) == 0 {
+		return runs, nil
+	}
+	var anchor pipeline
+	if err := g.request(ctx, "GET", "/pipelines/"+strconv.FormatInt(runs[0].ID, 10), nil, &anchor); err != nil {
+		return nil, err
+	}
+	if anchor.ID != runs[0].ID || anchor.ProjectID != runs[0].ProjectID || anchor.Ref != c.FixtureRef ||
+		anchor.SHA != c.FixtureSHA || anchor.Source != "api" || strconv.FormatInt(anchor.User.ID, 10) != c.APIUserID || anchor.User.Username == "" {
+		return nil, errors.New("pipeline creator anchor differs from its owning fixture or numeric user")
+	}
+	query := url.Values{"ref": {c.FixtureRef}, "username": {anchor.User.Username}, "per_page": {"100"}}
+	var owned []pipeline
+	if err := g.laneList(ctx, "/pipelines?"+query.Encode(), &owned); err != nil {
+		return nil, err
+	}
+	seen := map[int64]bool{}
+	extra := false
+	for _, p := range owned {
+		_, valid := laneJobState(p.Status)
+		if p.ID <= 0 || seen[p.ID] || !valid || strconv.FormatInt(p.ProjectID, 10) != c.ProjectID ||
+			p.Ref != c.FixtureRef || p.SHA != c.FixtureSHA || p.Source != "api" {
+			return nil, errors.New("creator-filtered pipeline identity changed")
+		}
+		seen[p.ID] = true
+		extra = extra || listed[p.ID].ID == 0
+	}
+	for id := range listed {
+		if !seen[id] {
+			return nil, errors.New("run contains a pipeline outside its pinned numeric creator")
+		}
+	}
+	if extra {
+		return nil, errLaneVisibility
+	}
+	return owned, nil
+}
+
 func (g gitlab) verifyLaneFixture(ctx context.Context, runnerID int64, tag, token, systemID string) error {
 	scope := g.lane
 	c := scope.context
@@ -162,6 +248,20 @@ func (g gitlab) inspectLaneInventory(ctx context.Context, own map[string]string,
 	if len(runs) > 36 {
 		return errors.New("run pipeline inventory exceeds both accepted phases")
 	}
+	runs, err := g.laneCreators(ctx, runs)
+	if err != nil {
+		return err
+	}
+	projectJobs, err := g.laneScopedJobs(ctx, runs)
+	if err != nil {
+		return err
+	}
+	// Catch missing/materializing jobs before spending N declaration reads.
+	for _, p := range runs {
+		if len(projectJobs[p.ID]) == 0 {
+			return errLaneVisibility
+		}
+	}
 	owners := map[int64]map[string]string{}
 	nonces, jobsSeen := map[string]bool{}, map[int64]int64{}
 	slots, caseManagers, managerCases := map[string]bool{}, map[string]string{}, map[string]string{}
@@ -181,13 +281,10 @@ func (g gitlab) inspectLaneInventory(ctx context.Context, own map[string]string,
 		if listed.ID <= 0 || owners[listed.ID] != nil || listed.Ref != c.FixtureRef || listed.SHA != c.FixtureSHA || listed.Source != "api" {
 			return errors.New("run pipeline inventory has a duplicate or foreign identity")
 		}
-		var current pipeline
-		if err := g.request(ctx, "GET", "/pipelines/"+strconv.FormatInt(listed.ID, 10), nil, &current); err != nil {
-			return err
-		}
+		current := listed
 		terminal, valid := laneJobState(current.Status)
 		if !valid || current.ID != listed.ID || current.Ref != c.FixtureRef || current.SHA != c.FixtureSHA || current.Source != "api" ||
-			strconv.FormatInt(current.ProjectID, 10) != c.ProjectID || strconv.FormatInt(current.User.ID, 10) != c.APIUserID {
+			strconv.FormatInt(current.ProjectID, 10) != c.ProjectID {
 			return errors.New("pipeline readback differs from its owning run, fixture or creator")
 		}
 		var variables []laneVariable
@@ -213,10 +310,7 @@ func (g gitlab) inspectLaneInventory(ctx context.Context, own map[string]string,
 			return errors.New("lane case reused a job slot or crossed Manager identities")
 		}
 		slots[slot], caseManagers[caseKey], managerCases[owner["system_id"]] = true, manager, caseKey
-		var jobs []job
-		if err := g.laneList(ctx, "/pipelines/"+strconv.FormatInt(current.ID, 10)+"/jobs?per_page=100&include_retried=true", &jobs); err != nil {
-			return err
-		}
+		jobs := projectJobs[current.ID]
 		if len(jobs) == 0 {
 			return errLaneVisibility
 		}

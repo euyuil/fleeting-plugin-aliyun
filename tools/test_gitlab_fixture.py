@@ -194,6 +194,28 @@ class FixtureTests(unittest.TestCase):
                           for r in diagnostic["requests"]], [("POST", "commit", "transport", 1), ("GET", "branch", "http", 3)])
         self.assertNotIn("private", json.dumps(diagnostic))
 
+    def test_two_lane_fixture_paces_every_attempt_and_fresh_client(self):
+        clock, attempts = [0.0], []
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        def opened(request, timeout):
+            attempts.append(clock[0])
+            if len(attempts) == 1:
+                raise urllib.error.URLError("synthetic transport loss")
+            return io.BytesIO(b"{}")
+
+        with patch.object(fixture.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(fixture.time, "sleep", side_effect=sleep):
+            for _ in range(2):
+                client = fixture.GitLab({**CONFIG, "runners": {}}, "synthetic-token")
+                client.opener.open = opened
+                for _ in range(45):
+                    client.request("")
+        self.assertEqual(len(attempts), 91)
+        self.assertEqual(attempts, [1.5 * i for i in range(1, 92)])
+
     def test_get_retries_only_transient_reads_and_remains_bounded(self):
         faults = [urllib.error.URLError(TimeoutError("private timeout")),
                   http.client.IncompleteRead(b"private response"),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,8 @@ type laneDispatchServer struct {
 	creates, cancels                         int
 	lostCreate, lostCancel, replay, swapJobs bool
 	revivePipeline, reviveJob                bool
+	keepCanceling, extraJob                  bool
+	forces                                   int
 }
 
 func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,10 +60,12 @@ func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		id := int64(100 + f.creates)
 		p := pipeline{ID: id, SHA: c.FixtureSHA, Ref: request.Ref, Source: "api", ProjectID: 9, Status: "running"}
-		p.User.ID = 7
+		p.User.ID, p.User.Username = 7, "fixture-owner"
 		j := job{ID: id + 900, Status: "running", Name: "spot-smoke", Ref: c.FixtureRef, TagList: []string{owner["runner_tag"]}}
-		if owner["job_scenario"] == "capacity" {
+		if slices.Contains([]string{"capacity", "drain", "worker-loss"}, owner["job_scenario"]) {
 			j.Name = "spot-controlled"
+		} else if owner["job_scenario"] == "manager-crash" {
+			j.Name = "spot-manager-crash"
 		}
 		j.Pipeline.ID, j.Commit.ID = id, c.FixtureSHA
 		j.Runner.ID, _ = strconv.ParseInt(owner["runner_id"], 10, 64)
@@ -97,17 +102,45 @@ func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/jobs":
 		rows := []job{}
 		for _, j := range f.jobs {
-			if f.reviveJob && j.ID == 1001 {
+			if f.reviveJob && j.ID == 1001 && r.URL.Query().Has("scope[]") {
 				j.Status = "running"
 			}
-			if !terminalJob(j.Status) {
-				if f.swapJobs {
+			if !r.URL.Query().Has("scope[]") || !terminalJob(j.Status) {
+				if f.swapJobs && r.URL.Query().Has("scope[]") {
 					j.ID = 2003 - j.ID
 				}
 				rows = append(rows, j)
 			}
 		}
+		if f.replay && !r.URL.Query().Has("scope[]") {
+			for _, j := range f.jobs {
+				j.ID, j.Pipeline.ID = 1999, 999
+				rows = append(rows, j)
+				break
+			}
+		}
 		out = rows
+	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/trace"):
+		parts := strings.Split(strings.TrimPrefix(path, "/jobs/"), "/")
+		id, _ := strconv.ParseInt(parts[0], 10, 64)
+		for i, e := range f.s.result.Jobs {
+			if e.JobID == id {
+				_, _ = fmt.Fprintf(w, "FLEETING_CHECKPOINT %s %s %d i-synthetic%d\n", e.Nonce, e.Scenario, id, i+1)
+				return
+			}
+		}
+		w.WriteHeader(404)
+		return
+	case path == "/jobs/1001/cancel" && r.Method == "POST":
+		intent, _, err := f.s.readLaneIntent(&f.s.result.Jobs[0])
+		if err != nil || !intent.CancelSent || !intent.ForceSent || f.jobs[101].Status != "canceling" {
+			f.t.Error("force did not preserve the original cancel and fresh target")
+		}
+		f.forces++
+		p, j := f.pipes[101], f.jobs[101]
+		p.Status, j.Status = "canceled", "canceled"
+		f.pipes[101], f.jobs[101] = p, j
+		out = j
 	case strings.HasPrefix(path, "/pipelines/"):
 		parts := strings.Split(strings.TrimPrefix(path, "/pipelines/"), "/")
 		id, _ := strconv.ParseInt(parts[0], 10, 64)
@@ -138,6 +171,10 @@ func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				j.ID = 1999
 			}
 			out = []job{j}
+			if f.extraJob {
+				j.ID++
+				out = []job{f.jobs[lookup], j}
+			}
 		case "cancel":
 			if r.Method != "POST" {
 				f.t.Error("wrong cancel method")
@@ -151,6 +188,10 @@ func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.pipes[id] = p
 			j := f.jobs[id]
 			j.Status = "canceled"
+			if f.keepCanceling {
+				p.Status, j.Status = "running", "canceling"
+				f.pipes[id] = p
+			}
 			f.jobs[id] = j
 			if f.lostCancel {
 				w.WriteHeader(502)

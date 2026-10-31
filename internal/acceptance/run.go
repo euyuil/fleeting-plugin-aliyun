@@ -279,6 +279,9 @@ func Run(ctx context.Context, dir string) (result Result) {
 		return result
 	}
 	gl := gitlab{base: gitlabURL, token: get("GITLAB_API_TOKEN"), project: result.ProjectID, lane: lane, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}}
+	if lane != nil {
+		gl.pace = newGitLabPacer()
+	}
 	systemID := "r_" + result.Nonce[:12]
 	if err = VerifyGitLabFixture(ctx, gl, runnerID, get("GITLAB_RUNNER_TAG"), get("GITLAB_RUNNER_TOKEN"), systemID); err != nil {
 		fail(err)
@@ -519,10 +522,14 @@ func Run(ctx context.Context, dir string) (result Result) {
 			return nil
 		}
 	}
+	pollInterval := 3 * time.Second
+	if lane != nil {
+		pollInterval = 10 * time.Second
+	}
 	sequence := jobSequence{
 		gl: gl, result: &result, runnerID: runnerID, ref: get("GITLAB_FIXTURE_REF"), tag: get("GITLAB_RUNNER_TAG"),
 		systemID:     systemID,
-		checkManager: checkManager, pollInterval: 3 * time.Second,
+		checkManager: checkManager, pollInterval: pollInterval,
 		observe: func(ctx context.Context) error {
 			if err := ObserveBudget(ctx, cloud, &result.Ledger, budget, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
 				return err

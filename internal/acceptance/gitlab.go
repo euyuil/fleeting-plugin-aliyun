@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/euyuil/fleeting-plugin-aliyun/internal/aliyun"
@@ -20,6 +21,48 @@ type gitlab struct {
 	base, token, project string
 	http                 *http.Client
 	lane                 *jobLaneScope
+	pace                 *gitlabPacer
+}
+
+const gitlabRequestInterval = 1500 * time.Millisecond
+
+// Copies of a case client share one no-burst schedule. The first attempt also
+// waits, so a fresh host or Python-to-Go handoff cannot reset the request rate.
+type gitlabPacer struct {
+	mu    sync.Mutex
+	next  time.Time
+	now   func() time.Time
+	sleep func(context.Context, time.Duration) error
+}
+
+func newGitLabPacer() *gitlabPacer { return &gitlabPacer{now: time.Now, sleep: aliyun.Wait} }
+
+func (p *gitlabPacer) wait(ctx context.Context) error {
+	if p == nil {
+		return ctx.Err()
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.next.IsZero() {
+		p.next = p.now().Add(gitlabRequestInterval)
+	}
+	if err := p.sleep(ctx, p.next.Sub(p.now())); err != nil {
+		return err
+	}
+	p.next = p.now().Add(gitlabRequestInterval)
+	return ctx.Err()
+}
+
+func (g gitlab) pipelineJobs(ctx context.Context, id int64) ([]job, error) {
+	path := fmt.Sprintf("/pipelines/%d/jobs?per_page=100", id)
+	var rows []job
+	var err error
+	if g.lane != nil {
+		err = g.laneList(ctx, path+"&include_retried=true", &rows)
+	} else {
+		err = g.request(ctx, "GET", path, nil, &rows)
+	}
+	return rows, err
 }
 
 type gitlabPage struct {
@@ -62,7 +105,7 @@ func (g gitlab) requestAPI(ctx context.Context, method, path string, body, out a
 }
 
 func (g gitlab) requestOnce(ctx context.Context, method, path string, body []byte, out any) (bool, error) {
-	if err := ctx.Err(); err != nil {
+	if err := g.pace.wait(ctx); err != nil {
 		return false, err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(g.base, "/")+"/api/v4"+path, bytes.NewReader(body))
@@ -135,7 +178,10 @@ type pipeline struct {
 	SHA, Status string
 	Ref, Source string
 	ProjectID   int64 `json:"project_id"`
-	User        struct{ ID int64 }
+	User        struct {
+		ID       int64
+		Username string
+	}
 }
 type job struct {
 	ID            int64

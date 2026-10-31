@@ -119,7 +119,7 @@ func TestLaneProjectTerminalHistoryAndSinglePageRequestCost(t *testing.T) {
 					t.Error("project inventory repeated a per-status query")
 				}
 				if r.URL.Path == "/api/v4/projects/9/jobs" {
-					if !reflect.DeepEqual(q["scope[]"], laneActiveStates) {
+					if !q.Has("ref") && !reflect.DeepEqual(q["scope[]"], laneActiveStates) {
 						t.Error("project jobs omitted an active state")
 					}
 					_ = json.NewEncoder(w).Encode([]job{})
@@ -142,8 +142,8 @@ func TestLaneProjectTerminalHistoryAndSinglePageRequestCost(t *testing.T) {
 				if err == nil {
 					t.Fatal("a current-ref child appeared after the first scoped check")
 				}
-			} else if err != nil || requests.Load() != 5 {
-				t.Fatal("terminal history blocked occupancy or single-page cost exceeded five reads", err, requests.Load())
+			} else if err != nil || requests.Load() != 6 {
+				t.Fatal("terminal history blocked occupancy or single-page cost exceeded six reads", err, requests.Load())
 			}
 		})
 	}

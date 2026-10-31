@@ -450,18 +450,39 @@ They read the ordinary and child project histories with complete ascending-ID
 pagination (at most 100 pages of 100 rows each), then classify all nonterminal
 states locally instead of repeating each query for nine states. Incomplete,
 duplicate or unordered pages fail; retained terminal history cannot hide active
-work. The bounded run-ref replay checks and final project-jobs check remain fresh.
+work. The run-ref replay check reads every signed declaration afresh. A numeric
+creator detail anchors a username-filtered list whose complete ID set must equal
+the unfiltered list; filtering alone never proves ownership. One complete
+ref-filtered project-jobs page includes retried builds and must contain exactly
+one job per pipeline. Missing, duplicate, foreign or paginated rows cannot prove
+admission. The final project-wide active-jobs check remains a separate fresh read.
 Only an authenticated peer case may occupy the other lane. Missing authenticated
 visibility permits read-only reconciliation every five seconds within the same
-two-minute deadline, never partial admission. HTTP 429 remains a failure; it does
-not cause an automatic request or write retry.
+two-minute deadline, never partial admission.
+
+Both the two-lane Python fixture client and Go driver space every HTTP attempt
+by at least 1.5 seconds, including their first attempt and existing read retries.
+A fresh host or Python-to-Go handoff therefore cannot replenish a burst allowance.
+The two harness clients together start at most 80 requests per rolling minute;
+this is not a guarantee about unrelated callers or GitLab's other limit buckets.
+Ordinary jobs are polled every ten seconds, reading pipeline detail when the job
+becomes terminal. A proved running checkpoint does not repeatedly download its
+trace; terminal trace validation remains mandatory. These changes add no retry:
+the Go driver still fails HTTP 429, fixture read retries retain their existing
+bound, and writes are never retried. All waits use the existing deadlines.
 
 Before each pipeline POST, the exact signed request is durably saved beside the
 private ledger. An unknown reply remains a failure and is never resubmitted.
 Complete readback can identify that exact intent for isolated cleanup; replayed,
 ambiguous or unconfirmed work cannot be canceled by nonce alone. Cancellation
 intents are also saved before their single POST and require terminal readback.
-These private identities and files are excluded from public receipts.
+Once unique ownership and exact server pipeline/job IDs are durable, cancellation
+and cleanup reread that target's detail, HMAC variables and complete unretried-job
+binding. They do not rescan unrelated history before each control request. Force
+requires a fresh `canceling` job and the original durable cancel intent. Unknown
+creation still requires complete unique discovery, and complete replay/global
+checks remain mandatory before admission and final PASS. No declaration cache is
+used. These private identities and files are excluded from public receipts.
 
 Add `RELEASE_ALIYUN_JOB_FIXTURE_CONFIG` as a private Environment secret (or a
 variable where the deployment policy permits private resource configuration).

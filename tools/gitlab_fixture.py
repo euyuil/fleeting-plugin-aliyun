@@ -56,6 +56,8 @@ class GitLab:
         self.base = config["url"] + "/api/v4/projects/" + config["project_id"]
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect())
+        self.request_interval = 1.5 if "runners" in config else 0
+        self.next_request = time.monotonic() + self.request_interval
 
     def request(self, path, body=None, *, raw=False):
         data = None if body is None else json.dumps(body).encode()
@@ -67,6 +69,9 @@ class GitLab:
             if path.startswith(prefix)), "project" if path == "" else "unknown")
         maximum = 3 if method == "GET" else 1
         for attempt in range(1, maximum + 1):
+            if self.request_interval:
+                time.sleep(max(0, self.next_request - time.monotonic()))
+                self.next_request = time.monotonic() + self.request_interval
             try:
                 with self.opener.open(request, timeout=30) as response:
                     data = response.read(128 * 1024 + 1)
