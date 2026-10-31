@@ -148,7 +148,7 @@ func (s jobSequence) reconcileLaneDispatch(parent context.Context, e *JobEvidenc
 			}
 			return found, nil
 		}
-		if err := aliyun.Wait(ctx, time.Second); err != nil {
+		if err := aliyun.Wait(ctx, laneVisibilityPollInterval); err != nil {
 			return lanePipeline{}, errors.New("lane dispatch remains unconfirmed; submission was not repeated")
 		}
 	}
@@ -223,7 +223,7 @@ func (s jobSequence) cleanupLaneDispatch(ctx context.Context, e *JobEvidence) er
 		if terminalJob(p.pipeline.Status) && terminalJob(p.job.Status) {
 			return nil
 		}
-		if err := aliyun.Wait(readCtx, time.Second); err != nil {
+		if err := aliyun.Wait(readCtx, laneVisibilityPollInterval); err != nil {
 			return errors.New("lane job cleanup lacks an exact terminal readback")
 		}
 	}

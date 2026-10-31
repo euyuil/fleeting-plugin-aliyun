@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -67,7 +68,9 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 			if fault == "wrong-tag" {
 				j.TagList = []string{"other-tag"}
 			}
+			var requests atomic.Int64
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
 				w.Header().Set("Content-Type", "application/json")
 				var out any
 				switch r.URL.Path {
@@ -113,7 +116,7 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 					if r.URL.Query().Get("source") == "parent_pipeline" {
 						out = []pipeline{}
 						if fault == "child-on-run-ref" && r.URL.Query().Get("ref") != "" ||
-							fault == "foreign-child-no-jobs" && r.URL.Query().Get("status") == "preparing" {
+							fault == "foreign-child-no-jobs" && r.URL.Query().Get("ref") == "" {
 							out = []pipeline{{ID: 900, Ref: "foreign-ref", Status: "preparing", Source: "parent_pipeline"}}
 						}
 						if fault == "paged-child" {
@@ -136,10 +139,10 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 						}
 					} else {
 						out = []pipeline{}
-						if r.URL.Query().Get("status") == pipe.Status && fault != "empty" {
+						if fault != "empty" {
 							out = []pipeline{pipe}
 						}
-						if fault == "foreign-pipeline-no-jobs" && r.URL.Query().Get("status") == "created" {
+						if fault == "foreign-pipeline-no-jobs" {
 							out = []pipeline{{ID: 900, Ref: "foreign-ref", Status: "created"}}
 						}
 					}
@@ -198,6 +201,9 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 			}
 			if (got == nil) != (fault == "" || fault == "empty" || fault == "pending" || fault == "canceled-unassigned") {
 				t.Fatal("unexpected two-lane isolation verdict", got)
+			}
+			if fault == "" && requests.Load() != 12 || fault == "empty" && requests.Load() != 9 {
+				t.Fatal("single-page verification amplified API reads", requests.Load())
 			}
 		})
 	}

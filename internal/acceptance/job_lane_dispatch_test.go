@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,9 +81,7 @@ func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if f.revivePipeline && p.ID == 101 && r.URL.Query().Get("ref") == "" {
 				p.Status = "running"
 			}
-			if r.URL.Query().Get("ref") != "" || p.Status == r.URL.Query().Get("status") {
-				rows = append(rows, p)
-			}
+			rows = append(rows, p)
 		}
 		if f.replay {
 			for _, p := range f.pipes {
@@ -90,6 +89,9 @@ func (f *laneDispatchServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				rows = append(rows, p)
 				break
 			}
+		}
+		if r.URL.Query().Get("order_by") == "id" && r.URL.Query().Get("sort") == "asc" {
+			slices.SortFunc(rows, func(a, b pipeline) int { return int(a.ID - b.ID) })
 		}
 		out = rows
 	case path == "/jobs":
