@@ -446,8 +446,15 @@ insufficient: complete terminal and nonterminal inventories of the run ref must
 prove unique nonces and case slots, exact pipeline/job pairs and the assigned
 Manager system ID. Retried jobs and foreign work are rejected. Project-wide
 nonterminal checks also cover pipelines whose jobs have not appeared yet.
+They read the ordinary and child project histories with complete ascending-ID
+pagination (at most 100 pages of 100 rows each), then classify all nonterminal
+states locally instead of repeating each query for nine states. Incomplete,
+duplicate or unordered pages fail; retained terminal history cannot hide active
+work. The bounded run-ref replay checks and final project-jobs check remain fresh.
 Only an authenticated peer case may occupy the other lane. Missing authenticated
-visibility permits bounded read-only reconciliation, never partial admission.
+visibility permits read-only reconciliation every five seconds within the same
+two-minute deadline, never partial admission. HTTP 429 remains a failure; it does
+not cause an automatic request or write retry.
 
 Before each pipeline POST, the exact signed request is durably saved beside the
 private ledger. An unknown reply remains a failure and is never resubmitted.

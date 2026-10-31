@@ -18,8 +18,11 @@ type jobLaneScope struct {
 
 var errLaneVisibility = errors.New("owned lane pipeline has not materialized its exact job")
 
-// All lists fit on one complete page: 34 full candidate pipelines plus two
-// later public smoke pipelines. A further page is a failure, not a partial view.
+const laneVisibilityPollInterval = 5 * time.Second
+const maxLaneProjectPipelinePages = 100
+
+// Run-scoped lists fit on one complete page: 34 full candidate pipelines plus
+// two later public smoke pipelines. Runner/job lists have smaller fixed bounds.
 func (g gitlab) laneList(ctx context.Context, path string, out any) error {
 	page := gitlabPage{value: out}
 	if err := g.request(ctx, "GET", path, nil, &page); err != nil {
@@ -29,6 +32,39 @@ func (g gitlab) laneList(ctx context.Context, path string, out any) error {
 		return errors.New("lane inventory exceeds its complete page bound")
 	}
 	return nil
+}
+
+// Project history spans runs. Read every page instead of querying each active
+// status separately; never use a partial history as proof of empty occupancy.
+func (g gitlab) laneProjectPipelines(ctx context.Context, source string) ([]pipeline, error) {
+	query := url.Values{"per_page": {"100"}, "order_by": {"id"}, "sort": {"asc"}}
+	if source != "" {
+		query.Set("source", source)
+	}
+	var all []pipeline
+	var lastID int64
+	for number := 1; number <= maxLaneProjectPipelinePages; number++ {
+		query.Set("page", strconv.Itoa(number))
+		var rows []pipeline
+		page := gitlabPage{value: &rows}
+		if err := g.request(ctx, "GET", "/pipelines?"+query.Encode(), nil, &page); err != nil {
+			return nil, err
+		}
+		if rows == nil || len(rows) > 100 || page.next && len(rows) == 0 {
+			return nil, errors.New("project pipeline history is incomplete")
+		}
+		for _, p := range rows {
+			if p.ID <= lastID {
+				return nil, errors.New("project pipeline history has duplicate or unordered identities")
+			}
+			lastID = p.ID
+		}
+		all = append(all, rows...)
+		if !page.next {
+			return all, nil
+		}
+	}
+	return nil, errors.New("project pipeline history exceeds its complete page bound")
 }
 
 func (g gitlab) verifyLaneFixture(ctx context.Context, runnerID int64, tag, token, systemID string) error {
@@ -104,7 +140,7 @@ func (g gitlab) readLaneInventory(ctx context.Context, own map[string]string) (m
 			}
 			return inventory, err
 		}
-		if err := aliyun.Wait(readCtx, time.Second); err != nil {
+		if err := aliyun.Wait(readCtx, laneVisibilityPollInterval); err != nil {
 			return nil, errLaneVisibility
 		}
 	}
@@ -212,32 +248,42 @@ func (g gitlab) inspectLaneInventory(ctx context.Context, own map[string]string,
 	}
 	// Keep a project-wide guard. Restricting reads to the run ref would conceal
 	// unrelated work, including a nonterminal pipeline before its jobs appear.
-	for _, status := range laneActiveStates {
-		if err := g.rejectLaneChildren(ctx, "status="+status); err != nil {
-			return err
+	project, err := g.laneProjectPipelines(ctx, "")
+	if err != nil {
+		return err
+	}
+	activeCount := 0
+	for _, p := range project {
+		terminal, valid := laneJobState(p.Status)
+		if !valid {
+			return errors.New("project pipeline has an unknown state")
 		}
-		var active []pipeline
-		if err := g.laneList(ctx, "/pipelines?status="+status+"&per_page=100", &active); err != nil {
-			return err
+		if terminal {
+			continue
 		}
-		if len(active) > 6 {
+		activeCount++
+		if activeCount > 6 {
 			return errors.New("project contains more active pipelines than two cases can own")
 		}
-		for _, p := range active {
-			owner := owners[p.ID]
-			if owner == nil && p.Ref == c.FixtureRef && p.SHA == c.FixtureSHA && p.Source == "api" {
-				return errLaneVisibility
-			}
-			if !allowedActive(owner) || p.Ref != c.FixtureRef || p.SHA != c.FixtureSHA || p.Source != "api" {
-				return errors.New("project contains an unrelated or stale nonterminal pipeline")
-			}
-			terminal, valid := laneJobState(p.Status)
-			if !valid {
-				return errors.New("project pipeline has an unknown state")
-			}
-			if terminal || terminalJob(inventory[p.ID].pipeline.Status) {
-				return errLaneVisibility
-			}
+		owner := owners[p.ID]
+		if owner == nil && p.Ref == c.FixtureRef && p.SHA == c.FixtureSHA && p.Source == "api" {
+			return errLaneVisibility
+		}
+		if !allowedActive(owner) || p.Ref != c.FixtureRef || p.SHA != c.FixtureSHA || p.Source != "api" {
+			return errors.New("project contains an unrelated or stale nonterminal pipeline")
+		}
+		if terminalJob(inventory[p.ID].pipeline.Status) {
+			return errLaneVisibility
+		}
+	}
+	children, err := g.laneProjectPipelines(ctx, "parent_pipeline")
+	if err != nil {
+		return err
+	}
+	for _, p := range children {
+		terminal, valid := laneJobState(p.Status)
+		if !valid || p.Ref == c.FixtureRef || !terminal {
+			return errors.New("child pipelines are outside the acceptance ownership contract")
 		}
 	}
 	query := url.Values{"per_page": {"100"}, "scope[]": laneActiveStates}
