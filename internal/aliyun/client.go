@@ -54,7 +54,7 @@ func (c *Client) Group(ctx context.Context) (Group, error) {
 }
 func (c *Client) Members(ctx context.Context) (map[string]Member, error) {
 	members, err := c.membersSnapshot(ctx)
-	if !errors.Is(err, errIncompleteMemberIdentity) {
+	if !incompleteMemberSnapshot(err) {
 		return members, err
 	}
 	// Never publish a partial membership or invent a missing group binding.
@@ -69,13 +69,21 @@ func (c *Client) Members(ctx context.Context) (map[string]Member, error) {
 			return nil, fmt.Errorf("%v: %w", err, waitErr)
 		}
 		members, err = c.membersSnapshot(retryCtx)
-		if !errors.Is(err, errIncompleteMemberIdentity) {
+		if !incompleteMemberSnapshot(err) {
 			return members, err
 		}
 	}
 }
 
-var errIncompleteMemberIdentity = errors.New("incomplete member identity")
+var (
+	errIncompleteMemberIdentity   = errors.New("incomplete member identity")
+	errChangedMemberCount         = errors.New("membership changed during pagination; retry complete snapshot")
+	errIncompleteMemberPagination = errors.New("incomplete membership pagination")
+)
+
+func incompleteMemberSnapshot(err error) bool {
+	return errors.Is(err, errIncompleteMemberIdentity) || errors.Is(err, errChangedMemberCount) || errors.Is(err, errIncompleteMemberPagination)
+}
 
 func (c *Client) membersSnapshot(ctx context.Context) (map[string]Member, error) {
 	all := map[string]Member{}
@@ -91,32 +99,43 @@ func (c *Client) membersSnapshot(ctx context.Context) (map[string]Member, error)
 		if err != nil {
 			return nil, err
 		}
+		if out.TotalCount == nil {
+			return nil, errors.New("missing TotalCount in API response")
+		}
+		if *out.TotalCount < 0 {
+			return nil, errors.New("negative membership TotalCount in API response")
+		}
 		if expected < 0 {
-			if out.TotalCount == nil {
-				return nil, errors.New("missing TotalCount in API response")
-			}
 			expected = *out.TotalCount
 		}
-		if out.TotalCount == nil || *out.TotalCount != expected {
-			return nil, errors.New("membership changed during pagination; retry complete snapshot")
-		}
+		var identityErr error
 		for row, m := range out.ScalingInstances.ScalingInstance {
 			if m.ScalingGroupId != "" && m.ScalingGroupId != c.GroupID {
 				return nil, fmt.Errorf("foreign member group: request_id=%s page=%d row=%d", out.RequestId, page, row)
 			}
-			if m.InstanceId == "" || m.ScalingGroupId == "" {
-				return nil, fmt.Errorf("%w: request_id=%s page=%d row=%d missing_instance_id=%t missing_group_id=%t lifecycle=%q", errIncompleteMemberIdentity, out.RequestId, page, row, m.InstanceId == "", m.ScalingGroupId == "", m.LifecycleState)
+			if m.InstanceId != "" {
+				if _, exists := all[m.InstanceId]; exists {
+					return nil, errors.New("duplicate member in paginated snapshot")
+				}
+				all[m.InstanceId] = m
 			}
-			if _, exists := all[m.InstanceId]; exists {
-				return nil, errors.New("duplicate member in paginated snapshot")
+			if (m.InstanceId == "" || m.ScalingGroupId == "") && identityErr == nil {
+				identityErr = fmt.Errorf("%w: request_id=%s page=%d row=%d missing_instance_id=%t missing_group_id=%t lifecycle=%q", errIncompleteMemberIdentity, out.RequestId, page, row, m.InstanceId == "", m.ScalingGroupId == "", m.LifecycleState)
 			}
-			all[m.InstanceId] = m
+		}
+		// A retryable defect must not hide foreign or duplicate identities in
+		// this response. The local map is never returned after either defect.
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		if *out.TotalCount != expected {
+			return nil, fmt.Errorf("%w: page=%d expected=%d observed=%d", errChangedMemberCount, page, expected, *out.TotalCount)
 		}
 		if len(all) == expected {
 			return all, nil
 		}
 		if len(out.ScalingInstances.ScalingInstance) == 0 || len(all) > expected {
-			return nil, errors.New("incomplete membership pagination")
+			return nil, fmt.Errorf("%w: page=%d expected=%d collected=%d returned=%d", errIncompleteMemberPagination, page, expected, len(all), len(out.ScalingInstances.ScalingInstance))
 		}
 	}
 	return nil, errors.New("membership pagination limit exceeded")
