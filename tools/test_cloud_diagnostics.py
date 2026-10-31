@@ -24,11 +24,13 @@ class DiagnosticTests(unittest.TestCase):
         self.assertNotIn("synthetic-private", json.dumps(actual))
 
     def test_auto_release_error_uses_an_exact_public_code(self):
-        code = "InvalidAutoReleaseTime.Malformed"
-        result = api_error("ecs", "ModifyInstanceAutoReleaseTime", code)
-        self.assertEqual(result["code"], code)
-        self.assertEqual(result["action"], "ModifyInstanceAutoReleaseTime")
-        self.assertEqual(api_error("ecs", "ModifyInstanceAutoReleaseTime", code + ".private")["code"], "unknown")
+        for code in ("InvalidAutoReleaseTime.Malformed", "MissingParameter", "UnsupportedParameter", "InternalError",
+                     "ChargeTypeViolation", "InstanceLockedForSecurity", "NoSuchResource"):
+            with self.subTest(code=code):
+                result = api_error("ecs", "ModifyInstanceAutoReleaseTime", code)
+                self.assertEqual(result["code"], code)
+                self.assertEqual(result["action"], "ModifyInstanceAutoReleaseTime")
+                self.assertEqual(api_error("ecs", "ModifyInstanceAutoReleaseTime", code + ".private")["code"], "unknown")
 
     def test_formatted_errors_keep_static_suffixes_and_never_values(self):
         source = ('fmt.Sprintf("GitLab API HTTP %d", status)\n'

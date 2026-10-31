@@ -30,7 +30,9 @@ API_ACTIONS = {
 API_CODES = frozenset(("IdempotentParameterMismatch", "Forbidden", "Forbidden.RAM", "AccessDenied", "Unauthorized",
                        "NoPermission", "Throttling", "Throttling.User", "Throttling.Api", "InsufficientInstanceCapacity",
                        "ResourceNotAvailable", "SoldOut", "QuotaExceeded", "LimitExceeded", "TransportError",
-                       "DeadlineExceeded", "Canceled", "InvalidAutoReleaseTime.Malformed"))
+                       "DeadlineExceeded", "Canceled", "InvalidAutoReleaseTime.Malformed",
+                       "MissingParameter", "UnsupportedParameter", "InternalError", "ChargeTypeViolation",
+                       "InstanceLockedForSecurity", "NoSuchResource"))
 TRANSPORT_MARKERS = (
     ("authentication", ("ssh: unable to authenticate",)),
     ("host_key", ("ssh: host key mismatch", "knownhosts: key mismatch")),

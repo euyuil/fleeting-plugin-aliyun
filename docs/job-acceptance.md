@@ -444,6 +444,16 @@ stage, error category and, when available, the failed API operation, HTTP status
 or allowlisted cloud code. The job index is 1–3; pool-wide and teardown failures
 have no job index. Source-message templates contain format placeholders instead
 of interpolated values. These are diagnostic observations, not acceptance proof.
+
+The public cloud-code allowlist includes every error code in the documented
+[ECS automatic release API](https://www.alibabacloud.com/help/en/ecs/developer-reference/api-ecs-2014-05-26-modifyinstanceautoreleasetime)
+error table. This distinguishes a worker TTL-setting failure from a later
+checkpoint or crash-recovery failure. Unrecognized codes, including extensions
+of known codes, remain `unknown`; request IDs and raw messages remain private.
+Retaining a code adds no retries and does not change the fixed worker deadline
+or any case verdict. An older `unknown` receipt cannot establish which code was
+returned and cannot be retroactively classified by this allowlist.
+
 The original scenario classification survives a later forced Manager stop;
 forced shutdown after an otherwise passing scenario still fails acceptance.
 A resource cleanup failure still prevents a passing aggregate result while

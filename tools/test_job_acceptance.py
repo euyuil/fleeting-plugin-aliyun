@@ -634,6 +634,27 @@ class JobRunDiagnosticTests(unittest.TestCase):
 
 
 class DriverFailureDiagnosticsTests(unittest.TestCase):
+    def test_worker_ttl_failure_retains_code_without_claiming_crash_recovery(self):
+        private = "synthetic-private-request"
+        for code in ("ChargeTypeViolation", "NoSuchResource", "InternalError", "ChargeTypeViolation." + private):
+            with self.subTest(code=code):
+                result = {"result": "FAIL_INFRASTRUCTURE", "failures_omitted": 0,
+                          "failures": [{"stage": "job_sequence", "job_index": 1, "kind": "cloud_api", "service": "ecs",
+                                        "operation": "ModifyInstanceAutoReleaseTime", "cloud_code": code}],
+                          "errors": [f"Alibaba Cloud API error: code={code} request_id={private}"],
+                          "recovery_policy": "orphan-release-before-finalize-v1", "orphan_release_verified": False,
+                          "jobs": [{"status": "running", "checkpoint": False, "crash_injected": False}]}
+                actual = job.result_diagnostic(result, 1)
+                row = actual["failures"]["records"][0]
+                self.assertEqual((row["stage"], row["job_index"], row["operation"]),
+                                 ("job_sequence", 1, "ModifyInstanceAutoReleaseTime"))
+                self.assertEqual(row["cloud_code"], "unknown" if private in code else code)
+                self.assertEqual(actual["result"], "FAIL_INFRASTRUCTURE")
+                self.assertFalse(actual["orphan_release_verified"])
+                self.assertFalse(actual["jobs"][0]["checkpoint"])
+                self.assertFalse(actual["jobs"][0]["crash_injected"])
+                self.assertNotIn(private, json.dumps(actual))
+
     def test_primary_and_teardown_errors_remain_ordered_and_redacted(self):
         result = {"failures_omitted": 0, "failures": [
             {"stage": "job_sequence", "job_index": 2, "kind": "gitlab_http", "service": "gitlab", "operation": "pipeline_jobs", "method": "GET", "http_status": 503},
