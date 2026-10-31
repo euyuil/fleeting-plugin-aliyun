@@ -234,15 +234,8 @@ func (s jobSequence) wait(ctx context.Context, e *JobEvidence) error {
 		if err := s.observe(ctx); err != nil {
 			return err
 		}
-		var pipe pipeline
-		if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &pipe); err != nil {
-			return err
-		}
-		if pipe.ID != e.PipelineID || pipe.SHA != s.result.FixtureSHA {
-			return errors.New("polled pipeline identity mismatch")
-		}
-		var jobs []job
-		if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d/jobs?per_page=100", e.PipelineID), nil, &jobs); err != nil {
+		jobs, err := s.gl.pipelineJobs(ctx, e.PipelineID)
+		if err != nil {
 			return err
 		}
 		if len(jobs) > 1 {
@@ -275,6 +268,15 @@ func (s jobSequence) wait(ctx context.Context, e *JobEvidence) error {
 						return err
 					}
 					e.CancelRequested = true
+				}
+			}
+			var pipe pipeline
+			if terminalJob(j.Status) {
+				if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &pipe); err != nil {
+					return err
+				}
+				if pipe.ID != e.PipelineID || pipe.SHA != s.result.FixtureSHA {
+					return errors.New("polled pipeline identity mismatch")
 				}
 			}
 			if terminalJob(pipe.Status) && terminalJob(j.Status) {
@@ -390,6 +392,9 @@ func jobTraceLine(line string) string {
 }
 
 func (s jobSequence) checkpoint(ctx context.Context, e *JobEvidence, terminal bool) error {
+	if e.Checkpoint && !terminal {
+		return nil
+	}
 	var trace []byte
 	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/jobs/%d/trace", e.JobID), nil, &trace); err != nil {
 		var response *gitlabHTTPError

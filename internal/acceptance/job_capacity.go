@@ -134,15 +134,8 @@ func (s capacitySequence) open(ctx context.Context, index int) error {
 
 func (s capacitySequence) poll(ctx context.Context, e *JobEvidence) error {
 	s.selectJob(e)
-	var pipe pipeline
-	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &pipe); err != nil {
-		return err
-	}
-	if pipe.ID != e.PipelineID || pipe.SHA != s.result.FixtureSHA {
-		return errors.New("capacity pipeline identity changed")
-	}
-	var jobs []job
-	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d/jobs?per_page=100", e.PipelineID), nil, &jobs); err != nil {
+	jobs, err := s.gl.pipelineJobs(ctx, e.PipelineID)
+	if err != nil {
 		return err
 	}
 	if len(jobs) == 0 {
@@ -171,6 +164,13 @@ func (s capacitySequence) poll(ctx context.Context, e *JobEvidence) error {
 	}
 	if !terminalJob(j.Status) {
 		return nil
+	}
+	var pipe pipeline
+	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &pipe); err != nil {
+		return err
+	}
+	if pipe.ID != e.PipelineID || pipe.SHA != s.result.FixtureSHA {
+		return errors.New("capacity pipeline identity changed")
 	}
 	if !terminalJob(pipe.Status) {
 		e.Status = "running"

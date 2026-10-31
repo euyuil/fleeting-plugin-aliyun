@@ -153,8 +153,8 @@ func (s crashSequence) interruptedJob(ctx context.Context, e *JobEvidence) (pipe
 	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &pipe); err != nil {
 		return pipe, job{}, err
 	}
-	var jobs []job
-	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d/jobs?per_page=100", e.PipelineID), nil, &jobs); err != nil {
+	jobs, err := s.gl.pipelineJobs(ctx, e.PipelineID)
+	if err != nil {
 		return pipe, job{}, err
 	}
 	if pipe.ID != e.PipelineID || pipe.SHA != s.result.FixtureSHA || len(jobs) != 1 || jobs[0].ID != e.JobID ||

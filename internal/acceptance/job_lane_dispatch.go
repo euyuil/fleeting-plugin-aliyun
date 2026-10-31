@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/euyuil/fleeting-plugin-aliyun/internal/aliyun"
@@ -163,7 +164,7 @@ func (s jobSequence) requestCancellation(ctx context.Context, e *JobEvidence, fo
 	if s.gl.lane == nil {
 		return s.gl.request(ctx, "POST", path, body, nil)
 	}
-	p, err := s.reconcileLaneDispatch(ctx, e)
+	p, err := s.readLaneTarget(ctx, e)
 	if err != nil {
 		return err
 	}
@@ -173,6 +174,9 @@ func (s jobSequence) requestCancellation(ctx context.Context, e *JobEvidence, fo
 	intent, file, err := s.readLaneIntent(e)
 	if err != nil {
 		return err
+	}
+	if force && (!intent.CancelSent || p.job.Status != "canceling") {
+		return errors.New("force cancellation lacks a fresh canceling job and prior cancel intent")
 	}
 	if force {
 		if intent.ForceSent {
@@ -197,8 +201,62 @@ func (s jobSequence) requestCancellation(ctx context.Context, e *JobEvidence, fo
 	return s.gl.request(ctx, "POST", path, body, nil)
 }
 
+// Discovery requires the complete inventory. After that proof is durable, a
+// control operation rereads only its exact server IDs and full signed binding;
+// unrelated history cannot block cleaning up this case's already-owned target.
+func (s jobSequence) readLaneTarget(ctx context.Context, e *JobEvidence) (lanePipeline, error) {
+	intent, _, err := s.readLaneIntent(e)
+	if err != nil {
+		return lanePipeline{}, err
+	}
+	if (intent.Stage != "ownership_verified" && intent.Stage != "cancellation_unknown") || intent.PipelineID <= 0 || intent.JobID <= 0 {
+		return s.reconcileLaneDispatch(ctx, e)
+	}
+	if intent.PipelineID != e.PipelineID || intent.JobID != e.JobID {
+		return lanePipeline{}, errors.New("control target differs from its authenticated private intent")
+	}
+	c := s.gl.lane.context
+	var p pipeline
+	if err := s.gl.request(ctx, "GET", fmt.Sprintf("/pipelines/%d", e.PipelineID), nil, &p); err != nil {
+		return lanePipeline{}, err
+	}
+	terminal, valid := laneJobState(p.Status)
+	if !valid || p.ID != e.PipelineID || p.Ref != c.FixtureRef || p.SHA != c.FixtureSHA || p.Source != "api" ||
+		strconv.FormatInt(p.ProjectID, 10) != c.ProjectID || strconv.FormatInt(p.User.ID, 10) != c.APIUserID {
+		return lanePipeline{}, errors.New("control pipeline differs from its authenticated fixture or creator")
+	}
+	var variables []laneVariable
+	if err := s.gl.laneList(ctx, fmt.Sprintf("/pipelines/%d/variables?per_page=100", p.ID), &variables); err != nil {
+		return lanePipeline{}, err
+	}
+	owner, err := c.verifyDeclaration(variables, s.gl.token, terminal)
+	if err != nil {
+		return lanePipeline{}, err
+	}
+	want, err := s.laneOwner(e)
+	if err != nil {
+		return lanePipeline{}, err
+	}
+	actualJSON, _ := json.Marshal(owner)
+	wantJSON, _ := json.Marshal(want)
+	if !bytes.Equal(actualJSON, wantJSON) {
+		return lanePipeline{}, errors.New("control declaration differs from this exact case and Manager")
+	}
+	var jobs []job
+	if err := s.gl.laneList(ctx, fmt.Sprintf("/pipelines/%d/jobs?per_page=100&include_retried=true", p.ID), &jobs); err != nil {
+		return lanePipeline{}, err
+	}
+	if len(jobs) != 1 || jobs[0].ID != e.JobID {
+		return lanePipeline{}, errors.New("control target has a missing, replaced or retried job")
+	}
+	if err := laneJobIdentity(jobs[0], p.ID, owner); err != nil {
+		return lanePipeline{}, err
+	}
+	return lanePipeline{pipeline: p, job: jobs[0], owner: owner}, nil
+}
+
 func (s jobSequence) cleanupLaneDispatch(ctx context.Context, e *JobEvidence) error {
-	p, err := s.reconcileLaneDispatch(ctx, e)
+	p, err := s.readLaneTarget(ctx, e)
 	if err != nil {
 		return err
 	}
@@ -216,7 +274,7 @@ func (s jobSequence) cleanupLaneDispatch(ctx context.Context, e *JobEvidence) er
 	readCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	for {
-		p, err := s.reconcileLaneDispatch(readCtx, e)
+		p, err := s.readLaneTarget(readCtx, e)
 		if err != nil {
 			return err
 		}

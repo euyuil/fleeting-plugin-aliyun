@@ -36,7 +36,7 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 				vars = append(vars, laneVariable{Key: "GIT_STRATEGY", Value: "none", VariableType: "env_var"})
 			}
 			pipe := pipeline{ID: 101, SHA: c.FixtureSHA, Ref: c.FixtureRef, Source: "api", Status: "running", ProjectID: 9}
-			pipe.User.ID = 7
+			pipe.User.ID, pipe.User.Username = 7, "fixture-owner"
 			if fault == "wrong-source" {
 				pipe.Source = "web"
 			}
@@ -172,6 +172,21 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 						out = []job{}
 					}
 				case "/api/v4/projects/9/jobs":
+					if r.URL.Query().Has("ref") {
+						out = []job{j}
+						if fault == "replay-after-terminal" {
+							old := j
+							old.ID, old.Pipeline.ID, old.Status = 1002, 102, "success"
+							out = []job{old, j}
+						}
+						if fault == "retried-job" {
+							out = []job{j, j}
+						}
+						if fault == "empty" || fault == "unmaterialized" {
+							out = []job{}
+						}
+						break
+					}
 					for _, state := range laneActiveStates {
 						if !strings.Contains(r.URL.RawQuery, state) {
 							t.Error("project occupancy read omitted a nonterminal state")
@@ -184,6 +199,7 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 					if fault == "foreign-job" {
 						out = []job{{ID: 901, Status: "pending"}}
 					}
+
 				default:
 					t.Error("unexpected API path", r.URL.Path)
 					w.WriteHeader(400)
@@ -202,7 +218,7 @@ func TestLaneInventoryAuthenticatesPeerAndRejectsReplay(t *testing.T) {
 			if (got == nil) != (fault == "" || fault == "empty" || fault == "pending" || fault == "canceled-unassigned") {
 				t.Fatal("unexpected two-lane isolation verdict", got)
 			}
-			if fault == "" && requests.Load() != 12 || fault == "empty" && requests.Load() != 9 {
+			if fault == "" && requests.Load() != 13 || fault == "empty" && requests.Load() != 10 {
 				t.Fatal("single-page verification amplified API reads", requests.Load())
 			}
 		})
