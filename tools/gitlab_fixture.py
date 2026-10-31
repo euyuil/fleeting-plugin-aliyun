@@ -12,6 +12,7 @@ import urllib.request
 from release_candidate import revision
 
 FILES = (".gitlab-ci.yml", "smoke.sh")
+SCOPE_MARKER = ".acceptance-scope.json"
 OPERATIONS = {"project", "branch", "tree", "file", "commit", "unknown"}
 RETRY_STATUSES = {429, 502, 503, 504}
 
@@ -106,11 +107,12 @@ class GitLab:
         revision(sha)
         return sha
 
-    def files(self, sha):
+    def files(self, sha, names=FILES):
         return {name: self.request("/repository/files/" + urllib.parse.quote(name, safe="") + "/raw?ref=" + sha, raw=True)
-                for name in FILES}
+                for name in names}
 
-    def tree(self, sha):
+    def tree(self, sha, extra_files=()):
+        owned = set(FILES) | set(extra_files)
         entries = self.request("/repository/tree?per_page=100&ref=" + sha)
         if not isinstance(entries, list) or len(entries) >= 100:
             raise ValueError("fixture root tree exceeds its complete readback limit")
@@ -120,19 +122,23 @@ class GitLab:
             if not isinstance(path, str) or not path or "/" in path or path in result:
                 raise ValueError("invalid fixture root tree")
             revision(entry["id"])
-            if path in FILES and (entry["type"] != "blob" or entry["mode"] not in ("100644", "100755")):
+            if path in owned and (entry["type"] != "blob" or entry["mode"] not in ("100644", "100755")):
                 raise ValueError("fixture scripts must be regular files")
             # Unchanged subtree IDs also prove nested files did not change.
-            result[path] = (entry["type"], entry["mode"], None if path in FILES else entry["id"])
-        if not set(FILES).issubset(result):
+            result[path] = (entry["type"], entry["mode"], None if path in owned else entry["id"])
+        if not owned.issubset(result):
             raise ValueError("fixture tree lacks its fixed files")
         return result
 
 
-def prepare(config, candidate_sha, token):
+def prepare(config, candidate_sha, token, *, run_id=None, attempt=None):
     """Return a private runtime pin; never change the configured base or secrets."""
     revision(candidate_sha)
     revision(config["fixture_sha"])
+    scoped = run_id is not None or attempt is not None
+    if scoped and any(not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", value) or int(value) > 2**63 - 1
+                      for value in (run_id, attempt)):
+        raise ValueError("fixture scope requires an exact owning run and attempt")
     client = GitLab(config, token)
     project = client.request("")
     if str(project.get("id")) != config["project_id"] or project.get("visibility") != "private":
@@ -141,20 +147,38 @@ def prepare(config, candidate_sha, token):
         raise ValueError("configured GitLab fixture base moved")
     expected = {name: (Path("tests/fixtures/gitlab") / name).read_bytes() for name in FILES}
     base_tree = client.tree(config["fixture_sha"])
+    if scoped and SCOPE_MARKER in base_tree:
+        raise ValueError("configured fixture base contains the reserved run marker")
     base = client.files(config["fixture_sha"])
-    if base == expected:
+    base_matches = base == expected
+    if base_matches and not scoped:
         return dict(config)
     branch = "acceptance/" + candidate_sha
+    if scoped:
+        branch += "/" + run_id + "/" + attempt
     message = "test: pin acceptance fixture for " + candidate_sha
+    expected_tree = dict(base_tree)
+    extra_files = ()
+    if scoped:
+        message += "/" + run_id + "/" + attempt
+        expected[SCOPE_MARKER] = (json.dumps({"schema_version": 1, "candidate_sha": candidate_sha, "run_id": run_id,
+                                           "run_attempt": attempt}, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        expected_tree[SCOPE_MARKER] = ("blob", "100644", None)
+        extra_files = (SCOPE_MARKER,)
     sha = client.branch(branch)
     write_failure = None
     try:
         if sha is None:
-            # One atomic commit creates a new branch from the pinned base.
+            # A run marker makes even an identical fixture a nonempty atomic
+            # commit, using the existing commit permission instead of adding
+            # branch-create permission. A concurrent loser only reads back.
             body = {"branch": branch, "start_sha": config["fixture_sha"], "commit_message": message,
                     "actions": [{"action": "update", "file_path": name, "encoding": "base64",
                                  "content": base64.b64encode(expected[name]).decode()}
                                 for name in FILES if base[name] != expected[name]]}
+            if scoped:
+                body["actions"].append({"action": "create", "file_path": SCOPE_MARKER, "encoding": "base64",
+                                        "content": base64.b64encode(expected[SCOPE_MARKER]).decode()})
             try:
                 client.request("/repository/commits", body)
             except (GitLabError, ValueError) as error:
@@ -167,8 +191,8 @@ def prepare(config, candidate_sha, token):
                     raise write_failure
                 raise ValueError("created GitLab fixture branch is missing")
         commit = client.request("/repository/commits/" + sha)
-        if (commit.get("id") != sha or commit.get("parent_ids") != [config["fixture_sha"]] or
-                commit.get("message", "").rstrip("\n") != message or client.files(sha) != expected or client.tree(sha) != base_tree):
+        ancestry_valid = commit.get("parent_ids") == [config["fixture_sha"]] and commit.get("message", "").rstrip("\n") == message
+        if (commit.get("id") != sha or not ancestry_valid or client.files(sha, expected) != expected or client.tree(sha, extra_files) != expected_tree):
             raise ValueError("GitLab fixture commit differs from the reviewed files and base")
         if client.branch(branch) != sha:
             raise ValueError("GitLab fixture branch changed during verification")

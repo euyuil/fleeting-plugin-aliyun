@@ -46,6 +46,7 @@ jobs:
       RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
       RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
       RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
+      RELEASE_GITLAB_DOCKER_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_DOCKER_RUNNER_TOKEN }}
     with:
       version: ${{ inputs.version }}
       candidate_sha: ${{ github.sha }}
@@ -127,6 +128,7 @@ jobs:
       RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
       RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
       RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
+      RELEASE_GITLAB_DOCKER_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_DOCKER_RUNNER_TOKEN }}
     with:
       artifact_id: ${{ needs.acceptance.outputs.artifact_id }}
       manifest_sha256: ${{ needs.acceptance.outputs.manifest_sha256 }}

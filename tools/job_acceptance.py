@@ -27,6 +27,7 @@ from release_candidate import digest, revision, verify, write_json
 EXECUTORS = ("instance", "docker-autoscaler")
 PHASES = ("candidate", "public")
 PUBLIC_SMOKE_CASES = [(executor, "smoke") for executor in EXECUTORS]
+EXECUTION_TOPOLOGY = "two-executor-lanes-v1"
 
 
 def selected_cases(value="all"):
@@ -85,20 +86,34 @@ def configuration(env=os.environ, *, read_only=False):
     fixture_config({**env, "RELEASE_ALIYUN_FIXTURE_CONFIG": json.dumps(job["fixture"])})
     if not isinstance(job["job_image"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9.:-]*/[a-z0-9/_-]+@sha256:[0-9a-f]{64}", job["job_image"]):
         raise ValueError("job image must be an explicit registry/repository digest")
-    gitlab = decode("RELEASE_GITLAB_CONFIG", env)
-    fields = {"url", "project_id", "fixture_ref", "fixture_sha", "runner_id", "runner_tag"}
-    if not isinstance(gitlab, dict) or set(gitlab) != fields or gitlab["url"] != "https://gitlab.com":
-        raise ValueError("configure the dedicated GitLab.com acceptance project")
-    if any(not isinstance(gitlab[k], str) or not re.fullmatch(r"[1-9][0-9]*", gitlab[k]) for k in ("project_id", "runner_id")):
-        raise ValueError("positive project and runner identities are required")
-    revision(gitlab["fixture_sha"])
-    if not isinstance(gitlab["fixture_ref"], str) or not re.fullmatch(r"[A-Za-z0-9_./-]{1,128}", gitlab["fixture_ref"]):
-        raise ValueError("invalid pinned fixture ref")
-    if not isinstance(gitlab["runner_tag"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", gitlab["runner_tag"]):
-        raise ValueError("invalid dedicated runner tag")
+    gitlab = gitlab_configuration(decode("RELEASE_GITLAB_CONFIG", env))
     if any(not env.get(k) for k in ("RELEASE_GITLAB_API_TOKEN", "RELEASE_GITLAB_RUNNER_TOKEN")):
         raise ValueError("configure both project-scoped GitLab credentials")
     return job, gitlab
+
+
+def gitlab_configuration(gitlab):
+    fields = {"url", "project_id", "api_user_id", "fixture_ref", "fixture_sha", "runners"}
+    if not isinstance(gitlab, dict) or set(gitlab) != fields or gitlab["url"] != "https://gitlab.com":
+        raise ValueError("configure the dedicated GitLab.com acceptance project")
+    for name in ("project_id", "api_user_id"):
+        if (not isinstance(gitlab[name], str) or not re.fullmatch(r"[1-9][0-9]{0,18}", gitlab[name]) or int(gitlab[name]) > 2**63 - 1):
+            raise ValueError("positive project and existing API principal identities are required")
+    revision(gitlab["fixture_sha"])
+    if not isinstance(gitlab["fixture_ref"], str) or not re.fullmatch(r"[A-Za-z0-9_./-]{1,128}", gitlab["fixture_ref"]):
+        raise ValueError("invalid pinned fixture ref")
+    runners = gitlab["runners"]
+    if not isinstance(runners, dict) or set(runners) != set(EXECUTORS):
+        raise ValueError("configure exactly the two executor Runner lanes")
+    for runner in runners.values():
+        if (not isinstance(runner, dict) or set(runner) != {"runner_id", "runner_tag"} or
+                not isinstance(runner["runner_id"], str) or not re.fullmatch(r"[1-9][0-9]{0,18}", runner["runner_id"]) or
+                int(runner["runner_id"]) > 2**63 - 1 or not isinstance(runner["runner_tag"], str) or
+                not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", runner["runner_tag"])):
+            raise ValueError("invalid dedicated lane Runner identity or tag")
+    if len({r["runner_id"] for r in runners.values()}) != 2 or len({r["runner_tag"] for r in runners.values()}) != 2:
+        raise ValueError("executor lanes require distinct Runner identities and tags")
+    return gitlab
 
 
 def package_path(manifest):
@@ -171,11 +186,12 @@ def recovery_policy(scenario):
 def check_result(result, manifest, gitlab, executor, lock, run_id, attempt, scenario="smoke"):
     cases = job_cases(scenario)
     expected = {"result": "PASS", "cleanup_result": "PASS", "normal_release": scenario != "worker-loss",
+                "execution_topology": EXECUTION_TOPOLOGY,
                 "mode": "smoke", "executor": executor, "manager_mode": "systemd", "job_scenario": scenario,
                 "plugin_commit": manifest["candidate_sha"], "plugin_version": manifest["version"],
                 "plugin_sha256": manifest["files"][manifest["normal_binary"]],
                 "runner_sha256": lock["runner"]["sha256"]["linux-amd64"], "runner_version": lock["runner"]["version"],
-                "gitlab_fixture_sha": gitlab["fixture_sha"], "gitlab_project_id": gitlab["project_id"], "gitlab_runner_id": int(gitlab["runner_id"]),
+                "gitlab_fixture_sha": gitlab["fixture_sha"], "gitlab_project_id": gitlab["project_id"], "gitlab_runner_id": int(gitlab["runners"][executor]["runner_id"]),
                 "github_run_id": run_id, "github_run_attempt": attempt, "instance_limit": 2 if scenario == "capacity" else 1,
                 "creation_budget": 3 if scenario == "worker-loss" else len(cases), "evidence_incomplete": False}
     if scenario == "capacity":
@@ -254,10 +270,11 @@ def manager_fenced():
             raise ValueError("systemd Manager termination and startup fence are not confirmed")
 
 
-FAILURE_STAGES = {"preflight", "manager_prepare", "job_sequence", "manager_stop", "resource_cleanup", "evidence_write"}
+FAILURE_STAGES = {"preflight", "manager_prepare", "job_sequence", "lane_verification", "job_cleanup", "manager_stop", "resource_cleanup", "evidence_write"}
 FAILURE_KINDS = {"unknown", "canceled", "deadline", "cloud_api", "gitlab_http", "unexpected_eof", "eof", "json_decode", "filesystem"}
 GITLAB_OPERATIONS = {"runner_verify", "runner_details", "project_runners", "project_jobs", "fixture_commit", "pipeline_create",
-                     "pipeline_status", "pipeline_jobs", "pipeline_cancel", "job_cancel", "job_trace", "job_artifact"}
+                     "pipeline_status", "pipeline_jobs", "pipeline_cancel", "job_cancel", "job_trace", "job_artifact",
+                     "project_pipelines", "pipeline_variables"}
 
 
 def failure_diagnostics(result):
@@ -324,6 +341,7 @@ def fixture_operations(fixture):
 
 
 def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scenario="smoke", packages=None):
+    runner = gitlab["runners"][executor]
     env = {k: v for k, v in os.environ.items() if k not in
            ("ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_CREDENTIALS_FILE", "ALIBABA_CLOUD_ROLE_ARN",
             "ALIBABA_CLOUD_OIDC_TOKEN_FILE", "ALIBABA_CLOUD_OIDC_PROVIDER_ARN", "ALIYUN_COMPONENT_ENDPOINT",
@@ -338,10 +356,20 @@ def driver(fixture, root, manifest, config, gitlab, executor, cidr, binary, scen
                PLUGIN_BINARY=str((root / manifest["normal_binary"]).resolve()), PLUGIN_COMMIT=manifest["candidate_sha"],
                PLUGIN_VERSION=manifest["version"], RUNNER_BINARY="/usr/bin/gitlab-runner",
                GITLAB_URL=gitlab["url"], GITLAB_PROJECT_ID=gitlab["project_id"], GITLAB_FIXTURE_REF=gitlab["fixture_ref"],
-               GITLAB_FIXTURE_SHA=gitlab["fixture_sha"], GITLAB_EXPECTED_RUNNER_ID=gitlab["runner_id"], GITLAB_RUNNER_TAG=gitlab["runner_tag"],
+               GITLAB_FIXTURE_SHA=gitlab["fixture_sha"], GITLAB_API_USER_ID=gitlab["api_user_id"], GITLAB_EXPECTED_RUNNER_ID=runner["runner_id"], GITLAB_RUNNER_TAG=runner["runner_tag"],
                GITLAB_API_TOKEN=os.environ["RELEASE_GITLAB_API_TOKEN"], GITLAB_RUNNER_TOKEN=os.environ["RELEASE_GITLAB_RUNNER_TOKEN"],
                ACCEPTANCE_OUTPUT=str((fixture.directory / "evidence").resolve()))
     env.update(fixture.state["job_timing"])
+    context = {"topology": EXECUTION_TOPOLOGY, "repository": os.environ["GITHUB_REPOSITORY"],
+               "project_id": gitlab["project_id"], "api_user_id": gitlab["api_user_id"], "run_id": os.environ["GITHUB_RUN_ID"],
+               "attempt": os.environ["GITHUB_RUN_ATTEMPT"], "candidate_sha": manifest["candidate_sha"],
+               "manifest_sha256": fixture.state["manifest_sha256"], "gitlab_config_sha256": config_digest(gitlab),
+               "fixture_ref": gitlab["fixture_ref"], "fixture_sha": gitlab["fixture_sha"],
+               "phase": fixture.state["phase"], "profile": fixture.state["validation_profile"], "runners": gitlab["runners"]}
+    env.update(GITLAB_ACCEPTANCE_CONTEXT=json.dumps(context, sort_keys=True, separators=(",", ":")),
+               ACCEPTANCE_EXECUTION_TOPOLOGY=EXECUTION_TOPOLOGY, ACCEPTANCE_MANIFEST_SHA256=context["manifest_sha256"],
+               GITLAB_CONFIG_SHA256=context["gitlab_config_sha256"], ACCEPTANCE_PHASE=context["phase"],
+               ACCEPTANCE_VALIDATION_PROFILE=context["profile"])
     remaining = (datetime.strptime(env["ACCEPTANCE_DEADLINE_AT"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
                  - datetime.now(timezone.utc)).total_seconds()
     if remaining <= 0:
@@ -385,7 +413,8 @@ def run(args):
     if args.scenario == "upgrade":
         require_newer(manifest["version"])
     try:
-        gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"])
+        gitlab = prepare_gitlab_fixture(gitlab, args.sha, os.environ["RELEASE_GITLAB_API_TOKEN"],
+                                        run_id=os.environ["GITHUB_RUN_ID"], attempt=os.environ["GITHUB_RUN_ATTEMPT"])
     except BaseException as error:
         # This separate failure record cannot satisfy a normal job receipt gate.
         # No package installation or cloud creation has started at this boundary.
@@ -414,6 +443,7 @@ def run(args):
     tags = labels(os.environ["GITHUB_REPOSITORY"], args.sha, os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], mode, expires)
     fixture = Fixture(Cloud(config["fixture"]["region"]), args.directory / "fixture", tags)
     fixture.state["job_timing"] = timing
+    fixture.state.update(manifest_sha256=args.digest, phase=args.phase, validation_profile=getattr(args, "profile", "full"))
     fixture.save()
     address = subprocess.check_output(["curl", "-4", "--fail", "--silent", "--show-error", "--max-time", "15", "https://api.ipify.org"], text=True).strip()
     cidr = str(ipaddress.IPv4Address(address)) + "/32"
@@ -448,6 +478,7 @@ def run(args):
         # diagnostics contain only allowlisted facts, never raw state or errors.
         print(json.dumps({"job_orchestration_diagnostic": diagnostics}), flush=True)
         write_json(args.receipt, {"schema_version": 3, "validation_profile": getattr(args, "profile", "full"),
+                   "execution_topology": EXECUTION_TOPOLOGY,
                    "recovery_policy": recovery_policy(args.scenario), "result": status, "cleanup_result": cleanup,
                    "job_scenario": args.scenario, "job_count": len(job_cases(args.scenario)),
                    "candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
@@ -468,6 +499,7 @@ def run(args):
 
 def check_receipt(receipt, manifest, manifest_digest, phase, executor, run_id, attempt, scenario="smoke", profile="full"):
     expected = {"schema_version": 3, "validation_profile": profile, "recovery_policy": recovery_policy(scenario), "job_scenario": scenario, "job_count": len(job_cases(scenario)), "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
+                "execution_topology": EXECUTION_TOPOLOGY,
                 "candidate_sha": manifest["candidate_sha"], "version": manifest["version"], "manifest_sha256": manifest_digest,
                 "phase": phase, "executor": executor, "manager_mode": "systemd", "run_id": run_id, "run_attempt": attempt,
                 "distribution_source": "sealed-candidate" if phase == "candidate" else "anonymous-release",
@@ -520,6 +552,7 @@ def acceptance_summary(args):
     binding = json.loads((args.receipts / ("-".join(selected[0]) + ".json")).read_text())
     return {"schema_version": 2, "result": "PASS", "scope": "public-smoke" if public else "full-suite" if full else "selected-cases",
             "validation_profile": "public-smoke" if public else "full" if full else "debug", "receipt_schema_version": 3,
+            "execution_topology": EXECUTION_TOPOLOGY,
             "recovery_policies": {scenario: recovery_policy(scenario) for _, scenario in selected},
             "fixture_config_sha256": binding["fixture_config_sha256"], "gitlab_config_sha256": binding["gitlab_config_sha256"],
             "full_suite": full, "release_ready": full, "public_ready": public, "candidate_sha": args.sha, "version": args.version,

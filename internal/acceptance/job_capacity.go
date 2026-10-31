@@ -156,6 +156,13 @@ func (s capacitySequence) poll(ctx context.Context, e *JobEvidence) error {
 		(e.JobID > 0 && e.JobID != j.ID) || (j.Runner.ID != 0 && j.Runner.ID != s.runnerID) {
 		return errors.New("capacity job identity changed")
 	}
+	if err := s.verifyLaneJob(j, e); err != nil {
+		if errors.Is(err, errLaneVisibility) {
+			_, err := s.reconcileLaneDispatch(ctx, e)
+			return err
+		}
+		return err
+	}
 	e.JobID, e.Status, e.FailureReason = j.ID, j.Status, j.FailureReason
 	if j.Runner.ID == s.runnerID {
 		if err := s.checkpoint(ctx, e, terminalJob(j.Status)); err != nil {

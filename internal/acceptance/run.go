@@ -38,6 +38,7 @@ type Result struct {
 	JobID              int64                  `json:"gitlab_job_id"`
 	RunnerID           int64                  `json:"gitlab_runner_id"`
 	Executor           string                 `json:"executor"`
+	ExecutionTopology  string                 `json:"execution_topology,omitempty"`
 	PluginReference    string                 `json:"plugin_reference"`
 	PluginVersion      string                 `json:"plugin_version,omitempty"`
 	JobImage           string                 `json:"job_image,omitempty"`
@@ -145,6 +146,18 @@ func Run(ctx context.Context, dir string) (result Result) {
 	result.Executor, result.PluginReference = options.executor, options.reference
 	result.PluginVersion, result.JobImage = options.version, options.image
 	result.ManagerMode, result.JobScenario = options.manager, options.scenario
+	lane, err := readJobLaneScope(get, options.executor)
+	if err != nil {
+		fail(err)
+		return result
+	}
+	if lane != nil {
+		if options.manager != "systemd" {
+			fail(errors.New("executor lanes require independent packaged Managers"))
+			return result
+		}
+		result.ExecutionTopology = jobLaneTopology
+	}
 	if options.manager == "systemd" {
 		started, deadline, expires, timingErr := jobTiming(get, options.scenario, time.Now())
 		if timingErr != nil {
@@ -265,7 +278,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 		fail(errors.New("fixture violates exact type, image or zone allowlist"))
 		return result
 	}
-	gl := gitlab{base: gitlabURL, token: get("GITLAB_API_TOKEN"), project: result.ProjectID, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}}
+	gl := gitlab{base: gitlabURL, token: get("GITLAB_API_TOKEN"), project: result.ProjectID, lane: lane, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}}
 	systemID := "r_" + result.Nonce[:12]
 	if err = VerifyGitLabFixture(ctx, gl, runnerID, get("GITLAB_RUNNER_TAG"), get("GITLAB_RUNNER_TOKEN"), systemID); err != nil {
 		fail(err)
@@ -346,8 +359,15 @@ func Run(ctx context.Context, dir string) (result Result) {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer cancel()
 		if result.Result != "PASS" {
-			for _, e := range result.Jobs {
-				if e.PipelineID > 0 {
+			for i := range result.Jobs {
+				e := &result.Jobs[i]
+				if gl.lane != nil {
+					cleanup := jobSequence{gl: gl, result: &result, systemID: systemID, ref: get("GITLAB_FIXTURE_REF")}
+					if err := cleanup.cleanupLaneDispatch(cleanupCtx, e); err != nil {
+						result.Result = "CLEANUP_FAILED"
+						result.recordFailure("job_cleanup", err)
+					}
+				} else if e.PipelineID > 0 {
 					_ = gl.request(cleanupCtx, "POST", fmt.Sprintf("/pipelines/%d/cancel", e.PipelineID), nil, nil)
 				}
 			}
@@ -501,6 +521,7 @@ func Run(ctx context.Context, dir string) (result Result) {
 	}
 	sequence := jobSequence{
 		gl: gl, result: &result, runnerID: runnerID, ref: get("GITLAB_FIXTURE_REF"), tag: get("GITLAB_RUNNER_TAG"),
+		systemID:     systemID,
 		checkManager: checkManager, pollInterval: 3 * time.Second,
 		observe: func(ctx context.Context) error {
 			if err := ObserveBudget(ctx, cloud, &result.Ledger, budget, get("ALLOWED_INSTANCE_TYPE"), get("ALLOWED_IMAGE_ID"), get("ALLOWED_ZONE_ID")); err != nil {
@@ -548,6 +569,13 @@ func Run(ctx context.Context, dir string) (result Result) {
 		result.Result = liveFailure(err)
 		fail(err)
 		return result
+	}
+	if gl.lane != nil {
+		stage = "lane_verification"
+		if err := VerifyGitLabFixture(ctx, gl, runnerID, get("GITLAB_RUNNER_TAG"), get("GITLAB_RUNNER_TOKEN"), systemID); err != nil {
+			fail(err)
+			return result
+		}
 	}
 	result.Result = "PASS"
 	result.NormalRelease = options.scenario != "worker-loss"

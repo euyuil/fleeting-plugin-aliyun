@@ -97,6 +97,7 @@ class PublicReleaseTests(unittest.TestCase):
             args = self.prepare(Path(temp))
             self.assertEqual(public.gate(args)["scope"], "release-completion")
             mutations = [
+                (args.candidate_summary, "execution_topology", "single-runner-v1"),
                 (args.candidate_summary, "full_suite", False),
                 (args.candidate_summary, "validation_profile", "debug"),
                 (args.candidate_summary, "run_attempt", "2"),
@@ -137,12 +138,14 @@ class PublicReleaseTests(unittest.TestCase):
         identity = {"candidate_sha": "a" * 40, "version": "1.2.3", "manifest_sha256": "b" * 64, "run_id": "10", "run_attempt": "1"}
         configs = {"fixture_config_sha256": "1" * 64, "gitlab_config_sha256": "2" * 64}
         candidate = {**identity, **configs, "schema_version": 2, "result": "PASS", "phase": "candidate", "validation_profile": "full",
+                     "execution_topology": job.EXECUTION_TOPOLOGY,
                      "scope": "full-suite", "receipt_schema_version": 3, "recovery_policies": {scenario: job.recovery_policy(scenario) for _, scenario in job.selected_cases()},
                      "full_suite": True, "release_ready": True, "selected_cases": ["/".join(c) for c in job.selected_cases()], "omitted_cases": []}
         summary = root / "candidate.json"
         summary.write_text(json.dumps(candidate))
         for executor in job.EXECUTORS:
             receipt = {**identity, **configs, "schema_version": 3, "validation_profile": "public-smoke", "recovery_policy": "standard-v1",
+                       "execution_topology": job.EXECUTION_TOPOLOGY,
                        "job_scenario": "smoke", "job_count": 1, "result": "PASS", "cleanup_result": "PASS", "leftover_resources": 0,
                        "phase": "public", "executor": executor, "manager_mode": "systemd", "distribution_source": "anonymous-release",
                        "plugin_sha256": manifest["files"][manifest["normal_binary"]],

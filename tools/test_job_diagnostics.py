@@ -46,6 +46,49 @@ def inspect(client):
 
 
 class JobDiagnosticTests(unittest.TestCase):
+    def test_scoped_diagnostics_bind_the_signed_case_creator_and_manager(self):
+        from cloud_config import config_digest
+        for fault in ("", "signature", "run", "config", "case", "creator", "manager"):
+            with self.subTest(fault=fault):
+                client = Client()
+                client.token = "synthetic-token"
+                config = {"url": "https://gitlab.com", "project_id": "1", "api_user_id": "7", "fixture_ref": "main", "fixture_sha": "d" * 40,
+                          "runners": {"instance": {"runner_id": "2", "runner_tag": "instance-lane"},
+                                      "docker-autoscaler": {"runner_id": "5", "runner_tag": "docker-lane"}}}
+                client.ref += "/10/1"
+                client.pipeline.update(ref=client.ref, source="api", user={"id": 7})
+                client.jobs[0].update(ref=client.ref, tag_list=["instance-lane"], runner_manager={"system_id": "r_000000000001"})
+                owner = {"topology": "two-executor-lanes-v1", "repository": "example/project", "project_id": "1", "api_user_id": "7",
+                         "run_id": "10", "attempt": "1", "candidate_sha": SHA, "fixture_ref": client.ref, "fixture_sha": FIXTURE,
+                         "executor": "instance", "runner_id": "2", "runner_tag": "instance-lane", "nonce": "c" * 48,
+                         "job_scenario": "worker-loss", "acceptance_case": "worker-loss", "job_index": "1",
+                         "gitlab_config_sha256": config_digest({**config, "fixture_ref": client.ref, "fixture_sha": FIXTURE}),
+                         "manifest_sha256": "a" * 64, "phase": "candidate", "profile": "full", "manager_nonce": "e" * 48,
+                         "system_id": "r_000000000001"}
+                if fault == "run":
+                    owner["run_id"] = "11"
+                if fault == "config":
+                    owner["gitlab_config_sha256"] = "0" * 64
+                if fault == "case":
+                    owner["acceptance_case"] = "failure"
+                if fault == "creator":
+                    client.pipeline["user"]["id"] = 8
+                if fault == "manager":
+                    client.jobs[0]["runner_manager"]["system_id"] = "r_000000000002"
+                raw = json.dumps(owner, sort_keys=True, separators=(",", ":"))
+                signature = diagnostic.hmac.new(client.token.encode(), raw.encode(), diagnostic.hashlib.sha256).hexdigest()
+                values = {"FLEETING_EXECUTION_MODE": "instance", "FLEETING_JOB_SCENARIO": "worker-loss", "FLEETING_EXPECTED_RUNNER_ID": "2",
+                          "FLEETING_NONCE": "c" * 48, "FLEETING_RUNNER_TAG": "instance-lane", "FLEETING_OWNERSHIP": raw,
+                          "FLEETING_OWNERSHIP_SIGNATURE": "0" * 64 if fault == "signature" else signature}
+                client.variables = [{"key": k, "value": v, "variable_type": "env_var"} for k, v in values.items()]
+                if fault:
+                    with self.assertRaises(ValueError):
+                        diagnostic.inspect(client, config, SHA, "instance", "worker-loss", START, END, "10", "1")
+                else:
+                    value = diagnostic.inspect(client, config, SHA, "instance", "worker-loss", START, END, "10", "1")
+                    self.assertEqual(value["job"]["status"], "failed")
+                    self.assertNotIn("private-secret", json.dumps(value))
+
     def test_owned_case_projects_only_safe_fields(self):
         client = Client()
         result = inspect(client)

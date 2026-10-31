@@ -156,6 +156,7 @@ type jobSequence struct {
 	result           *Result
 	runnerID         int64
 	ref, tag         string
+	systemID         string
 	checkManager     func(context.Context) error
 	observe, release func(context.Context) error
 	pollInterval     time.Duration
@@ -169,6 +170,9 @@ func (s jobSequence) start(ctx context.Context, scenario string) (*JobEvidence, 
 		return nil, err
 	}
 	e := JobEvidence{Scenario: scenario, Nonce: nonce, ManagerPID: r.ManagerPID}
+	if s.gl.lane != nil {
+		return s.startLane(ctx, e)
+	}
 	variables := []map[string]string{
 		{"key": "FLEETING_NONCE", "value": nonce}, {"key": "FLEETING_RUNNER_TAG", "value": s.tag},
 		{"key": "FLEETING_EXPECTED_RUNNER_ID", "value": strconv.FormatInt(s.runnerID, 10)},
@@ -250,13 +254,24 @@ func (s jobSequence) wait(ctx context.Context, e *JobEvidence) error {
 				(e.JobID != 0 && j.ID != e.JobID) || (j.Runner.ID != 0 && j.Runner.ID != s.runnerID) {
 				return errors.New("job/runner/fixture identity mismatch")
 			}
+			if s.gl.lane != nil {
+				if err := s.verifyLaneJob(j, e); err != nil {
+					if !errors.Is(err, errLaneVisibility) {
+						return err
+					}
+					if _, err := s.reconcileLaneDispatch(ctx, e); err != nil {
+						return err
+					}
+					continue
+				}
+			}
 			e.JobID = j.ID
 			if e.Scenario != "smoke" && j.Runner.ID == s.runnerID {
 				if err := s.checkpoint(ctx, e, terminalJob(j.Status)); err != nil {
 					return err
 				}
 				if e.Scenario == "cancel" && e.Checkpoint && !e.CancelRequested && j.Status == "running" {
-					if err := s.gl.request(ctx, "POST", fmt.Sprintf("/pipelines/%d/cancel", e.PipelineID), nil, nil); err != nil {
+					if err := s.requestCancellation(ctx, e, false); err != nil {
 						return err
 					}
 					e.CancelRequested = true
@@ -305,6 +320,29 @@ func (s jobSequence) selectJob(e *JobEvidence) {
 			return
 		}
 	}
+}
+
+func (s jobSequence) laneOwner(e *JobEvidence) (map[string]string, error) {
+	index := 0
+	for i := range s.result.Jobs {
+		if &s.result.Jobs[i] == e {
+			index = i + 1
+			break
+		}
+	}
+	return s.gl.lane.context.ownership(s.result.Executor, s.result.JobScenario, e.Scenario,
+		index, s.result.Nonce, s.systemID, e.Nonce)
+}
+
+func (s jobSequence) verifyLaneJob(j job, e *JobEvidence) error {
+	if s.gl.lane == nil {
+		return nil
+	}
+	owner, err := s.laneOwner(e)
+	if err != nil {
+		return err
+	}
+	return laneJobIdentity(j, e.PipelineID, owner)
 }
 
 func terminalJob(status string) bool {

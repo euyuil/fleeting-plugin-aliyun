@@ -111,7 +111,7 @@ func (s crashSequence) finalize(parent context.Context, e *JobEvidence) error {
 	if pipe.Status != "running" || j.Status != "running" {
 		return errors.New("crash job stopped before harness finalization")
 	}
-	if err := s.gl.request(ctx, "POST", fmt.Sprintf("/pipelines/%d/cancel", e.PipelineID), nil, nil); err != nil {
+	if err := s.requestCancellation(ctx, e, false); err != nil {
 		return err
 	}
 	e.CancelRequested, e.Finalization = true, "harness_after_recovery"
@@ -137,7 +137,7 @@ func (s crashSequence) finalize(parent context.Context, e *JobEvidence) error {
 			return errors.New("crash job reached an unexpected terminal outcome")
 		}
 		if j.Status == "canceling" && !e.ForceCanceled {
-			if err := s.gl.request(ctx, "POST", fmt.Sprintf("/jobs/%d/cancel", e.JobID), map[string]bool{"force": true}, nil); err != nil {
+			if err := s.requestCancellation(ctx, e, true); err != nil {
 				return err
 			}
 			e.ForceCanceled = true
@@ -160,6 +160,9 @@ func (s crashSequence) interruptedJob(ctx context.Context, e *JobEvidence) (pipe
 	if pipe.ID != e.PipelineID || pipe.SHA != s.result.FixtureSHA || len(jobs) != 1 || jobs[0].ID != e.JobID ||
 		jobs[0].Commit.ID != s.result.FixtureSHA || jobs[0].Pipeline.ID != e.PipelineID || jobs[0].Runner.ID != s.runnerID {
 		return pipe, job{}, errors.New("crash finalization job identity changed")
+	}
+	if err := s.verifyLaneJob(jobs[0], e); err != nil {
+		return pipe, job{}, err
 	}
 	return pipe, jobs[0], nil
 }

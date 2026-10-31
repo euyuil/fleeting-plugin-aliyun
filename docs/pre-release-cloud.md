@@ -200,8 +200,8 @@ checks. After publication and the anonymous installation matrix, Release
 reacquires that group for the two public-package executor smoke jobs. Full
 recovery coverage remains in candidate acceptance; the public completion gate
 binds the installation and smoke evidence to those exact candidate bytes.
-Executor jobs are
-serial and use distinct temporary fixtures. The reusable job workflow does not
+Executor jobs use [two independent lanes with serial cases](job-acceptance.md)
+and distinct temporary fixtures. The reusable job workflow does not
 acquire its caller's group a second time. Completion-triggered janitor recovery
 includes these job fixtures through the owning Release or Cloud acceptance run.
 

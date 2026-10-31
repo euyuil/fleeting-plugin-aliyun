@@ -6,6 +6,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 import urllib.error
+import urllib.parse
 
 import gitlab_fixture as fixture
 
@@ -17,8 +18,12 @@ CANDIDATE, CREATED = "b" * 40, "c" * 40
 
 class FixtureServer:
     """Exercise the actual HTTP request and parsing boundary without credentials."""
-    def __init__(self, *, existing=False, fault=""):
+    def __init__(self, *, existing=False, fault="", scope=""):
         self.created, self.fault, self.posts, self.requests = existing, fault, [], []
+        self.branch = "acceptance/" + CANDIDATE + scope
+        self.scope = scope
+        self.marker = (json.dumps({"schema_version": 1, "candidate_sha": CANDIDATE, "run_id": "10", "run_attempt": "1"},
+                                  sort_keys=True, separators=(",", ":")) + "\n").encode()
 
     def open(self, request, timeout):
         self.requests.append(request)
@@ -29,24 +34,28 @@ class FixtureServer:
             data = {"id": 123, "visibility": "public" if self.fault == "public" else "private"}
         elif path == "/repository/branches/main":
             data = {"name": "main", "commit": {"id": CREATED if self.fault == "moved-base" else CONFIG["fixture_sha"]}}
-        elif path == "/repository/branches/acceptance%2F" + CANDIDATE:
+        elif path == "/repository/branches/" + urllib.parse.quote(self.branch, safe=""):
             if sha is None:
                 self.error(request, 403 if self.fault == "denied" else 404)
             if self.created and self.fault == "lost-response-readback":
                 self.error(request, 503)
-            data = {"name": "acceptance/" + CANDIDATE, "commit": {"id": sha}}
+            data = {"name": self.branch, "commit": {"id": sha}}
+        elif path == "/repository/commits/" + CONFIG["fixture_sha"]:
+            data = {"id": CONFIG["fixture_sha"]}
         elif path == "/repository/commits" and request.get_method() == "POST":
             body = json.loads(request.data)
             self.posts.append(body)
             if self.fault == "write-denied":
                 self.error(request, 403)
             self.created = True
+            if self.fault == "concurrent-conflict":
+                self.error(request, 409)
             if self.fault in {"lost-response", "lost-response-readback"}:
                 raise urllib.error.URLError("private endpoint and credential")
             data = {"id": CREATED}
         elif path == "/repository/commits/" + CREATED:
             data = {"id": CREATED, "parent_ids": [CONFIG["fixture_sha"]],
-                    "message": "test: pin acceptance fixture for " + CANDIDATE + "\n"}
+                    "message": "test: pin acceptance fixture for " + CANDIDATE + self.scope + "\n"}
             if self.fault == "wrong-parent":
                 data["parent_ids"] = ["d" * 40]
             if self.fault == "wrong-message":
@@ -54,18 +63,24 @@ class FixtureServer:
         elif path.startswith("/repository/tree?"):
             data = [{"path": name, "type": "blob", "mode": "100644", "id": "e" * 40} for name in fixture.FILES]
             data.append({"path": "preserved", "type": "tree", "mode": "040000", "id": "f" * 40})
+            if self.scope and (path.endswith(CREATED) or self.fault == "marker-collision"):
+                data.append({"path": fixture.SCOPE_MARKER, "type": "blob", "mode": "100644", "id": "1" * 40})
+                if self.fault == "marker-mode":
+                    data[-1]["mode"] = "100755"
             if path.endswith(CREATED):
                 if self.fault == "wrong-extra-file":
                     data.append({"path": "extra", "type": "blob", "mode": "100644", "id": "d" * 40})
                 if self.fault == "wrong-subtree":
-                    data[-1]["id"] = "d" * 40
+                    next(entry for entry in data if entry["path"] == "preserved")["id"] = "d" * 40
                 if self.fault == "wrong-mode":
                     data[0]["mode"] = "100755"
             if self.fault == "large-tree":
                 data *= 34
         elif path.startswith("/repository/files/"):
             name = path.split("/")[3].split("?")[0]
-            content = (Path("tests/fixtures/gitlab") / name).read_bytes()
+            content = self.marker if name == fixture.SCOPE_MARKER else (Path("tests/fixtures/gitlab") / name).read_bytes()
+            if name == fixture.SCOPE_MARKER and self.fault == "wrong-marker":
+                content = b"foreign scope\n"
             if path.endswith(CONFIG["fixture_sha"]) and self.fault != "already-current":
                 content = b"old fixture\n"
             if path.endswith(CREATED) and self.fault == "wrong-content":
@@ -118,6 +133,50 @@ class FixtureTests(unittest.TestCase):
         server = FixtureServer(fault="already-current")
         self.assertEqual(self.prepare(server), CONFIG)
         self.assertEqual(server.posts, [])
+
+    def test_run_scoped_refs_share_exact_pins_without_repeating_writes(self):
+        for already_current in (False, True):
+            with self.subTest(already_current=already_current):
+                server = FixtureServer(fault="already-current" if already_current else "", scope="/10/1")
+                with patch.object(fixture.urllib.request, "build_opener", return_value=server):
+                    first = fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id="10", attempt="1")
+                    second = fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id="10", attempt="1")
+                self.assertEqual(first, second)
+                self.assertEqual(first["fixture_ref"], "acceptance/" + CANDIDATE + "/10/1")
+                self.assertEqual(first["fixture_sha"], CREATED)
+                self.assertEqual(len(server.posts), 1)
+                actions = server.posts[0]["actions"]
+                marker = [a for a in actions if a["file_path"] == fixture.SCOPE_MARKER]
+                self.assertEqual(len(marker), 1)
+                self.assertEqual(marker[0]["action"], "create")
+                self.assertEqual(base64.b64decode(marker[0]["content"]), server.marker)
+                if already_current:
+                    self.assertEqual(len(actions), 1)
+                self.assertEqual(CONFIG["fixture_ref"], "main")
+
+    def test_scoped_commit_reconciles_conflict_or_lost_response_without_another_post(self):
+        for fault in ("concurrent-conflict", "lost-response"):
+            with self.subTest(fault=fault):
+                server = FixtureServer(fault=fault, scope="/10/1")
+                with patch.object(fixture.urllib.request, "build_opener", return_value=server):
+                    result = fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id="10", attempt="1")
+                self.assertEqual(result["fixture_sha"], CREATED)
+                self.assertEqual(len(server.posts), 1)
+
+    def test_scoped_commit_rejects_marker_collision_or_tampering(self):
+        for fault in ("marker-collision", "wrong-marker", "marker-mode", "wrong-parent", "wrong-subtree"):
+            with self.subTest(fault=fault):
+                server = FixtureServer(fault=fault, scope="/10/1")
+                with patch.object(fixture.urllib.request, "build_opener", return_value=server), self.assertRaises(ValueError):
+                    fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id="10", attempt="1")
+                self.assertEqual(len(server.posts), 0 if fault == "marker-collision" else 1)
+
+    def test_partial_or_malformed_run_scope_never_reaches_the_project(self):
+        with patch.object(fixture.urllib.request, "build_opener") as opener:
+            for run, attempt in (("10", None), (None, "1"), ("0", "1"), ("10/foreign", "1"), ("10", "01"), (str(2**63), "1")):
+                with self.subTest(run=run, attempt=attempt), self.assertRaises(ValueError):
+                    fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id=run, attempt=attempt)
+            opener.assert_not_called()
 
     def test_unknown_write_outcome_is_read_back_without_repeating_post(self):
         server = FixtureServer(fault="lost-response")

@@ -1,0 +1,245 @@
+name: Serial executor acceptance lane
+on:
+  workflow_call:
+    inputs:
+      artifact_id:
+        required: true
+        type: string
+      manifest_sha256:
+        required: true
+        type: string
+      candidate_sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      phase:
+        required: true
+        type: string
+      cases:
+        type: string
+        default: all
+      executor:
+        required: true
+        type: string
+      profile:
+        type: string
+        default: full
+    secrets:
+      RELEASE_ALIYUN_ACCOUNT_ID:
+        required: false
+      RELEASE_ALIYUN_ROLE_ARN:
+        required: false
+      RELEASE_ALIYUN_CLEANUP_ROLE_ARN:
+        required: false
+      RELEASE_ALIYUN_OIDC_PROVIDER_ARN:
+        required: false
+      RELEASE_ALIYUN_CLEANUP_REGIONS:
+        required: false
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG:
+        required: false
+      RELEASE_GITLAB_CONFIG:
+        required: false
+      RELEASE_GITLAB_API_TOKEN:
+        required: false
+      RELEASE_GITLAB_RUNNER_TOKEN:
+        required: false
+      RELEASE_GITLAB_DOCKER_RUNNER_TOKEN:
+        required: false
+permissions:
+  contents: read
+jobs:
+  selection:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      smoke: ${{ steps.select.outputs['smoke'] }}
+      failure: ${{ steps.select.outputs['failure'] }}
+      cancel: ${{ steps.select.outputs['cancel'] }}
+      timeout: ${{ steps.select.outputs['timeout'] }}
+      capacity: ${{ steps.select.outputs['capacity'] }}
+      drain: ${{ steps.select.outputs['drain'] }}
+      worker-loss: ${{ steps.select.outputs['worker-loss'] }}
+      manager-crash: ${{ steps.select.outputs['manager-crash'] }}
+      upgrade: ${{ steps.select.outputs['upgrade'] }}
+    env:
+      JOB_CASES: ${{ inputs.cases }}
+      PROFILE: ${{ inputs.profile }}
+      PHASE: ${{ inputs.phase }}
+      EXECUTOR: ${{ inputs.executor }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - id: select
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          import os, sys
+          sys.path.insert(0, 'tools')
+          from job_acceptance import EXECUTORS, JOB_SCENARIOS, workflow_profile
+          executor = os.environ['EXECUTOR']
+          if executor not in EXECUTORS:
+              raise ValueError('unknown executor lane')
+          cases = workflow_profile(os.environ['PROFILE'], os.environ['PHASE'], os.environ['JOB_CASES'])
+          selected = {scenario for current, scenario in cases if current == executor}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for scenario in JOB_SCENARIOS:
+                  output.write(scenario + '=' + str(scenario in selected).lower() + '\n')
+          PYTHON
+  smoke:
+    needs: [selection]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['smoke'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: smoke
+    secrets: inherit
+  failure:
+    needs: [selection, smoke]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['failure'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: failure
+    secrets: inherit
+  cancel:
+    needs: [selection, smoke, failure]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['cancel'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: cancel
+    secrets: inherit
+  timeout:
+    needs: [selection, smoke, failure, cancel]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['timeout'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: timeout
+    secrets: inherit
+  capacity:
+    needs: [selection, smoke, failure, cancel, timeout]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['capacity'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: capacity
+    secrets: inherit
+  drain:
+    needs: [selection, smoke, failure, cancel, timeout, capacity]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['drain'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: drain
+    secrets: inherit
+  worker-loss:
+    needs: [selection, smoke, failure, cancel, timeout, capacity, drain]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['worker-loss'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: worker-loss
+    secrets: inherit
+  manager-crash:
+    needs: [selection, smoke, failure, cancel, timeout, capacity, drain, worker-loss]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['manager-crash'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: manager-crash
+    secrets: inherit
+  upgrade:
+    needs: [selection, smoke, failure, cancel, timeout, capacity, drain, worker-loss, manager-crash]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.selection.result == 'success' && needs.selection.outputs['upgrade'] == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/job-acceptance-case.yml
+    with:
+      artifact_id: ${{ inputs.artifact_id }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      version: ${{ inputs.version }}
+      phase: ${{ inputs.phase }}
+      profile: ${{ inputs.profile }}
+      executor: ${{ inputs.executor }}
+      scenario: upgrade
+    secrets: inherit
