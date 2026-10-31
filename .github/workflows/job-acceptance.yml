@@ -60,6 +60,7 @@ defaults:
     shell: bash
 jobs:
   selection:
+    name: Select executor lanes
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -87,7 +88,7 @@ jobs:
               output.write('matrix=' + json.dumps(matrix) + '\n')
           PY
   scenario:
-    name: executor (${{ matrix.executor }})
+    name: ${{ matrix.executor }}
     permissions:
       contents: read
       id-token: write
@@ -109,6 +110,7 @@ jobs:
       executor: ${{ matrix.executor }}
     secrets: inherit
   gate:
+    name: Verify selected job cases
     if: always()
     needs: [selection, scenario]
     runs-on: ubuntu-26.04
