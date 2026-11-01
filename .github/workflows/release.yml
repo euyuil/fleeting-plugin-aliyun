@@ -206,7 +206,7 @@ jobs:
           source_run="${ACCEPTED_RUN:-$GITHUB_RUN_ID}"
           source_attempt="$GITHUB_RUN_ATTEMPT"
           if [ -n "$ACCEPTED_RUN" ]; then source_attempt="$ACCEPTED_ATTEMPT"; fi
-          printf '\n## Published candidate\n\nSource: `%s`\n\nManifest SHA-256: `%s`\n\nAccepted run: %s/%s\n\nPublication and verification: https://github.com/%s/actions/runs/%s\n' \
+          printf '\n## Published candidate\n\nSource: %s\n\nManifest SHA-256: %s\n\nAccepted run: %s/%s\n\nPublication and verification: https://github.com/%s/actions/runs/%s\n' \
             "$CANDIDATE_SHA" "$MANIFEST_SHA256" "$source_run" "$source_attempt" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> .cache/public-release-notes.md
           flags=(--verify-tag --title "v$VERSION" --notes-file .cache/public-release-notes.md)
           if [[ "$VERSION" == *-* ]]; then
