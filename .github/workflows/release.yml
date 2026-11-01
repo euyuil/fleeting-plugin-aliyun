@@ -26,15 +26,30 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     env:
       VERSION: ${{ inputs.version }}
       GH_TOKEN: ${{ github.token }}
+      ACCEPTED_RUN: ${{ inputs.accepted_run_id }}
+      ACCEPTED_ATTEMPT: ${{ inputs.accepted_run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
+      - name: Resolve accepted source before checking a prepared tag
+        if: inputs.accepted_run_id != ''
+        id: accepted
+        run: |
+          python3 tools/release_reuse.py resolve --run "$ACCEPTED_RUN" --attempt "$ACCEPTED_ATTEMPT" \
+            --version "$VERSION" --receipt .cache/accepted-tag-resolution.json
       - name: Validate version and refuse existing releases
+        env:
+          CANDIDATE_SHA: ${{ steps.accepted.outputs.candidate_sha }}
         run: python3 tools/release-preflight.py
   acceptance:
     needs: preflight
@@ -192,8 +207,15 @@ jobs:
           cp -a .cache/candidate/dist dist
       - name: Create the exact source tag
         run: |
-          git tag "v$VERSION" "$CANDIDATE_SHA"
-          git push origin "refs/tags/v$VERSION"
+          if tag_record="$(git ls-remote --exit-code origin "refs/tags/v$VERSION")"; then
+            read -r existing_sha _ <<< "$tag_record"
+            test "$existing_sha" = "$CANDIDATE_SHA"
+          else
+            tag_status=$?
+            test "$tag_status" = 2
+            git tag "v$VERSION" "$CANDIDATE_SHA"
+            git push origin "refs/tags/v$VERSION"
+          fi
       - name: Authenticate GHCR
         env:
           REGISTRY_TOKEN: ${{ github.token }}
