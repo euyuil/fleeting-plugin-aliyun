@@ -248,6 +248,22 @@ checkpoint/cleanup-bypass check on Linux; macOS skips that procfs-specific test.
 See [distribution](docs/distribution.md) for native and OCI packaging, installation,
 and explicit release gates. See [third-party obligations](docs/third-party.md) before adding dependencies.
 
+A completed full `Cloud acceptance` run can be published without rebuilding or
+repeating paid candidate cases:
+
+```sh
+gh workflow run release.yml --ref main -f version=0.1.0-rc.4 \
+  -f accepted_run_id=FULL_ACCEPTANCE_RUN_ID -f accepted_run_attempt=1
+```
+
+The run must be the exact successful main-branch attempt, with the full eighteen
+case summary, all successful required jobs and unexpired candidate/receipt
+artifacts. The publisher derives its source and artifact identities, verifies
+all accepted bytes and receipts, and copies the same `candidate.tar` into the
+Release run. Notes and orchestration use current main; the source tag and public
+payload use the accepted commit. Omit `accepted_run_id` to build and validate a
+new candidate through the existing full path.
+
 Release automatically calls the public installation workflow after publication,
 binding the published tag to the source commit accepted by the cloud gate. All
 four Ubuntu platform jobs and both subsequent public-package smoke jobs must

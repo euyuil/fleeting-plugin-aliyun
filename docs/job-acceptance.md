@@ -223,8 +223,17 @@ The final Release completion gate reads the candidate's full-job summary, all
 four native installation/download receipt sets and both actual public job
 receipts. Source, version, manifest, configuration and workflow attempt must
 agree; any missing, failed, canceled or skipped required path blocks completion.
-The configured release therefore runs 34 candidate GitLab jobs plus two public
-smokes, rather than repeating 34 jobs after publication. A standalone historical
+A Release may instead reuse an already completed full Cloud acceptance run,
+using the [explicit publication entry](../CONTRIBUTING.md). The original run and
+attempt remain attached to its eighteen-case summary; public receipts bind the
+new Release run and attempt. A read-only fixture resolution proves both runtime
+configuration digests from the same configured project, Runner map, base and
+accepted fixture source. Missing or changed branches fail without a write.
+Static fixture configuration remains identical. No old receipt is relabeled as
+new acceptance, and the tar/payload bytes are copied without rebuilding.
+
+The configured release therefore requires 34 accepted candidate GitLab jobs plus
+two new public smokes, rather than repeating 34 jobs after publication. A standalone historical
 public installation check without a sealed artifact reports candidate binding as
 not provided and cannot satisfy this release-completion gate.
 

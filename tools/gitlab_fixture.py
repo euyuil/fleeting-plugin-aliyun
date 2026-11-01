@@ -136,7 +136,7 @@ class GitLab:
         return result
 
 
-def prepare(config, candidate_sha, token, *, run_id=None, attempt=None):
+def prepare(config, candidate_sha, token, *, run_id=None, attempt=None, read_only=False):
     """Return a private runtime pin; never change the configured base or secrets."""
     revision(candidate_sha)
     revision(config["fixture_sha"])
@@ -171,6 +171,8 @@ def prepare(config, candidate_sha, token, *, run_id=None, attempt=None):
         expected_tree[SCOPE_MARKER] = ("blob", "100644", None)
         extra_files = (SCOPE_MARKER,)
     sha = client.branch(branch)
+    if read_only and sha is None:
+        raise ValueError("the accepted runtime fixture branch is missing")
     write_failure = None
     try:
         if sha is None:
