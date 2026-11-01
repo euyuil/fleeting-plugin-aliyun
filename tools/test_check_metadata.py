@@ -73,7 +73,7 @@ class MetadataTests(unittest.TestCase):
         metadata.check_status(status)
 
     def test_debian_pass_requires_matching_receipts(self):
-        original = json.loads((self.root / "acceptance/status.json").read_text())
+        original = self.debian_lifecycle_pass_fixture()
         for receipts in ([], original["published_release"]["debian_installation_receipts"][:1]):
             status = copy.deepcopy(original)
             status["published_release"]["debian_installation_receipts"] = receipts
@@ -81,7 +81,7 @@ class MetadataTests(unittest.TestCase):
                 metadata.check_status(status)
 
     def test_debian_receipt_identity_and_success_are_checked(self):
-        original = json.loads((self.root / "acceptance/status.json").read_text())
+        original = self.debian_lifecycle_pass_fixture()
         mutations = {"version": "9.9.9", "architecture": "s390x", "package": "other.deb",
                      "release_asset": "other.deb", "package_sha256": "0" * 64,
                      "anonymous_download": False, "native_binary_match": False, "lifecycle": False}
@@ -90,6 +90,16 @@ class MetadataTests(unittest.TestCase):
             status["published_release"]["debian_installation_receipts"][0][field] = value
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, "Debian"):
                 metadata.check_status(status)
+
+    def debian_lifecycle_pass_fixture(self):
+        # Lifecycle rejection tests need an explicit claim, independent of the latest release's scope.
+        status = json.loads((self.root / "acceptance/status.json").read_text())
+        for arch in ("amd64", "arm64"):
+            status["published_release"]["linux_" + arch + "_debian_lifecycle"] = "pass"
+        for receipt in status["published_release"]["debian_installation_receipts"]:
+            receipt["lifecycle"] = True
+        metadata.check_status(status)
+        return status
 
     def test_debian_receipts_need_unique_architectures_and_recorded_assets(self):
         original = json.loads((self.root / "acceptance/status.json").read_text())

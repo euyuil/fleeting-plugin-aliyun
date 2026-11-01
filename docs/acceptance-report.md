@@ -5,11 +5,12 @@ live acceptance, and external publication. The machine-readable status is
 [`acceptance/status.json`](../acceptance/status.json); exact source versions are
 in [`upstream.lock.json`](../upstream.lock.json).
 
-## Unpublished candidate: complete two-executor acceptance
+## Complete two-executor candidate acceptance
 
 [Run 41212022560](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560),
 attempt 1, passed the single `mode=all`, `profile=full`, `job_cases=all` gate for
-source `6d96f8ad7082c2db3c838c8d5db6d227d73927d3`, unpublished `0.1.0-rc.4`.
+source `6d96f8ad7082c2db3c838c8d5db6d227d73927d3`, `0.1.0-rc.4`, which was
+unpublished at the time of that candidate run.
 The exact result is **18 PASS, 0 FAIL, 0 cancelled, 0 skipped** real cases,
 plus six plugin scenarios, four native platform tasks and both final gates.
 All 35 workflow jobs succeeded. This result uses one candidate and one run;
@@ -76,6 +77,57 @@ The accepted candidate remains `6d96f8a`; no paid rerun was made for the naming
 change. Cloud/job creation flags were restored and read back as `false,false`,
 with cleanup `true`; no other queued or running acceptance remained.
 
+### Publication of the accepted candidate
+
+[Release `v0.1.0-rc.4`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.4)
+was published on 2026-11-01 at 02:34:11 UTC. The separate
+[publication and verification run 41265540589/1](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589)
+used controller `2e3bb586f092329ff245216bb0f9ccdbb3d515a7` and reused the
+accepted `6d96f8a` source and original distribution bytes. All six public asset
+digests and the complete OCI payload match the sealed candidate. The immutable
+public OCI index is
+`sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b`.
+The source tag names the accepted commit, while the later controller provides
+the reviewed reuse and publication orchestration.
+
+All four native Ubuntu 24.04/26.04 amd64/arm64 public installation jobs passed.
+Their twelve receipts were independently checked for exact source, manifest,
+run/attempt, anonymous asset download, full OCI payload/native protocol loading
+and Debian package installation. Public Debian checks are install-smoke checks;
+the complete package lifecycle and isolated Debian 12/systemd evidence remain
+in the original full candidate run on these identical bytes.
+
+Both real public-package cases passed with schema-3/public-smoke receipts:
+
+| Selected public case | Result |
+|---|---|
+| instance/smoke | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728310072) |
+| docker-autoscaler/smoke | [PASS](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728310140) |
+
+The selected result is **2 PASS, 0 FAIL, 0 cancelled, 0 skipped**. Both used the
+published package, verified inventory/Spot/deletion and full teardown, and were
+bound to the original candidate and the new publication run. Read-only fixture
+resolution verified the accepted and public runtime configuration digests
+against the same configured project and two Runner lanes. The completion gate
+passed and its receipt was independently reproduced. The fresh full acceptance
+job and sixteen unselected public case slots were intentionally skipped; the
+original eighteen-case acceptance above was not rebuilt or rerun.
+
+Exact independent [janitor 41266717389/1](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41266717389)
+passed with **zero leftovers**, bound to `41265540589/1`, `completed-run` scope
+and controller head `2e3bb58`. Cloud/job creation flags were restored and read
+back as `false,false`, cleanup remained `true`, and no other active acceptance
+remained. These cleanup results are separate from the original full-run cleanup.
+
+The earlier [publication attempt 41264328990/1](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41264328990)
+failed before publication or public jobs: GitHub rejected the built-in workflow
+token's tag push for the older accepted commit with different workflow files.
+The exact [janitor 41264486463/1](https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41264486463)
+passed zero and creation flags were restored. Existing authorized Git credentials
+then prepared the exact lightweight source tag; [PR123](https://github.com/euyuil/fleeting-plugin-aliyun/pull/123)
+added strict matching-tag reuse. [PR122](https://github.com/euyuil/fleeting-plugin-aliyun/pull/122)
+introduced accepted-artifact reuse. The published payload was never replaced.
+
 ### Retained follow-up history
 
 Counts below refer to each run's selected real-case set, in the order
@@ -118,9 +170,9 @@ case budgets, deadlines, TTLs and cleanup assertions, and added no 429 or write
 retry. Current success proves this run's result and does not reconstruct missing
 historical rate headers or cloud errors.
 
-This is pre-publication acceptance of the named candidate. The earlier published
-`0.1.0-rc.3` installation evidence below remains unchanged; `0.1.0-rc.4` was not
-published and its post-publication workflow was not run. Real cloud/GitLab jobs
+The candidate and publication results above apply to the exact named source
+and their separate run identities. The earlier published `0.1.0-rc.3` installation
+evidence below remains unchanged. Real cloud/GitLab jobs
 cover the selected Linux amd64 instance/Docker paths. Native arm64 package
 lifecycle does not prove arm64 cloud jobs, Windows/Darwin, production or broader
 workloads. The separate legacy `Live acceptance` workflow/configuration fields
@@ -603,7 +655,7 @@ The following gates remain specific and visible:
 | Dynamic SSH | Public-key delivery, expiration, helper and reacquisition implementation/tests | Prepared Cloud Assistant image, restricted RunCommand identity, and actual key delivery/SSH timing. |
 | Windows | Connection logic, example and offline checks | Licensed image, network route and an actual Windows executor job. |
 | Formal suspend/resume | Standard unsupported production methods; isolated controller and offline tests | Same-ID ESS/ECS terminal states, unchanged capacity, fresh SSH after resume, interruption recovery and verified cleanup before capability activation. |
-| External publication | 0.1.0-rc.3 published after its six-scenario cloud gate; anonymous OCI and Debian installation passed on Linux amd64 and arm64 | Full GitLab job evidence remains specific to rc.2. Installation acceptance does not establish production acceptance. Earlier failures remain recorded below. |
+| External publication | 0.1.0-rc.4 published from the accepted `6d96f8a` source; four native public installations, two real public-package smokes and bound completion passed | The eighteen-case matrix is the original single full run; post-publication Debian checks are install-smoke. Production and broader workloads remain outside this evidence. Earlier releases and failures remain below. |
 
 M0 and the offline M1 implementation are complete. M2 tooling is implemented.
 Its plugin-only smoke, scale-in, ready-worker, accepted-creation, accepted-removal
