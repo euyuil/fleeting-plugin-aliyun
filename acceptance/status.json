@@ -240,15 +240,15 @@
     "cleanup_enabled_after_run": true,
     "flags_read_back_at_utc": "2026-10-31T18:58:37.656990+00:00",
     "other_active_acceptance_runs_after_completion": 0,
-    "release_published": false,
-    "post_publication_validation": "NOT_RUN_FOR_THIS_CANDIDATE",
+    "release_published": true,
+    "post_publication_validation": "PASS_SEPARATE_RELEASE_RUN_41265540589_ATTEMPT_1",
     "later_display_only_change": {
       "pr": "https://github.com/euyuil/fleeting-plugin-aliyun/pull/120",
       "source_revision": "fdcfd5f5f8aec9197c5aa2dc18e254ee8b39762c",
       "scope": "Six workflow job display-name fields; all non-name bytes unchanged. No paid rerun for this naming change."
     },
     "limitations": [
-      "Applies to this exact unpublished candidate and its one all/full run, not an arbitrary later commit or assembled historical pass set.",
+      "Applies to this exact accepted candidate and its one all/full run, not an arbitrary later commit or assembled historical pass set.",
       "Real GitLab/cloud job execution covers the selected Linux amd64 instance and Docker Autoscaler paths. Native arm64 package lifecycle is not arm64 cloud-job acceptance; Windows, Darwin, production and broader workloads are outside this result.",
       "The two upgrade cases use the same pinned published 0.1.0-rc.3 baseline, not two different baseline versions.",
       "Older unknown cloud, readiness, pagination and release-timeout causes remain unknown; current success does not identify their exact historical causes.",
@@ -555,230 +555,439 @@
     }
   ],
   "published_release": {
-    "version": "0.1.0-rc.3",
-    "source_revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-    "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3",
-    "published_at_utc": "2026-10-29T03:58:51Z",
-    "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3",
-    "manifest_digest": "sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497",
+    "version": "0.1.0-rc.4",
+    "source_revision": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+    "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.4",
+    "published_at_utc": "2026-11-01T02:34:11Z",
+    "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.4",
+    "manifest_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
     "anonymous_manifest_download": "pass",
     "linux_amd64_runner_installation": "pass",
     "linux_arm64_runner_installation": "pass",
-    "linux_amd64_debian_lifecycle": "pass",
-    "linux_arm64_debian_lifecycle": "pass",
+    "linux_amd64_debian_install_smoke": "pass",
+    "linux_arm64_debian_install_smoke": "pass",
+    "linux_amd64_debian_lifecycle": "not_run_after_publication",
+    "linux_arm64_debian_lifecycle": "not_run_after_publication",
     "runner_version": "19.5.1",
-    "publication_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40812572012",
-    "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815916873",
-    "verification_workflow_revision": "c89563cb68e53a292411161d315de2e049abb548",
-    "prior_verification_attempt": {
-      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815670856",
-      "result": "FAIL",
-      "oci_installation_both_architectures": "PASS",
-      "debian_result": "HTTP 404 before package installation; corrected public asset mapping and Bash tilde expansion in the verifier."
+    "publication_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589",
+    "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589",
+    "run_id": "41265540589",
+    "run_attempt": "1",
+    "publication_workflow_revision": "2e3bb586f092329ff245216bb0f9ccdbb3d515a7",
+    "verification_workflow_revision": "2e3bb586f092329ff245216bb0f9ccdbb3d515a7",
+    "accepted_full_candidate": {
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41212022560",
+      "run_id": "41212022560",
+      "run_attempt": "1",
+      "source_revision": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+      "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+      "artifact_id": 13046966897,
+      "reused_without_rebuild": true,
+      "real_case_counts": {
+        "pass": 18,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "plugin_scenarios": 6,
+      "native_platforms": 4
     },
     "installation_receipts": [
       {
-        "anonymous_manifest": true,
-        "architecture": "amd64",
-        "binary_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
-        "empty_configuration_rejected": true,
-        "manifest_digest": "sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497",
+        "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "version": "0.1.0-rc.4",
+        "revision": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+        "run_id": "41265540589",
+        "run_attempt": "1",
+        "runner_image": "ubuntu-26.04",
         "os": "linux",
-        "plugin_protocol": true,
-        "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3",
+        "architecture": "amd64",
+        "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.4",
+        "manifest_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "platform_manifest_digest": "sha256:fca7aa0cbcbd9b2fdb0a525afc97bf8ba8055881650824f17b4e32537db27d58",
+        "pinned_reference": "ghcr.io/euyuil/fleeting-plugin-aliyun@sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "binary_sha256": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4",
+        "payload_sha256": {
+          "LICENSE": "1e42086906dcb01d165c6063e0f12e9a98f68d95eea4a27f59f8bdcdffb06914",
+          "NOTICE": "7c4bff8702c945559ab201489ee0f9f0ed8f2935da114c57f1d77cd9f23ab6b7",
+          "licenses.tar.gz": "9bc78f299a11de689d42dae24d44e31c39903daab85a82d37b86f9ce4d1efca0",
+          "plugin": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4"
+        },
+        "anonymous_manifest": true,
         "release_bytes_match": true,
-        "revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-        "version": "0.1.0-rc.3"
+        "plugin_protocol": true,
+        "empty_configuration_rejected": true
       },
       {
-        "anonymous_manifest": true,
-        "architecture": "arm64",
-        "binary_sha256": "a18348e826235500fadcc3e9abc08a4d395fa7caaf7c2c4e30a118d7b34522a4",
-        "empty_configuration_rejected": true,
-        "manifest_digest": "sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497",
+        "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "version": "0.1.0-rc.4",
+        "revision": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+        "run_id": "41265540589",
+        "run_attempt": "1",
+        "runner_image": "ubuntu-26.04-arm",
         "os": "linux",
-        "plugin_protocol": true,
-        "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3",
+        "architecture": "arm64",
+        "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.4",
+        "manifest_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "platform_manifest_digest": "sha256:f4871a9de4a919e85eaf9015c58810894d80de986a3fc72639fb78ae01a607f2",
+        "pinned_reference": "ghcr.io/euyuil/fleeting-plugin-aliyun@sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "binary_sha256": "5fafd881fa874a5250156dcd99e165ff5c79d756637b77cb0718cfdc13fa2816",
+        "payload_sha256": {
+          "LICENSE": "1e42086906dcb01d165c6063e0f12e9a98f68d95eea4a27f59f8bdcdffb06914",
+          "NOTICE": "7c4bff8702c945559ab201489ee0f9f0ed8f2935da114c57f1d77cd9f23ab6b7",
+          "licenses.tar.gz": "9bc78f299a11de689d42dae24d44e31c39903daab85a82d37b86f9ce4d1efca0",
+          "plugin": "5fafd881fa874a5250156dcd99e165ff5c79d756637b77cb0718cfdc13fa2816"
+        },
+        "anonymous_manifest": true,
         "release_bytes_match": true,
-        "revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-        "version": "0.1.0-rc.3"
+        "plugin_protocol": true,
+        "empty_configuration_rejected": true
       }
     ],
     "debian_installation_receipts": [
       {
-        "version": "0.1.0-rc.3",
+        "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "version": "0.1.0-rc.4",
+        "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+        "run_id": "41265540589",
+        "run_attempt": "1",
+        "runner_image": "ubuntu-26.04",
         "architecture": "amd64",
-        "package": "fleeting-plugin-aliyun_0.1.0~rc.3_amd64.deb",
-        "package_sha256": "d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887",
-        "release_asset": "fleeting-plugin-aliyun_0.1.0.rc.3_amd64.deb",
+        "package": "fleeting-plugin-aliyun_0.1.0~rc.4_amd64.deb",
+        "package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
         "anonymous_download": true,
         "native_binary_match": true,
-        "lifecycle": true
+        "install_smoke": true,
+        "lifecycle": false,
+        "release_asset": "fleeting-plugin-aliyun_0.1.0.rc.4_amd64.deb"
       },
       {
-        "version": "0.1.0-rc.3",
+        "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "version": "0.1.0-rc.4",
+        "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+        "run_id": "41265540589",
+        "run_attempt": "1",
+        "runner_image": "ubuntu-26.04-arm",
         "architecture": "arm64",
-        "package": "fleeting-plugin-aliyun_0.1.0~rc.3_arm64.deb",
-        "package_sha256": "e8c6d3b5295b30e1bc6f82aea4d947473091c6de7e9ac7924bf4a858782d61f9",
-        "release_asset": "fleeting-plugin-aliyun_0.1.0.rc.3_arm64.deb",
+        "package": "fleeting-plugin-aliyun_0.1.0~rc.4_arm64.deb",
+        "package_sha256": "047e74a335cad16b125d39535562f2936c87f4936e473130becf62699c30675b",
         "anonymous_download": true,
         "native_binary_match": true,
-        "lifecycle": true
+        "install_smoke": true,
+        "lifecycle": false,
+        "release_asset": "fleeting-plugin-aliyun_0.1.0.rc.4_arm64.deb"
       }
     ],
     "release_assets": [
       {
         "name": "dependencies.json",
-        "sha256": "52c1328bfad3fa74890847cdd80e572ebf088d0a572b94bc6a9d652ff36fc965",
+        "sha256": "4a6f7686ab7094a5b39599cb1d7d5a2dfbf51b36ba7de66b0c7bc63e03e1269c",
         "size_bytes": 8454
       },
       {
-        "name": "fleeting-plugin-aliyun_0.1.0-rc.3_linux_amd64.tar.gz",
-        "sha256": "e54b50b97f98b328e4e9cdf696c47742e16b0ffbdcf5061652a659e467ec19ac",
-        "size_bytes": 13021040
+        "name": "fleeting-plugin-aliyun_0.1.0-rc.4_linux_amd64.tar.gz",
+        "sha256": "318d87441ab8be6d72719c5d8beb102ddf8694f34e7552055bc6578fb7dee794",
+        "size_bytes": 13028789
       },
       {
-        "name": "fleeting-plugin-aliyun_0.1.0-rc.3_linux_arm64.tar.gz",
-        "sha256": "2dadcfc7c4f427dee6f3f55528e3c07f0537feb6ec88535740c5c27a9040efc5",
-        "size_bytes": 11915802
+        "name": "fleeting-plugin-aliyun_0.1.0-rc.4_linux_arm64.tar.gz",
+        "sha256": "16844e93a41c8302c3f99ce73f7b33a94cae72784231858e2fed5a91d28b66d6",
+        "size_bytes": 11931119
       },
       {
-        "name": "fleeting-plugin-aliyun_0.1.0.rc.3_amd64.deb",
-        "sha256": "d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887",
-        "size_bytes": 13033770
+        "name": "fleeting-plugin-aliyun_0.1.0.rc.4_amd64.deb",
+        "sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "size_bytes": 13043988
       },
       {
-        "name": "fleeting-plugin-aliyun_0.1.0.rc.3_arm64.deb",
-        "sha256": "e8c6d3b5295b30e1bc6f82aea4d947473091c6de7e9ac7924bf4a858782d61f9",
-        "size_bytes": 11928508
+        "name": "fleeting-plugin-aliyun_0.1.0.rc.4_arm64.deb",
+        "sha256": "047e74a335cad16b125d39535562f2936c87f4936e473130becf62699c30675b",
+        "size_bytes": 11946346
       },
       {
         "name": "SHA256SUMS",
-        "sha256": "77ac15f8cfbbb90ab2f2643a0a2ad40e28741d957d655d64ff9a3fe6c8f10b83",
+        "sha256": "6f9cb9d1651860646251a83902b68688376a1c6045bed94e482946c37fcb1ca8",
         "size_bytes": 458
       }
     ],
-    "debian_filename_note": "GitHub normalized ~ to . in asset names. Downloads are saved under their original tilde filenames for the unchanged SHA256SUMS entries. Published bytes and source tag are unchanged.",
-    "cloud_gate": {
+    "native_platform_verification": [
+      {
+        "runner_image": "ubuntu-26.04",
+        "architecture": "amd64",
+        "result": "PASS",
+        "job": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728078897",
+        "receipt_sha256": {
+          "download-receipt-ubuntu-26.04-amd64.json": "0018c50fad3f6adfea23523dd0d9981385b9f47aaef7b28f1bae6e0194ad8636",
+          "install-receipt-ubuntu-26.04-amd64.json": "cc22cb53a781f69145beb616319eec47b63c174a503da708ccd2ed19171b4e5b",
+          "install-receipt-debian-ubuntu-26.04-amd64.json": "2f32c7d217b0c19854394cb1fc3a58b8ad9d36bf9ebffb64ac3b0924ed1538c7"
+        },
+        "anonymous_distribution_download": true,
+        "OCI_index_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "OCI_platform_manifest_digest": "sha256:fca7aa0cbcbd9b2fdb0a525afc97bf8ba8055881650824f17b4e32537db27d58",
+        "payload_sha256": {
+          "LICENSE": "1e42086906dcb01d165c6063e0f12e9a98f68d95eea4a27f59f8bdcdffb06914",
+          "NOTICE": "7c4bff8702c945559ab201489ee0f9f0ed8f2935da114c57f1d77cd9f23ab6b7",
+          "licenses.tar.gz": "9bc78f299a11de689d42dae24d44e31c39903daab85a82d37b86f9ce4d1efca0",
+          "plugin": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4"
+        },
+        "plugin_protocol": true,
+        "debian_package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "debian_install_smoke": true,
+        "debian_lifecycle": false
+      },
+      {
+        "runner_image": "ubuntu-26.04-arm",
+        "architecture": "arm64",
+        "result": "PASS",
+        "job": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728078909",
+        "receipt_sha256": {
+          "download-receipt-ubuntu-26.04-arm-arm64.json": "e00b9cd664bb12fc5184eaceec7685ae33772c2b5a42c76bc10700200de5bec5",
+          "install-receipt-ubuntu-26.04-arm-arm64.json": "45c841d7473828af79efec9f8bcb8cf8fb84d8cb0eca03faf43a0ade98f55e6d",
+          "install-receipt-debian-ubuntu-26.04-arm-arm64.json": "d2284663294e8f04d0fd059aa2a13df67a4c89a3062c1ad51cb4ace22b180bfc"
+        },
+        "anonymous_distribution_download": true,
+        "OCI_index_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "OCI_platform_manifest_digest": "sha256:f4871a9de4a919e85eaf9015c58810894d80de986a3fc72639fb78ae01a607f2",
+        "payload_sha256": {
+          "LICENSE": "1e42086906dcb01d165c6063e0f12e9a98f68d95eea4a27f59f8bdcdffb06914",
+          "NOTICE": "7c4bff8702c945559ab201489ee0f9f0ed8f2935da114c57f1d77cd9f23ab6b7",
+          "licenses.tar.gz": "9bc78f299a11de689d42dae24d44e31c39903daab85a82d37b86f9ce4d1efca0",
+          "plugin": "5fafd881fa874a5250156dcd99e165ff5c79d756637b77cb0718cfdc13fa2816"
+        },
+        "plugin_protocol": true,
+        "debian_package_sha256": "047e74a335cad16b125d39535562f2936c87f4936e473130becf62699c30675b",
+        "debian_install_smoke": true,
+        "debian_lifecycle": false
+      },
+      {
+        "runner_image": "ubuntu-24.04",
+        "architecture": "amd64",
+        "result": "PASS",
+        "job": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728078904",
+        "receipt_sha256": {
+          "download-receipt-ubuntu-24.04-amd64.json": "0018c50fad3f6adfea23523dd0d9981385b9f47aaef7b28f1bae6e0194ad8636",
+          "install-receipt-ubuntu-24.04-amd64.json": "1aa8a1c9a5f68250ebff8e9382255fe8f24c7b7b7bde0bdb0e600af88fe6565b",
+          "install-receipt-debian-ubuntu-24.04-amd64.json": "834d370baf07d04baf684c5ec1dea5aaa2dfc2434e62c0ce8e5b354a9e9968ff"
+        },
+        "anonymous_distribution_download": true,
+        "OCI_index_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "OCI_platform_manifest_digest": "sha256:fca7aa0cbcbd9b2fdb0a525afc97bf8ba8055881650824f17b4e32537db27d58",
+        "payload_sha256": {
+          "LICENSE": "1e42086906dcb01d165c6063e0f12e9a98f68d95eea4a27f59f8bdcdffb06914",
+          "NOTICE": "7c4bff8702c945559ab201489ee0f9f0ed8f2935da114c57f1d77cd9f23ab6b7",
+          "licenses.tar.gz": "9bc78f299a11de689d42dae24d44e31c39903daab85a82d37b86f9ce4d1efca0",
+          "plugin": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4"
+        },
+        "plugin_protocol": true,
+        "debian_package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "debian_install_smoke": true,
+        "debian_lifecycle": false
+      },
+      {
+        "runner_image": "ubuntu-24.04-arm",
+        "architecture": "arm64",
+        "result": "PASS",
+        "job": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728078799",
+        "receipt_sha256": {
+          "download-receipt-ubuntu-24.04-arm-arm64.json": "e00b9cd664bb12fc5184eaceec7685ae33772c2b5a42c76bc10700200de5bec5",
+          "install-receipt-ubuntu-24.04-arm-arm64.json": "dee4b5c6867be6a155baf65328c0b625fe1a23edd4daa39339b2ea85e7bac6ee",
+          "install-receipt-debian-ubuntu-24.04-arm-arm64.json": "4100f0208b66c5f2a81a3b18dcfe953d46746a5c8671a5bd7263542cdbb01cee"
+        },
+        "anonymous_distribution_download": true,
+        "OCI_index_digest": "sha256:5a76b50f12b58e163de95cc9de46bb9fe4b99609deb7877f8f24dec3ca9d1e2b",
+        "OCI_platform_manifest_digest": "sha256:f4871a9de4a919e85eaf9015c58810894d80de986a3fc72639fb78ae01a607f2",
+        "payload_sha256": {
+          "LICENSE": "1e42086906dcb01d165c6063e0f12e9a98f68d95eea4a27f59f8bdcdffb06914",
+          "NOTICE": "7c4bff8702c945559ab201489ee0f9f0ed8f2935da114c57f1d77cd9f23ab6b7",
+          "licenses.tar.gz": "9bc78f299a11de689d42dae24d44e31c39903daab85a82d37b86f9ce4d1efca0",
+          "plugin": "5fafd881fa874a5250156dcd99e165ff5c79d756637b77cb0718cfdc13fa2816"
+        },
+        "plugin_protocol": true,
+        "debian_package_sha256": "047e74a335cad16b125d39535562f2936c87f4936e473130becf62699c30675b",
+        "debian_install_smoke": true,
+        "debian_lifecycle": false
+      }
+    ],
+    "public_job_summary": {
+      "schema_version": 2,
       "result": "PASS",
-      "scope": "Six serial plugin-only scenarios on Linux amd64. No GitLab job.",
-      "candidate_artifact": {
-        "id": 12870479716,
-        "name": "cloud-candidate-40812572012-1",
-        "github_artifact_digest": "sha256:4f82df82c7f813410c1eb97383198e6c50f16ad3fc2eae9d7be0ebdf05333645",
-        "retention_days": 7
+      "scope": "public-smoke",
+      "validation_profile": "public-smoke",
+      "receipt_schema_version": 3,
+      "execution_topology": "two-executor-lanes-v1",
+      "recovery_policies": {
+        "smoke": "standard-v1"
       },
-      "receipts": [
-        {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleanup_result": "PASS",
-          "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-          "version": "0.1.0-rc.3",
-          "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
-          "mode": "cloud-smoke",
-          "run_id": "40812572012",
-          "run_attempt": "1",
-          "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
-          "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
-          "response_gate_instrumented": false,
-          "leftover_resources": 0
-        },
-        {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleanup_result": "PASS",
-          "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-          "version": "0.1.0-rc.3",
-          "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
-          "mode": "cloud-scale",
-          "run_id": "40812572012",
-          "run_attempt": "1",
-          "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
-          "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
-          "response_gate_instrumented": false,
-          "leftover_resources": 0
-        },
-        {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleanup_result": "PASS",
-          "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-          "version": "0.1.0-rc.3",
-          "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
-          "mode": "cloud-restart",
-          "run_id": "40812572012",
-          "run_attempt": "1",
-          "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
-          "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
-          "response_gate_instrumented": false,
-          "leftover_resources": 0
-        },
-        {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleanup_result": "PASS",
-          "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-          "version": "0.1.0-rc.3",
-          "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
-          "mode": "cloud-create-restart",
-          "run_id": "40812572012",
-          "run_attempt": "1",
-          "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
-          "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
-          "response_gate_instrumented": false,
-          "leftover_resources": 0
-        },
-        {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleanup_result": "PASS",
-          "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-          "version": "0.1.0-rc.3",
-          "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
-          "mode": "cloud-remove-restart",
-          "run_id": "40812572012",
-          "run_attempt": "1",
-          "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
-          "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
-          "response_gate_instrumented": false,
-          "leftover_resources": 0
-        },
-        {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleanup_result": "PASS",
-          "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
-          "version": "0.1.0-rc.3",
-          "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
-          "mode": "cloud-increase-response-loss",
-          "run_id": "40812572012",
-          "run_attempt": "1",
-          "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
-          "plugin_sha256": "593d2bf02b0b391fd30415f020e4d2a01147a94c17fbb0bdd25aa982ff1c89ea",
-          "response_gate_instrumented": true,
-          "leftover_resources": 0
-        }
+      "fixture_config_sha256": "d29d87b2febfefe40d7027fea34b636cdcfa929a6c9027508dfc138a41a6214f",
+      "gitlab_config_sha256": "e3564f7e4364ade811d72d0315b636922ae68f528cc74ae6def18b799f4ca6ee",
+      "full_suite": false,
+      "release_ready": false,
+      "public_ready": true,
+      "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+      "version": "0.1.0-rc.4",
+      "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+      "phase": "public",
+      "run_id": "41265540589",
+      "run_attempt": "1",
+      "selected_cases": [
+        "instance/smoke",
+        "docker-autoscaler/smoke"
       ],
-      "independent_cleanup": {
-        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815149142",
-        "trigger": "workflow_run",
-        "receipt": {
-          "schema_version": 1,
-          "result": "PASS",
-          "cleaned_fixtures": 0,
-          "leftover_resources": 0,
-          "source_run_id": "40812572012",
-          "source_run_attempt": "1",
-          "scope": "completed-run",
-          "recovery_required": false,
-          "drill_budget_verified": null
-        }
-      },
-      "acceptance_enabled_after_run": false,
-      "cleanup_enabled_after_run": true
+      "omitted_cases": [
+        "instance/failure",
+        "instance/cancel",
+        "instance/timeout",
+        "instance/capacity",
+        "instance/drain",
+        "instance/worker-loss",
+        "instance/manager-crash",
+        "instance/upgrade",
+        "docker-autoscaler/failure",
+        "docker-autoscaler/cancel",
+        "docker-autoscaler/timeout",
+        "docker-autoscaler/capacity",
+        "docker-autoscaler/drain",
+        "docker-autoscaler/worker-loss",
+        "docker-autoscaler/manager-crash",
+        "docker-autoscaler/upgrade"
+      ]
     },
-    "limitation": "Cloud gate covers five normal-release-binary scenarios and one separately hashed responsegate scenario. Native Ubuntu amd64/arm64 installation checks use real Runner parsing and dpkg/systemd; daemon drain checks use a local fake busy job. Full GitLab VM/Docker job evidence remains specific to rc.2; no rc.3 full jobs or production acceptance are claimed."
+    "public_job_receipts": [
+      {
+        "schema_version": 3,
+        "validation_profile": "public-smoke",
+        "execution_topology": "two-executor-lanes-v1",
+        "recovery_policy": "standard-v1",
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "job_scenario": "smoke",
+        "job_count": 1,
+        "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "version": "0.1.0-rc.4",
+        "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+        "phase": "public",
+        "executor": "instance",
+        "manager_mode": "systemd",
+        "distribution_source": "anonymous-release",
+        "run_id": "41265540589",
+        "run_attempt": "1",
+        "fixture_config_sha256": "d29d87b2febfefe40d7027fea34b636cdcfa929a6c9027508dfc138a41a6214f",
+        "gitlab_config_sha256": "e3564f7e4364ade811d72d0315b636922ae68f528cc74ae6def18b799f4ca6ee",
+        "package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "plugin_sha256": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4",
+        "leftover_resources": 0,
+        "job": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728310072",
+        "receipt_sha256": "5cfdf7317fa6088c52c402af49906113360aa8c46fa50274a2b118972fdcb8ad",
+        "driver_duration_ms": 405500
+      },
+      {
+        "schema_version": 3,
+        "validation_profile": "public-smoke",
+        "execution_topology": "two-executor-lanes-v1",
+        "recovery_policy": "standard-v1",
+        "result": "PASS",
+        "cleanup_result": "PASS",
+        "job_scenario": "smoke",
+        "job_count": 1,
+        "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+        "version": "0.1.0-rc.4",
+        "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+        "phase": "public",
+        "executor": "docker-autoscaler",
+        "manager_mode": "systemd",
+        "distribution_source": "anonymous-release",
+        "run_id": "41265540589",
+        "run_attempt": "1",
+        "fixture_config_sha256": "d29d87b2febfefe40d7027fea34b636cdcfa929a6c9027508dfc138a41a6214f",
+        "gitlab_config_sha256": "e3564f7e4364ade811d72d0315b636922ae68f528cc74ae6def18b799f4ca6ee",
+        "package_sha256": "cf761571b4d1b3d99987c20c6f312619276e01bab3457fb23f31384c565fd3ca",
+        "plugin_sha256": "4aa6610ec62972a4757aa4bf3ba10d8071bc8cd7d6786316ae0f6b28f81677c4",
+        "leftover_resources": 0,
+        "job": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41265540589/job/124728310140",
+        "receipt_sha256": "dfe59668f09f5c34790530a2d1aabd716936d1b10c6fabe373546c59cd71fb70",
+        "driver_duration_ms": 629222
+      }
+    ],
+    "completion_receipt": {
+      "schema_version": 1,
+      "result": "PASS",
+      "scope": "release-completion",
+      "candidate_sha": "6d96f8ad7082c2db3c838c8d5db6d227d73927d3",
+      "version": "0.1.0-rc.4",
+      "manifest_sha256": "5211a1165d25f1077c4abe4ba2895e1d81b5d4bbfeb93fe16beac0fce9bb37a4",
+      "run_id": "41265540589",
+      "run_attempt": "1",
+      "accepted_run_id": "41212022560",
+      "accepted_run_attempt": "1",
+      "candidate_full_suite": true,
+      "public_platforms": 4,
+      "public_real_jobs": 2,
+      "candidate_binding": "sealed"
+    },
+    "workflow_jobs": {
+      "success": 16,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 17,
+      "skipped_scope": "Fresh full acceptance plus sixteen unselected public-smoke case slots; selected public cases are 2 PASS / 0 FAIL / 0 cancelled / 0 skipped."
+    },
+    "runtime_configuration_binding": {
+      "result": "PASS",
+      "method": "existing fixture scopes read back from the accepted source; configured project and two Runner lanes unchanged",
+      "proof_sha256": "0ee3795f2a07f35c2c78991f0e26e9f5460a464f1396ec70284be7562f655abe",
+      "accepted_run_id": "41212022560",
+      "publication_run_id": "41265540589"
+    },
+    "independent_cleanup": {
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41266717389",
+      "run_id": "41266717389",
+      "run_attempt": "1",
+      "workflow_revision": "2e3bb586f092329ff245216bb0f9ccdbb3d515a7",
+      "trigger": "workflow_run",
+      "receipt": {
+        "schema_version": 1,
+        "result": "PASS",
+        "cleaned_fixtures": 0,
+        "leftover_resources": 0,
+        "source_run_id": "41265540589",
+        "source_run_attempt": "1",
+        "scope": "completed-run",
+        "recovery_required": false,
+        "drill_budget_verified": null
+      },
+      "receipt_sha256": "6c177b50581763c19260ccce5bcc3334f90656bf5af93b4627fd6ff632a70f4e"
+    },
+    "acceptance_enabled_after_run": false,
+    "job_acceptance_enabled_after_run": false,
+    "cleanup_enabled_after_run": true,
+    "flags_read_back_at_utc": "2026-11-01T02:52:02.370892+00:00",
+    "other_active_acceptance_runs_after_completion": 0,
+    "prior_publication_attempt": {
+      "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41264328990",
+      "run_id": "41264328990",
+      "run_attempt": "1",
+      "workflow_revision": "fde278d81599e0577b2200cb06dc61bfae465e36",
+      "result": "FAIL",
+      "stage": "source_tag_push",
+      "publication_occurred": false,
+      "public_verification_executed": false,
+      "observation": "GitHub rejected the built-in workflow token tag push because the older accepted source contains different workflow files. No tag, OCI package, GitHub Release or real public job was created by this attempt.",
+      "resolution": "An existing authorized Git identity prepared the exact lightweight source tag; PR123 verifies and reuses a matching remote tag without writing it.",
+      "independent_cleanup": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/41264486463",
+        "source_run_id": "41264328990",
+        "source_run_attempt": "1",
+        "scope": "completed-run",
+        "result": "PASS",
+        "leftover_resources": 0
+      },
+      "cleanup_enabled_after_run": true,
+      "acceptance_enabled_after_run": false,
+      "job_acceptance_enabled_after_run": false
+    },
+    "limitation": "The original single all/full run proves 18 real cases, six plugin scenarios and four native candidate lifecycles for this exact 6d source. Publication adds four native public installation checks and two real public-package smokes; it does not rerun all eighteen cases. Public Debian receipts are install-smoke checks, not a second full lifecycle run. Real cloud jobs cover the selected Linux amd64 Instance/Docker paths; native arm64 installation does not prove arm64 cloud jobs, Windows/Darwin, production or arbitrary workloads. Older unknown causes remain unknown."
   },
   "previous_releases": [
     {
@@ -834,6 +1043,232 @@
         }
       ],
       "limitation": "Public installation and pre-cloud plugin protocol validation only. No GitLab job or cloud worker was created by these checks; production acceptance is not claimed."
+    },
+    {
+      "version": "0.1.0-rc.3",
+      "source_revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+      "release_url": "https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3",
+      "published_at_utc": "2026-10-29T03:58:51Z",
+      "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3",
+      "manifest_digest": "sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497",
+      "anonymous_manifest_download": "pass",
+      "linux_amd64_runner_installation": "pass",
+      "linux_arm64_runner_installation": "pass",
+      "linux_amd64_debian_lifecycle": "pass",
+      "linux_arm64_debian_lifecycle": "pass",
+      "runner_version": "19.5.1",
+      "publication_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40812572012",
+      "verification_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815916873",
+      "verification_workflow_revision": "c89563cb68e53a292411161d315de2e049abb548",
+      "prior_verification_attempt": {
+        "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815670856",
+        "result": "FAIL",
+        "oci_installation_both_architectures": "PASS",
+        "debian_result": "HTTP 404 before package installation; corrected public asset mapping and Bash tilde expansion in the verifier."
+      },
+      "installation_receipts": [
+        {
+          "anonymous_manifest": true,
+          "architecture": "amd64",
+          "binary_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
+          "empty_configuration_rejected": true,
+          "manifest_digest": "sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497",
+          "os": "linux",
+          "plugin_protocol": true,
+          "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3",
+          "release_bytes_match": true,
+          "revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+          "version": "0.1.0-rc.3"
+        },
+        {
+          "anonymous_manifest": true,
+          "architecture": "arm64",
+          "binary_sha256": "a18348e826235500fadcc3e9abc08a4d395fa7caaf7c2c4e30a118d7b34522a4",
+          "empty_configuration_rejected": true,
+          "manifest_digest": "sha256:f47a4af0adbde654288a41798825da6daef4fbf835dd2bcf7769e1ae8672b497",
+          "os": "linux",
+          "plugin_protocol": true,
+          "reference": "ghcr.io/euyuil/fleeting-plugin-aliyun:0.1.0-rc.3",
+          "release_bytes_match": true,
+          "revision": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+          "version": "0.1.0-rc.3"
+        }
+      ],
+      "debian_installation_receipts": [
+        {
+          "version": "0.1.0-rc.3",
+          "architecture": "amd64",
+          "package": "fleeting-plugin-aliyun_0.1.0~rc.3_amd64.deb",
+          "package_sha256": "d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887",
+          "release_asset": "fleeting-plugin-aliyun_0.1.0.rc.3_amd64.deb",
+          "anonymous_download": true,
+          "native_binary_match": true,
+          "lifecycle": true
+        },
+        {
+          "version": "0.1.0-rc.3",
+          "architecture": "arm64",
+          "package": "fleeting-plugin-aliyun_0.1.0~rc.3_arm64.deb",
+          "package_sha256": "e8c6d3b5295b30e1bc6f82aea4d947473091c6de7e9ac7924bf4a858782d61f9",
+          "release_asset": "fleeting-plugin-aliyun_0.1.0.rc.3_arm64.deb",
+          "anonymous_download": true,
+          "native_binary_match": true,
+          "lifecycle": true
+        }
+      ],
+      "release_assets": [
+        {
+          "name": "dependencies.json",
+          "sha256": "52c1328bfad3fa74890847cdd80e572ebf088d0a572b94bc6a9d652ff36fc965",
+          "size_bytes": 8454
+        },
+        {
+          "name": "fleeting-plugin-aliyun_0.1.0-rc.3_linux_amd64.tar.gz",
+          "sha256": "e54b50b97f98b328e4e9cdf696c47742e16b0ffbdcf5061652a659e467ec19ac",
+          "size_bytes": 13021040
+        },
+        {
+          "name": "fleeting-plugin-aliyun_0.1.0-rc.3_linux_arm64.tar.gz",
+          "sha256": "2dadcfc7c4f427dee6f3f55528e3c07f0537feb6ec88535740c5c27a9040efc5",
+          "size_bytes": 11915802
+        },
+        {
+          "name": "fleeting-plugin-aliyun_0.1.0.rc.3_amd64.deb",
+          "sha256": "d9f18d466a71dada4ed2a2c1a983c0db407cd9d37965cfadb30d83ffb1e62887",
+          "size_bytes": 13033770
+        },
+        {
+          "name": "fleeting-plugin-aliyun_0.1.0.rc.3_arm64.deb",
+          "sha256": "e8c6d3b5295b30e1bc6f82aea4d947473091c6de7e9ac7924bf4a858782d61f9",
+          "size_bytes": 11928508
+        },
+        {
+          "name": "SHA256SUMS",
+          "sha256": "77ac15f8cfbbb90ab2f2643a0a2ad40e28741d957d655d64ff9a3fe6c8f10b83",
+          "size_bytes": 458
+        }
+      ],
+      "debian_filename_note": "GitHub normalized ~ to . in asset names. Downloads are saved under their original tilde filenames for the unchanged SHA256SUMS entries. Published bytes and source tag are unchanged.",
+      "cloud_gate": {
+        "result": "PASS",
+        "scope": "Six serial plugin-only scenarios on Linux amd64. No GitLab job.",
+        "candidate_artifact": {
+          "id": 12870479716,
+          "name": "cloud-candidate-40812572012-1",
+          "github_artifact_digest": "sha256:4f82df82c7f813410c1eb97383198e6c50f16ad3fc2eae9d7be0ebdf05333645",
+          "retention_days": 7
+        },
+        "receipts": [
+          {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleanup_result": "PASS",
+            "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+            "version": "0.1.0-rc.3",
+            "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
+            "mode": "cloud-smoke",
+            "run_id": "40812572012",
+            "run_attempt": "1",
+            "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+            "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
+            "response_gate_instrumented": false,
+            "leftover_resources": 0
+          },
+          {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleanup_result": "PASS",
+            "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+            "version": "0.1.0-rc.3",
+            "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
+            "mode": "cloud-scale",
+            "run_id": "40812572012",
+            "run_attempt": "1",
+            "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+            "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
+            "response_gate_instrumented": false,
+            "leftover_resources": 0
+          },
+          {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleanup_result": "PASS",
+            "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+            "version": "0.1.0-rc.3",
+            "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
+            "mode": "cloud-restart",
+            "run_id": "40812572012",
+            "run_attempt": "1",
+            "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+            "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
+            "response_gate_instrumented": false,
+            "leftover_resources": 0
+          },
+          {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleanup_result": "PASS",
+            "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+            "version": "0.1.0-rc.3",
+            "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
+            "mode": "cloud-create-restart",
+            "run_id": "40812572012",
+            "run_attempt": "1",
+            "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+            "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
+            "response_gate_instrumented": false,
+            "leftover_resources": 0
+          },
+          {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleanup_result": "PASS",
+            "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+            "version": "0.1.0-rc.3",
+            "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
+            "mode": "cloud-remove-restart",
+            "run_id": "40812572012",
+            "run_attempt": "1",
+            "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+            "plugin_sha256": "35487a96a84ae9c351b372a47cd7905ab94349d466a59ac7b4037aeacaa5091c",
+            "response_gate_instrumented": false,
+            "leftover_resources": 0
+          },
+          {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleanup_result": "PASS",
+            "candidate_sha": "ef0b980c7cd69a58794bda4876fb34858b13983b",
+            "version": "0.1.0-rc.3",
+            "manifest_sha256": "fc8b141cb7c646beef864e69c959f7d8565e5fc9626eb97c629c2aff469257ea",
+            "mode": "cloud-increase-response-loss",
+            "run_id": "40812572012",
+            "run_attempt": "1",
+            "fixture_config_sha256": "7ba25a1783fdb9ce18bcc5f417f6bd4898d15070112a2aa2fcf430d877f0cf9d",
+            "plugin_sha256": "593d2bf02b0b391fd30415f020e4d2a01147a94c17fbb0bdd25aa982ff1c89ea",
+            "response_gate_instrumented": true,
+            "leftover_resources": 0
+          }
+        ],
+        "independent_cleanup": {
+          "workflow_run": "https://github.com/euyuil/fleeting-plugin-aliyun/actions/runs/40815149142",
+          "trigger": "workflow_run",
+          "receipt": {
+            "schema_version": 1,
+            "result": "PASS",
+            "cleaned_fixtures": 0,
+            "leftover_resources": 0,
+            "source_run_id": "40812572012",
+            "source_run_attempt": "1",
+            "scope": "completed-run",
+            "recovery_required": false,
+            "drill_budget_verified": null
+          }
+        },
+        "acceptance_enabled_after_run": false,
+        "cleanup_enabled_after_run": true
+      },
+      "limitation": "Cloud gate covers five normal-release-binary scenarios and one separately hashed responsegate scenario. Native Ubuntu amd64/arm64 installation checks use real Runner parsing and dpkg/systemd; daemon drain checks use a local fake busy job. Full GitLab VM/Docker job evidence remains specific to rc.2; no rc.3 full jobs or production acceptance are claimed."
     }
   ],
   "scope": "Provider, live tooling, isolated suspend experiment, distribution, and maintenance handoff",
