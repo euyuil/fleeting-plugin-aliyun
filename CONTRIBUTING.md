@@ -251,7 +251,15 @@ and explicit release gates. See [third-party obligations](docs/third-party.md) b
 A completed full `Cloud acceptance` run can be published without rebuilding or
 repeating paid candidate cases:
 
+Prepare its exact lightweight source tag using existing authorized Git
+credentials before dispatching reuse. GitHub's built-in workflow token cannot
+create a tag at an older commit with different workflow files. The workflow
+accepts an existing tag only when it names the fully accepted source; an
+existing Release or a different tag target still blocks publication.
+
 ```sh
+git tag v0.1.0-rc.4 ACCEPTED_SOURCE_SHA
+git push origin refs/tags/v0.1.0-rc.4
 gh workflow run release.yml --ref main -f version=0.1.0-rc.4 \
   -f accepted_run_id=FULL_ACCEPTANCE_RUN_ID -f accepted_run_attempt=1
 ```
