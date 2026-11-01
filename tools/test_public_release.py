@@ -130,6 +130,35 @@ class PublicReleaseTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 public.gate(args)
 
+    def test_cross_run_release_keeps_each_identity_and_requires_recomputed_runtime_proof(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"GITHUB_RUN_ID": "10", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_REPOSITORY": "example/plugin"}), \
+                patch.object(public, "verify", return_value=fixture()[0]), patch.object(job, "verify", return_value=fixture()[0]):
+            args = self.prepare(Path(temp))
+            candidate = json.loads(args.candidate_summary.read_text())
+            candidate["run_id"] = "9"
+            args.candidate_summary.write_text(json.dumps(candidate))
+            args.accepted_run, args.accepted_attempt = "9", "1"
+            for path in args.job_receipts.glob("*.json"):
+                value = json.loads(path.read_text())
+                value["gitlab_config_sha256"] = "3" * 64
+                path.write_text(json.dumps(value))
+            with self.assertRaises(ValueError):
+                public.gate(args)
+            proof = {"schema_version": 1, "result": "PASS", "scope": "runtime-config-binding", "candidate_sha": "a" * 40,
+                     "version": "1.2.3", "manifest_sha256": "b" * 64, "run_id": "10", "run_attempt": "1",
+                     "accepted_run_id": "9", "accepted_run_attempt": "1", "fixture_config_sha256": "1" * 64,
+                     "configured_gitlab_config_sha256": "4" * 64, "accepted_gitlab_config_sha256": "2" * 64,
+                     "public_gitlab_config_sha256": "3" * 64}
+            args.config_proof = Path(temp) / "proof.json"
+            args.config_proof.write_text(json.dumps(proof))
+            result = public.gate(args)
+            self.assertEqual((result["accepted_run_id"], result["run_id"]), ("9", "10"))
+            for key, value in (("candidate_sha", "c" * 40), ("manifest_sha256", "d" * 64), ("accepted_run_attempt", "2"),
+                               ("run_attempt", "2"), ("accepted_gitlab_config_sha256", "5" * 64), ("public_gitlab_config_sha256", "6" * 64)):
+                args.config_proof.write_text(json.dumps({**proof, key: value}))
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    public.gate(args)
+
     def prepare(self, root):
         manifest, _ = fixture()
         platform, jobs = root / "platform", root / "jobs"

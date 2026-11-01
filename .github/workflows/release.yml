@@ -6,6 +6,13 @@ on:
         description: Immutable version without v, for example 0.1.0
         required: true
         type: string
+      accepted_run_id:
+        description: Completed full Cloud acceptance run to reuse (empty builds a new candidate)
+        type: string
+      accepted_run_attempt:
+        description: Exact accepted attempt
+        type: string
+        default: '1'
 concurrency:
   group: release
   cancel-in-progress: false
@@ -31,6 +38,7 @@ jobs:
         run: python3 tools/release-preflight.py
   acceptance:
     needs: preflight
+    if: inputs.accepted_run_id == ''
     permissions:
       contents: read
       id-token: write
@@ -50,9 +58,106 @@ jobs:
     with:
       version: ${{ inputs.version }}
       candidate_sha: ${{ github.sha }}
+  reuse:
+    needs: preflight
+    if: inputs.accepted_run_id != ''
+    concurrency:
+      group: aliyun-pre-release-acceptance
+      cancel-in-progress: false
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment: aliyun-pre-release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      ACCEPTED_RUN: ${{ inputs.accepted_run_id }}
+      ACCEPTED_ATTEMPT: ${{ inputs.accepted_run_attempt }}
+      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
+    outputs:
+      candidate_sha: ${{ steps.verified.outputs.candidate_sha }}
+      manifest_sha256: ${{ steps.verified.outputs.manifest_sha256 }}
+      artifact_id: ${{ steps.payload.outputs.artifact-id }}
+      release_ready: ${{ steps.verified.outputs.release_ready }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Resolve the exact completed full acceptance
+        id: resolved
+        run: |
+          python3 tools/release_reuse.py resolve --run "$ACCEPTED_RUN" --attempt "$ACCEPTED_ATTEMPT" \
+            --version "$VERSION" --receipt .cache/accepted-resolution.json
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.resolved.outputs.candidate_sha }}
+          path: .cache/accepted-source
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.accepted_run_id }}
+          artifact-ids: ${{ steps.resolved.outputs.artifact_id }}
+          path: .cache/accepted-download
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.accepted_run_id }}
+          artifact-ids: ${{ steps.resolved.outputs.summary_artifact_id }}
+          path: .cache/accepted-summary
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.accepted_run_id }}
+          artifact-ids: ${{ steps.resolved.outputs.receipt_artifact_ids }}
+          merge-multiple: true
+          path: .cache/accepted-receipts
+      - name: Verify the full candidate and unchanged configuration without creating jobs
+        id: verified
+        run: |
+          python3 tools/release_reuse.py verify --resolution .cache/accepted-resolution.json \
+            --root .cache/accepted-candidate --summary .cache/accepted-summary/result.json \
+            --receipts .cache/accepted-receipts --source .cache/accepted-source \
+            --archive .cache/accepted-download/candidate.tar --destination .cache/accepted-payload
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: payload
+        with:
+          name: accepted-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/accepted-payload/*
+          if-no-files-found: error
+          retention-days: 7
+  candidate:
+    if: always() && !cancelled() && (needs.acceptance.result == 'success' || needs.reuse.result == 'success')
+    needs: [acceptance, reuse]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      candidate_sha: ${{ needs.acceptance.outputs.candidate_sha || needs.reuse.outputs.candidate_sha }}
+      manifest_sha256: ${{ needs.acceptance.outputs.manifest_sha256 || needs.reuse.outputs.manifest_sha256 }}
+      artifact_id: ${{ needs.acceptance.outputs.artifact_id || needs.reuse.outputs.artifact_id }}
+      release_ready: ${{ needs.acceptance.outputs.release_ready || needs.reuse.outputs.release_ready }}
+    env:
+      ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+      REUSE_RESULT: ${{ needs.reuse.result }}
+      CANDIDATE_READY: ${{ needs.acceptance.outputs.release_ready || needs.reuse.outputs.release_ready }}
+    steps:
+      - name: Require exactly one complete candidate path
+        run: |
+          test "$ACCEPTANCE_RESULT/$REUSE_RESULT" = success/skipped || test "$ACCEPTANCE_RESULT/$REUSE_RESULT" = skipped/success
+          test "$CANDIDATE_READY" = true
   publish:
-    needs: acceptance
-    if: needs.acceptance.outputs.release_ready == 'true'
+    needs: candidate
+    if: always() && !cancelled() && needs.candidate.result == 'success' && needs.candidate.outputs.release_ready == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 25
     permissions:
@@ -60,19 +165,22 @@ jobs:
       packages: write
     env:
       VERSION: ${{ inputs.version }}
-      CANDIDATE_SHA: ${{ needs.acceptance.outputs.candidate_sha }}
-      MANIFEST_SHA256: ${{ needs.acceptance.outputs.manifest_sha256 }}
+      CANDIDATE_SHA: ${{ needs.candidate.outputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ needs.candidate.outputs.manifest_sha256 }}
       GH_TOKEN: ${{ github.token }}
+      ACCEPTED_RUN: ${{ inputs.accepted_run_id }}
+      ACCEPTED_ATTEMPT: ${{ inputs.accepted_run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.acceptance.outputs.candidate_sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          artifact-ids: ${{ needs.acceptance.outputs.artifact_id }}
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
           path: .cache/download
           merge-multiple: true
       - name: Verify and reuse the accepted publication payload
@@ -94,23 +202,31 @@ jobs:
         run: go run ./tools/distribution -ref "ghcr.io/$GITHUB_REPOSITORY:$VERSION" -dir dist/packages
       - name: Create GitHub Release
         run: |
-          flags=(--verify-tag --title "v$VERSION" --notes-file docs/release-notes.md)
+          cp docs/release-notes.md .cache/public-release-notes.md
+          source_run="${ACCEPTED_RUN:-$GITHUB_RUN_ID}"
+          source_attempt="$GITHUB_RUN_ATTEMPT"
+          if [ -n "$ACCEPTED_RUN" ]; then source_attempt="$ACCEPTED_ATTEMPT"; fi
+          printf '\n## Published candidate\n\nSource: %s\n\nManifest SHA-256: %s\n\nAccepted run: %s/%s\n\nPublication and verification: https://github.com/%s/actions/runs/%s\n' \
+            "$CANDIDATE_SHA" "$MANIFEST_SHA256" "$source_run" "$source_attempt" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> .cache/public-release-notes.md
+          flags=(--verify-tag --title "v$VERSION" --notes-file .cache/public-release-notes.md)
           if [[ "$VERSION" == *-* ]]; then
             flags+=(--prerelease --latest=false)
           fi
           gh release create "v$VERSION" dist/*.tar.gz dist/*.deb dist/SHA256SUMS dist/dependencies.json "${flags[@]}"
   verify:
-    needs: [acceptance, publish]
+    needs: [candidate, publish]
+    if: always() && !cancelled() && needs.candidate.result == 'success' && needs.publish.result == 'success'
     permissions:
       contents: read
     uses: ./.github/workflows/verify-release.yml
     with:
       version: ${{ inputs.version }}
-      expected_revision: ${{ needs.acceptance.outputs.candidate_sha }}
-      artifact_id: ${{ needs.acceptance.outputs.artifact_id }}
-      manifest_sha256: ${{ needs.acceptance.outputs.manifest_sha256 }}
+      expected_revision: ${{ needs.candidate.outputs.candidate_sha }}
+      artifact_id: ${{ needs.candidate.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.candidate.outputs.manifest_sha256 }}
   public_jobs:
-    needs: [acceptance, publish, verify]
+    needs: [candidate, publish, verify]
+    if: always() && !cancelled() && needs.candidate.result == 'success' && needs.publish.result == 'success' && needs.verify.result == 'success'
     concurrency:
       group: aliyun-pre-release-acceptance
       cancel-in-progress: false
@@ -130,45 +246,60 @@ jobs:
       RELEASE_GITLAB_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_RUNNER_TOKEN }}
       RELEASE_GITLAB_DOCKER_RUNNER_TOKEN: ${{ secrets.RELEASE_GITLAB_DOCKER_RUNNER_TOKEN }}
     with:
-      artifact_id: ${{ needs.acceptance.outputs.artifact_id }}
-      manifest_sha256: ${{ needs.acceptance.outputs.manifest_sha256 }}
-      candidate_sha: ${{ needs.acceptance.outputs.candidate_sha }}
+      artifact_id: ${{ needs.candidate.outputs.artifact_id }}
+      manifest_sha256: ${{ needs.candidate.outputs.manifest_sha256 }}
+      candidate_sha: ${{ needs.candidate.outputs.candidate_sha }}
       version: ${{ inputs.version }}
       phase: public
       profile: public-smoke
       cases: instance/smoke,docker-autoscaler/smoke
   completion:
     if: always()
-    needs: [acceptance, publish, verify, public_jobs]
+    needs: [candidate, publish, verify, public_jobs]
+    concurrency:
+      group: aliyun-pre-release-acceptance
+      cancel-in-progress: false
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    environment: aliyun-pre-release
     env:
       VERSION: ${{ inputs.version }}
-      CANDIDATE_SHA: ${{ needs.acceptance.outputs.candidate_sha }}
-      MANIFEST_SHA256: ${{ needs.acceptance.outputs.manifest_sha256 }}
-      ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+      CANDIDATE_SHA: ${{ needs.candidate.outputs.candidate_sha }}
+      MANIFEST_SHA256: ${{ needs.candidate.outputs.manifest_sha256 }}
+      CANDIDATE_RESULT: ${{ needs.candidate.result }}
       PUBLISH_RESULT: ${{ needs.publish.result }}
       VERIFY_RESULT: ${{ needs.verify.result }}
       PUBLIC_RESULT: ${{ needs.public_jobs.result }}
-      CANDIDATE_READY: ${{ needs.acceptance.outputs.release_ready }}
+      CANDIDATE_READY: ${{ needs.candidate.outputs.release_ready }}
       PUBLIC_BOUND: ${{ needs.verify.outputs.candidate_bound }}
       PUBLIC_READY: ${{ needs.public_jobs.outputs.public_ready }}
+      ACCEPTED_RUN: ${{ inputs.accepted_run_id }}
+      ACCEPTED_ATTEMPT: ${{ inputs.accepted_run_attempt }}
+      RELEASE_GITLAB_CONFIG: ${{ secrets.RELEASE_GITLAB_CONFIG }}
+      RELEASE_GITLAB_API_TOKEN: ${{ secrets.RELEASE_GITLAB_API_TOKEN }}
+      RELEASE_ALIYUN_JOB_FIXTURE_CONFIG: ${{ secrets.RELEASE_ALIYUN_JOB_FIXTURE_CONFIG }}
     steps:
       - name: Require publication and every pre/post verification path
         run: |
-          test "$ACCEPTANCE_RESULT" = success && test "$CANDIDATE_READY" = true
+          test "$CANDIDATE_RESULT" = success && test "$CANDIDATE_READY" = true
           test "$PUBLISH_RESULT" = success && test "$VERIFY_RESULT" = success
           test "$PUBLIC_RESULT" = success && test "$PUBLIC_BOUND" = true && test "$PUBLIC_READY" = true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.acceptance.outputs.candidate_sha }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: inputs.accepted_run_id != ''
+        with:
+          ref: ${{ needs.candidate.outputs.candidate_sha }}
+          path: .cache/accepted-source
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          artifact-ids: ${{ needs.acceptance.outputs.artifact_id }}
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
           path: .cache/download
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -177,6 +308,7 @@ jobs:
           path: .cache/public-platforms
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.accepted_run_id == ''
         with:
           name: job-summary-${{ github.run_id }}-${{ github.run_attempt }}-candidate
           path: .cache/accepted-jobs
@@ -189,9 +321,18 @@ jobs:
         run: |
           mkdir -p .cache/candidate
           tar -xf .cache/download/candidate.tar -C .cache/candidate
+          reuse=()
+          if [ -n "$ACCEPTED_RUN" ]; then
+            mkdir -p .cache/accepted-jobs
+            cp .cache/download/candidate-summary.json .cache/accepted-jobs/result.json
+            python3 tools/release_reuse.py config-proof --proof .cache/download/reuse-proof.json \
+              --summary .cache/accepted-jobs/result.json --receipts .cache/public-jobs \
+              --source .cache/accepted-source --receipt .cache/runtime-config-proof.json
+            reuse=(--accepted-run "$ACCEPTED_RUN" --accepted-attempt "$ACCEPTED_ATTEMPT" --config-proof .cache/runtime-config-proof.json)
+          fi
           python3 tools/public_release.py gate --root .cache/candidate --sha "$CANDIDATE_SHA" --version "$VERSION" \
             --digest "$MANIFEST_SHA256" --platform-receipts .cache/public-platforms --job-receipts .cache/public-jobs \
-            --candidate-summary .cache/accepted-jobs/result.json --receipt .cache/release-completion/result.json
+            --candidate-summary .cache/accepted-jobs/result.json --receipt .cache/release-completion/result.json "${reuse[@]}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-completion-${{ github.run_id }}-${{ github.run_attempt }}

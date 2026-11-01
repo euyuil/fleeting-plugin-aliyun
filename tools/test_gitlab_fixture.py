@@ -129,6 +129,18 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(self.prepare(server)["fixture_sha"], CREATED)
         self.assertEqual(server.posts, [])
 
+    def test_explicit_read_only_scope_never_creates_or_repairs_a_branch(self):
+        for existing, fault in ((False, ""), (True, ""), (True, "wrong-marker"), (True, "wrong-parent"), (True, "wrong-subtree")):
+            server = FixtureServer(existing=existing, fault=fault, scope="/10/1")
+            with self.subTest(existing=existing, fault=fault), patch.object(fixture.urllib.request, "build_opener", return_value=server):
+                if existing and not fault:
+                    result = fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id="10", attempt="1", read_only=True)
+                    self.assertEqual(result["fixture_sha"], CREATED)
+                else:
+                    with self.assertRaises(ValueError):
+                        fixture.prepare(CONFIG, CANDIDATE, "synthetic-token", run_id="10", attempt="1", read_only=True)
+            self.assertEqual(server.posts, [])
+
     def test_same_files_reuse_explicit_base_pin(self):
         server = FixtureServer(fault="already-current")
         self.assertEqual(self.prepare(server), CONFIG)

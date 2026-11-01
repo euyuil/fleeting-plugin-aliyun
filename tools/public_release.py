@@ -68,21 +68,46 @@ def require_fields(value, expected):
         raise ValueError("public verification receipt is missing, stale or incomplete")
 
 
+def check_candidate_summary(candidate, identity):
+    from job_acceptance import EXECUTION_TOPOLOGY, recovery_policy, selected_cases
+    require_fields(candidate, {**identity, "schema_version": 2, "result": "PASS", "phase": "candidate", "validation_profile": "full",
+                               "execution_topology": EXECUTION_TOPOLOGY,
+                               "scope": "full-suite", "receipt_schema_version": 3, "recovery_policies": {scenario: recovery_policy(scenario) for _, scenario in selected_cases()},
+                               "full_suite": True, "release_ready": True, "selected_cases": ["/".join(c) for c in selected_cases()], "omitted_cases": []})
+
+
 def gate(args):
-    from job_acceptance import EXECUTION_TOPOLOGY, public_smoke_gate, recovery_policy, selected_cases
+    from job_acceptance import public_smoke_gate
     manifest = verify(args.root, args.digest, args.sha, args.version)
     run, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
     identity = {"candidate_sha": args.sha, "version": args.version, "manifest_sha256": args.digest,
                 "run_id": run, "run_attempt": attempt}
     candidate = json.loads(args.candidate_summary.read_text())
-    require_fields(candidate, {**identity, "schema_version": 2, "result": "PASS", "phase": "candidate", "validation_profile": "full",
-                               "execution_topology": EXECUTION_TOPOLOGY,
-                               "scope": "full-suite", "receipt_schema_version": 3, "recovery_policies": {scenario: recovery_policy(scenario) for _, scenario in selected_cases()},
-                               "full_suite": True, "release_ready": True, "selected_cases": ["/".join(c) for c in selected_cases()], "omitted_cases": []})
+    if (getattr(args, "accepted_run", None) is None) != (getattr(args, "accepted_attempt", None) is None):
+        raise ValueError("accepted run and attempt must be supplied together")
+    accepted_run = getattr(args, "accepted_run", None) or run
+    accepted_attempt = getattr(args, "accepted_attempt", None) or attempt
+    if any(not re.fullmatch(r"[1-9][0-9]*", value) for value in (accepted_run, accepted_attempt)):
+        raise ValueError("accepted run and attempt must be explicit identities")
+    check_candidate_summary(candidate, {**identity, "run_id": accepted_run, "run_attempt": accepted_attempt})
+    public_config = candidate["gitlab_config_sha256"]
+    if (accepted_run, accepted_attempt) != (run, attempt):
+        path = getattr(args, "config_proof", None)
+        if path is None:
+            raise ValueError("cross-run publication requires the read-only runtime configuration proof")
+        proof = json.loads(path.read_text())
+        require_fields(proof, {**identity, "schema_version": 1, "result": "PASS", "scope": "runtime-config-binding",
+                               "accepted_run_id": accepted_run, "accepted_run_attempt": accepted_attempt,
+                               "accepted_gitlab_config_sha256": candidate["gitlab_config_sha256"],
+                               "fixture_config_sha256": candidate["fixture_config_sha256"]})
+        for key in ("configured_gitlab_config_sha256", "public_gitlab_config_sha256"):
+            if not isinstance(proof.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", proof[key]):
+                raise ValueError("runtime configuration proof lacks its exact digest")
+        public_config = proof["public_gitlab_config_sha256"]
     public_smoke_gate(SimpleNamespace(**vars(args), phase="public", receipts=args.job_receipts))
     for path in args.job_receipts.glob("*.json"):
         receipt = json.loads(path.read_text())
-        require_fields(receipt, {key: candidate[key] for key in ("fixture_config_sha256", "gitlab_config_sha256")})
+        require_fields(receipt, {"fixture_config_sha256": candidate["fixture_config_sha256"], "gitlab_config_sha256": public_config})
     expected_paths = set()
     for runner, arch in PLATFORMS:
         names = [f"download-receipt-{runner}-{arch}.json", f"install-receipt-{runner}-{arch}.json",
@@ -112,15 +137,16 @@ def gate(args):
     if {path.name for path in args.platform_receipts.glob("*.json")} != expected_paths:
         raise ValueError("all exact native public verification receipts are required")
     return {"schema_version": 1, "result": "PASS", "scope": "release-completion", **identity,
+            "accepted_run_id": accepted_run, "accepted_run_attempt": accepted_attempt,
             "candidate_full_suite": True, "public_platforms": 4, "public_real_jobs": 2, "candidate_binding": "sealed"}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("download", "gate"))
-    for name in ("root", "receipt", "directory", "platform-receipts", "job-receipts", "candidate-summary"):
+    for name in ("root", "receipt", "directory", "platform-receipts", "job-receipts", "candidate-summary", "config-proof"):
         parser.add_argument("--" + name, type=Path)
-    for name in ("digest", "sha", "version", "arch"):
+    for name in ("digest", "sha", "version", "arch", "accepted-run", "accepted-attempt"):
         parser.add_argument("--" + name)
     args = parser.parse_args()
     if any(getattr(args, name) is None for name in ("root", "receipt", "digest", "sha", "version")):
