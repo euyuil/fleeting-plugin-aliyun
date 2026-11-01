@@ -5,11 +5,19 @@ Run GitLab CI/CD jobs on Alibaba Cloud ECS machines that scale with your workloa
 (ESS). The **Runner Manager** runs as a service and starts the plugin; jobs run
 on separate ECS **workers**, which Runner releases after use.
 
-This community project is under active development. Use
-[`0.1.0-rc.3`](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3)
-for evaluation. Full Linux amd64 VM and Docker job cycles passed with `0.1.0-rc.2`
-and Runner 19.5.1. Other images, larger pools, Windows, full arm64 jobs, and
-production acceptance still need validation. Suspend/resume is disabled.
+Use this community project's
+[`0.1.0-rc.4` prerelease](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.4)
+for evaluation with GitLab Runner 19.5.1.
+
+The Linux amd64 VM and Docker paths passed 18 real-job cases, including cancellation,
+timeout, capacity/queueing, worker loss, Manager recovery, and upgrade. After
+publication, package installation passed on Ubuntu 24.04 and 26.04, each on amd64
+and arm64. Each executor also passed a real-job smoke check using the public package.
+See the [acceptance report](docs/acceptance-report.md#complete-two-executor-candidate-acceptance)
+for the tested configurations and exact scope.
+
+Other worker images, larger pools, Windows, real arm64 cloud jobs, and production
+acceptance still need validation. Suspend/resume is disabled.
 
 | Mode | Where the job runs | What the worker needs |
 |---|---|---|
@@ -66,9 +74,9 @@ sudo apt install gitlab-runner=19.5.1-1 gitlab-runner-helper-images=19.5.1-1
 With `curl` available, download and verify the plugin in your download directory:
 
 ```sh
-package="fleeting-plugin-aliyun_0.1.0~rc.3_$(dpkg --print-architecture).deb"
-asset="fleeting-plugin-aliyun_0.1.0.rc.3_$(dpkg --print-architecture).deb"
-release_url='https://github.com/euyuil/fleeting-plugin-aliyun/releases/download/v0.1.0-rc.3'
+package="fleeting-plugin-aliyun_0.1.0~rc.4_$(dpkg --print-architecture).deb"
+asset="fleeting-plugin-aliyun_0.1.0.rc.4_$(dpkg --print-architecture).deb"
+release_url='https://github.com/euyuil/fleeting-plugin-aliyun/releases/download/v0.1.0-rc.4'
 curl --fail --location --retry 3 "$release_url/$asset" --output "$package"
 curl --fail --location --retry 3 "$release_url/SHA256SUMS" --output SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS

@@ -6,7 +6,7 @@ arm64 manager. The package, executable, and repository are all named
 commands. GitLab Runner is installed separately.
 
 Download `.deb` packages from the
-[0.1.0-rc.3 Release](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.3).
+[0.1.0-rc.4 Release](https://github.com/euyuil/fleeting-plugin-aliyun/releases/tag/v0.1.0-rc.4).
 Downloads are public and need no GitHub login. A hosted APT repository is not
 provided; install the downloaded file with APT. Versions before `0.1.0-rc.3`
 do not include Debian packages or `manager` commands.
@@ -28,13 +28,13 @@ commands. The tested Runner version is pinned in
 
 GitHub replaces `~` with `.` in uploaded asset names. The Quick Start saves the
 package under its original name so it matches `SHA256SUMS`. If downloading in a
-browser, rename `0.1.0.rc.3` to `0.1.0~rc.3` before checking the checksum. The
+browser, rename `0.1.0.rc.4` to `0.1.0~rc.4` before checking the checksum. The
 package contents are unchanged. `--ignore-missing` checks only downloaded files;
 continue only if the selected `.deb` reports `OK`.
 
 Use `amd64` for x86-64 hosts and `arm64` for ARM64 hosts. Debian uses version
-`0.1.0~rc.3` so it sorts before the final `0.1.0` release; the program reports
-`0.1.0-rc.3` and its source revision. Keep the downloaded package for rollback.
+`0.1.0~rc.4` so it sorts before the final `0.1.0` release; the program reports
+`0.1.0-rc.4` and its source revision. Keep the downloaded package for rollback.
 Installation does not start or enable the service and does not call GitLab or
 Alibaba Cloud. It does not download a second plugin through OCI.
 
