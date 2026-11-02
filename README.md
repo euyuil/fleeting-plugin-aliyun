@@ -24,6 +24,50 @@ acceptance still need validation. Suspend/resume is disabled.
 | **VM — default** | Directly on an ECS VM, with the Instance executor | Linux, SSH, Git, GitLab Runner, and your build tools |
 | **Container** | In a Docker container on an ECS VM, with Docker Autoscaler | A prepared Docker host and a job container image |
 
+## How it works
+
+The Manager stays running while ECS workers scale with job demand. Runner owns
+job execution; the plugin manages capacity and worker lifecycle in a pre-existing
+ESS group.
+
+```mermaid
+flowchart TB
+    G["GitLab<br/>Pipelines and CI jobs"]
+
+    subgraph M["Manager host (long-running)"]
+        R["GitLab Runner<br/>Fetch jobs and plan worker capacity"]
+        P["fleeting-plugin-aliyun (this project)<br/>Translate Fleeting requests into cloud API calls"]
+
+        R -->|"Scale out / release specific workers"| P
+        P -->|"Worker state, IP addresses and connection details"| R
+    end
+
+    subgraph A["Alibaba Cloud"]
+        C["Prepared infrastructure<br/>Image, launch template, network and security groups"]
+        E["Dedicated ESS scaling group<br/>Capacity and instance lifecycle"]
+        W["ECS workers created on demand<br/>Spot instances supported"]
+
+        C -.->|"Creation settings"| E
+        E -->|"Create / release"| W
+
+        V["Default: run jobs directly on the VM<br/>Instance executor"]
+        D["Optional: run jobs in Docker containers on the VM<br/>Docker Autoscaler executor"]
+
+        W --> V
+        W --> D
+    end
+
+    G -->|"Runner fetches jobs"| R
+    R -->|"Report job status and results"| G
+    P <-->|"Cloud APIs: scale, release and query state"| E
+    R -->|"Connect over SSH and execute jobs"| W
+
+    classDef project fill:#ede9fe,stroke:#7c3aed,stroke-width:3px,color:#3b0764
+    classDef worker fill:#dcfce7,stroke:#16a34a,color:#14532d
+    class P project
+    class W worker
+```
+
 ## Quick start: run a job on a Linux VM
 
 Use an Ubuntu 24.04/26.04 or Debian 12 host with systemd, sudo access, and Linux amd64
