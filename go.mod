@@ -4,8 +4,8 @@ go 1.27.3
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/alibabacloud-go/darabonba-openapi/v2 v2.2.4
-	github.com/alibabacloud-go/tea v1.5.3
+	github.com/alibabacloud-go/darabonba-openapi/v2 v2.2.5
+	github.com/alibabacloud-go/tea v1.5.4
 	github.com/aliyun/credentials-go v1.4.14
 	github.com/google/go-containerregistry v0.22.1
 	github.com/hashicorp/go-hclog v1.6.3
